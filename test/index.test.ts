@@ -4,9 +4,22 @@ import PluginFactory from '../src/index'
 
 type Handler = (delta: any, next: (d: any) => void) => void
 
+// Minimal fake router: records route handlers so tests can invoke them directly.
+type RouteHandler = (req: unknown, res: { json(x: unknown): void }) => void
+interface FakeRouter {
+  get(path: string, handler: RouteHandler): void
+  routes: Map<string, RouteHandler>
+}
+
+function makeFakeRouter(): FakeRouter {
+  const routes = new Map<string, RouteHandler>()
+  return { routes, get(path, handler) { routes.set(path, handler) } }
+}
+
 function makeApp() {
   let handler: Handler | null = null
   const emitted: any[] = []
+  let router: FakeRouter | null = null
   const app: any = {
     selfContext: 'vessels.urn:mrn:imo:mmsi:123',
     selfId: 'urn:mrn:imo:mmsi:123',
@@ -21,7 +34,19 @@ function makeApp() {
     error: vi.fn(),
     debug: vi.fn(),
   }
-  return { app, fire: (d: any) => handler && handler(d, () => {}), emitted, isRegistered: () => handler !== null }
+  function captureRouter(plugin: ReturnType<typeof PluginFactory>): FakeRouter {
+    router = makeFakeRouter()
+    plugin.registerWithRouter!(router)
+    return router
+  }
+  function routerGet(r: FakeRouter, path: string): any {
+    const h = r.routes.get(path)
+    if (!h) throw new Error(`no route registered for ${path}`)
+    let result: any
+    h(undefined, { json(x) { result = x } })
+    return result
+  }
+  return { app, fire: (d: any) => handler && handler(d, () => {}), emitted, isRegistered: () => handler !== null, captureRouter, routerGet }
 }
 
 function delta(context: string, $source: string, path: string, value: any) {
@@ -156,5 +181,18 @@ describe('plugin integration', () => {
     h.fire(delta(h.app.selfContext, 'src2', 'navigation.attitude', { roll: 0.1, pitch: 0.2, yaw: 1.5 }))
     // should not emit anything (non-combinable)
     expect(h.emitted).toHaveLength(0)
+  })
+
+  it('records discovery for an un-configured multi-source path', () => {
+    const h = makeApp()
+    const plugin = PluginFactory(h.app)
+    // no opted-in paths
+    plugin.start({ defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2, maxSourcesPerPath: 16, paths: [] })
+    h.fire(delta(h.app.selfContext, 'gps1', 'navigation.position', { latitude: 1, longitude: 2 }))
+    h.fire(delta(h.app.selfContext, 'gps2', 'navigation.position', { latitude: 1.1, longitude: 2.1 }))
+    const router = h.captureRouter(plugin)
+    const res = h.routerGet(router, '/api/detected')
+    expect(res.paths.map((p: any) => p.path)).toContain('navigation.position')
+    expect(res.paths.find((p: any) => p.path === 'navigation.position').optedIn).toBe(false)
   })
 })

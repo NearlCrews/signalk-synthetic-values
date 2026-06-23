@@ -148,10 +148,15 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   }
 
   function observeValue(pv: { path: string; value: unknown }, src: string): void {
+    const cat = valueCategory(pv.value);
+    // Record discovery for every fresh combinable value seen from any self-context
+    // source, regardless of whether this path is configured. The isOwnSource guard
+    // in observe() ensures the synthetic source is never recorded here.
+    if (cat === 'number' || cat === 'latlon') {
+      discovery.observe(pv.path, src);
+    }
     const cfg = byPath.get(pv.path);
     if (!cfg) return;
-    discovery.observe(pv.path, src);
-    const cat = valueCategory(pv.value);
     if (cat === 'invalid') return;
     if (cat === 'nonCombinable') {
       if (!classification.has(pv.path)) {
@@ -222,7 +227,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     },
 
     registerWithRouter(router) {
-      router.get('/detected', (_req: unknown, res: RouterResponse) => {
+      router.get('/api/detected', (_req: unknown, res: RouterResponse) => {
         const detected = discovery.detected();
         res.json({
           paths: detected.map((d) => ({
