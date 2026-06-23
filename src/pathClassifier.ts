@@ -2,6 +2,25 @@ import { Kind, SampleValue, LatLon } from './metrics'
 
 export type MetadataLookup = (contextPrefixedPath: string) => { units?: string } | undefined
 
+export type ValueCategory = 'number' | 'latlon' | 'invalid' | 'nonCombinable'
+
+export function valueCategory(value: unknown): ValueCategory {
+  if (value === null || value === undefined) return 'invalid'
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? 'number' : 'invalid'
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    if ('latitude' in obj || 'longitude' in obj) {
+      return Number.isFinite(obj.latitude) && Number.isFinite(obj.longitude)
+        ? 'latlon'
+        : 'invalid'
+    }
+    return 'nonCombinable'
+  }
+  return 'nonCombinable'
+}
+
 export const ANGULAR_ALLOWLIST: ReadonlySet<string> = new Set([
   'navigation.headingTrue',
   'navigation.headingMagnetic',

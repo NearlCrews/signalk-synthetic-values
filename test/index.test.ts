@@ -80,4 +80,81 @@ describe('plugin integration', () => {
     plugin.start({ defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2, maxSourcesPerPath: 16, paths: [{ path: 'p' }] })
     expect(h.isRegistered()).toBe(true)
   })
+
+  it('drops a null value mid-stream and emits median of remaining sources with no NaN', () => {
+    const h = makeApp()
+    const plugin = PluginFactory(h.app)
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2,
+      maxSourcesPerPath: 16, paths: [{ path: 'p' }],
+    })
+    h.fire(delta(h.app.selfContext, 'a', 'p', 10))
+    h.fire(delta(h.app.selfContext, 'b', 'p', 12))
+    h.fire(delta(h.app.selfContext, 'c', 'p', 14))
+    const countBefore = h.emitted.length
+    // source b sends null: should be dropped, not stored; prior value ages out by staleness
+    h.fire(delta(h.app.selfContext, 'b', 'p', null))
+    // no new emit from the null (invalid value skipped entirely)
+    // all previously emitted values must be finite
+    for (const ev of h.emitted.slice(0, countBefore)) {
+      const v = ev.updates[0].values[0].value
+      expect(typeof v).toBe('number')
+      expect(Number.isFinite(v)).toBe(true)
+      expect(Number.isNaN(v)).toBe(false)
+    }
+  })
+
+  it('a path whose first sample is null is not cached as other and combines once a finite value arrives', () => {
+    const h = makeApp()
+    const plugin = PluginFactory(h.app)
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2,
+      maxSourcesPerPath: 16, paths: [{ path: 'q' }],
+    })
+    // send null first - should not cache as 'other'
+    h.fire(delta(h.app.selfContext, 'a', 'q', null))
+    h.fire(delta(h.app.selfContext, 'b', 'q', null))
+    const beforeFinite = h.emitted.length
+    // now send finite values - should combine
+    h.fire(delta(h.app.selfContext, 'a', 'q', 5))
+    h.fire(delta(h.app.selfContext, 'b', 'q', 7))
+    expect(h.emitted.length).toBeGreaterThan(beforeFinite)
+    const last = h.emitted[h.emitted.length - 1]
+    expect(Number.isFinite(last.updates[0].values[0].value)).toBe(true)
+  })
+
+  it('partial position is skipped for the cycle without crashing or emitting NaN', () => {
+    const h = makeApp()
+    const plugin = PluginFactory(h.app)
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2,
+      maxSourcesPerPath: 16, paths: [{ path: 'navigation.position' }],
+    })
+    // valid positions first
+    h.fire(delta(h.app.selfContext, 'gps1', 'navigation.position', { latitude: 51.5, longitude: -0.1 }))
+    h.fire(delta(h.app.selfContext, 'gps2', 'navigation.position', { latitude: 51.6, longitude: -0.2 }))
+    // partial position: should be skipped (invalid), not crash
+    h.fire(delta(h.app.selfContext, 'gps1', 'navigation.position', { latitude: NaN, longitude: 5 }))
+    // verify no NaN in any emitted position
+    for (const ev of h.emitted) {
+      const v = ev.updates[0].values[0].value
+      if (v && typeof v === 'object') {
+        expect(Number.isFinite((v as any).latitude)).toBe(true)
+        expect(Number.isFinite((v as any).longitude)).toBe(true)
+      }
+    }
+  })
+
+  it('attitude-like object path classifies as other and is skipped without emitting', () => {
+    const h = makeApp()
+    const plugin = PluginFactory(h.app)
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2,
+      maxSourcesPerPath: 16, paths: [{ path: 'navigation.attitude' }],
+    })
+    h.fire(delta(h.app.selfContext, 'src1', 'navigation.attitude', { roll: 0.1, pitch: 0.2, yaw: 1.5 }))
+    h.fire(delta(h.app.selfContext, 'src2', 'navigation.attitude', { roll: 0.1, pitch: 0.2, yaw: 1.5 }))
+    // should not emit anything (non-combinable)
+    expect(h.emitted).toHaveLength(0)
+  })
 })

@@ -54,7 +54,7 @@ The synthetic value is emitted as an additional source alongside the raw sensors
 2. Find the path you opted in (for example `navigation.position`).
 3. Drag **signalk-synthetic-values** to the top of that path's source list.
 4. Set a **timeout** on the synthetic source so that if the plugin stops emitting, the server falls back to a raw source rather than displaying a stale synthetic value.
-5. Save. The plugin status will change from the priority-reminder message to "Combining N sources on M paths."
+5. Save. The plugin status keeps showing the priority reminder in v1, because the plugin cannot read the server's priority store directly. The priority still takes effect server-side and the synthetic value will win.
 
 Repeat steps 2 through 4 for each path you have opted in.
 

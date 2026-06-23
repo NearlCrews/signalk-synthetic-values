@@ -63,6 +63,8 @@ export interface ValidationResult {
   advisories: ConfigError[]
 }
 
+export const DEFAULT_MAX_SOURCES_PER_PATH = 16
+
 const METHODS: CombineMethod[] = ['median', 'trimmedMean', 'mean']
 const ANGULAR_MODES = ['auto', 'yes', 'no']
 
@@ -158,6 +160,6 @@ export function validateConfig(options: PluginOptions): ValidationResult {
     })
   }
 
-  const maxSourcesPerPath = positive(options.maxSourcesPerPath) ? options.maxSourcesPerPath : 16
+  const maxSourcesPerPath = positive(options.maxSourcesPerPath) ? options.maxSourcesPerPath : DEFAULT_MAX_SOURCES_PER_PATH
   return { config: { maxSourcesPerPath, paths }, errors, advisories }
 }

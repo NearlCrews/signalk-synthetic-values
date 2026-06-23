@@ -10,11 +10,14 @@ export class Emitter {
 
   constructor(private app: EmitApp, private pluginId: string, private clock: Clock) {}
 
-  maybeEmit(path: string, value: SampleValue, sourceRef: string, minIntervalMs: number): boolean {
+  due(path: string, minIntervalMs: number): boolean {
     const now = this.clock.now()
     const last = this.lastEmit.get(path)
-    if (last !== undefined && now - last < minIntervalMs) return false
-    this.lastEmit.set(path, now)
+    return last === undefined || now - last >= minIntervalMs
+  }
+
+  emit(path: string, value: SampleValue, sourceRef: string): void {
+    this.lastEmit.set(path, this.clock.now())
     this.app.handleMessage(this.pluginId, {
       updates: [
         {
@@ -23,6 +26,11 @@ export class Emitter {
         },
       ],
     })
+  }
+
+  maybeEmit(path: string, value: SampleValue, sourceRef: string, minIntervalMs: number): boolean {
+    if (!this.due(path, minIntervalMs)) return false
+    this.emit(path, value, sourceRef)
     return true
   }
 

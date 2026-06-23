@@ -121,6 +121,7 @@ export interface CombineResult {
   usedSources: string[]
   freshCount: number
   outcome: Outcome
+  spread?: number
 }
 
 const R_MIN = 0.2
@@ -172,9 +173,12 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
   }
 
   let outcome: Outcome = 'ok'
+  let spread: number | undefined
   if (opts.disagreeThreshold != null) {
-    const spread = maxPairwiseDistance(opts.kind, used.map((s) => s.value))
+    spread = maxPairwiseDistance(opts.kind, used.map((s) => s.value))
     if (spread > opts.disagreeThreshold) outcome = 'disagree'
   }
-  return { value, usedSources, freshCount, outcome }
+  const result: CombineResult = { value, usedSources, freshCount, outcome }
+  if (outcome === 'disagree' && spread !== undefined) result.spread = spread
+  return result
 }

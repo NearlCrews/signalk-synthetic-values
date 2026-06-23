@@ -1,4 +1,4 @@
-import { CombineResult } from './combine'
+import { CombineMethod, CombineResult } from './combine'
 
 export function pathStatus(
   path: string,
@@ -6,6 +6,7 @@ export function pathStatus(
   sourceLabel: string,
   effectiveMin: number,
   prioritySet: boolean,
+  method: CombineMethod,
 ): string {
   switch (result.outcome) {
     case 'singleSource':
@@ -15,8 +16,10 @@ export function pathStatus(
       return `${path}: waiting for ${effectiveMin} sources (have ${result.freshCount}).`
     case 'diverged':
       return `${path}: sources diverge, synthetic value suppressed.`
-    case 'disagree':
-      return `${path}: sources disagree, emitting the robust value.`
+    case 'disagree': {
+      const spreadStr = result.spread !== undefined ? result.spread.toPrecision(4) : '?'
+      return `${path}: sources disagree (max spread ${spreadStr}), emitting ${method}.`
+    }
     default:
       if (!prioritySet) {
         return `Combining ${result.usedSources.length} sources on ${path}. Set this path's source priority to prefer ${sourceLabel} in Server, Data, Sources.`

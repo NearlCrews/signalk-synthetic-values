@@ -5,8 +5,8 @@ import { Discovery } from './discovery'
 import { Emitter } from './emitter'
 import { combine, CombineOptions, Sample } from './combine'
 import { applyJump, applySlew, JumpState, SlewState } from './damping'
-import { classify, MetadataLookup } from './pathClassifier'
-import { validateConfig, PluginOptions, PathConfig } from './config'
+import { classify, valueCategory, MetadataLookup } from './pathClassifier'
+import { validateConfig, PluginOptions, PathConfig, DEFAULT_MAX_SOURCES_PER_PATH } from './config'
 import { buildSchema } from './schema'
 import { pathStatus, summaryStatus } from './status'
 
@@ -16,7 +16,7 @@ export = function (app: any) {
   let unregister: (() => void) | null = null
   let selfContext = 'vessels.self'
   let byPath = new Map<string, PathConfig>()
-  const registry = new Registry(systemClock, 16)
+  const registry = new Registry(systemClock, DEFAULT_MAX_SOURCES_PER_PATH)
   const discovery = new Discovery()
   const emitter = new Emitter(app, PLUGIN_ID, systemClock)
   const jumpState = new Map<string, Map<string, JumpState>>()
@@ -65,6 +65,8 @@ export = function (app: any) {
   }
 
   function maybeEmit(path: string, cfg: PathConfig): void {
+    if (!emitter.due(path, cfg.emitMinIntervalMs)) return
+
     let samples = registry.fresh(path, cfg.stalenessTimeoutMs)
     const value0 = samples[0]?.value
     if (value0 === undefined) return
@@ -88,7 +90,7 @@ export = function (app: any) {
       trimFraction: cfg.trimFraction,
     }
     const result = combine(samples, opts)
-    app.setPluginStatus(pathStatus(path, result, PLUGIN_ID, cfg.minSources, prioritySet.has(path)))
+    app.setPluginStatus(pathStatus(path, result, PLUGIN_ID, cfg.minSources, prioritySet.has(path), cfg.method))
     if (result.value === undefined) return
 
     let value = result.value
@@ -97,7 +99,7 @@ export = function (app: any) {
       slewState.set(path, r.state)
       value = r.value
     }
-    emitter.maybeEmit(path, value, PLUGIN_ID, cfg.emitMinIntervalMs)
+    emitter.emit(path, value, PLUGIN_ID)
   }
 
   function observe(delta: any): void {
@@ -109,6 +111,15 @@ export = function (app: any) {
         const cfg = byPath.get(pv.path)
         if (!cfg) continue
         discovery.observe(pv.path, src)
+        const cat = valueCategory(pv.value)
+        if (cat === 'invalid') continue
+        if (cat === 'nonCombinable') {
+          if (!classification.has(pv.path)) {
+            classification.set(pv.path, 'other')
+            skipped.push({ path: pv.path, reason: 'non-combinable value' })
+          }
+          continue
+        }
         registry.update(pv.path, src, pv.value, systemClock.now())
         maybeEmit(pv.path, cfg)
       }
@@ -127,6 +138,7 @@ export = function (app: any) {
       selfContext = app.selfContext ?? 'vessels.self'
       registry.reset()
       emitter.reset()
+      discovery.reset()
       jumpState.clear()
       slewState.clear()
       classification.clear()

@@ -43,3 +43,39 @@ describe('Emitter', () => {
     expect(delta.context).toBeUndefined()
   })
 })
+
+describe('Emitter due() and emit()', () => {
+  it('due() returns true on first call', () => {
+    const app: EmitApp = { handleMessage: vi.fn() }
+    const c = fakeClock(0)
+    const e = new Emitter(app, 'sv', c)
+    expect(e.due('p', 1000)).toBe(true)
+  })
+  it('due() returns false within the interval after emit()', () => {
+    const app: EmitApp = { handleMessage: vi.fn() }
+    const c = fakeClock(0)
+    const e = new Emitter(app, 'sv', c)
+    e.emit('p', 1, 'sv')
+    c.set(500)
+    expect(e.due('p', 1000)).toBe(false)
+  })
+  it('due() returns true at exactly the interval boundary', () => {
+    const app: EmitApp = { handleMessage: vi.fn() }
+    const c = fakeClock(0)
+    const e = new Emitter(app, 'sv', c)
+    e.emit('p', 1, 'sv')
+    c.set(1000)
+    expect(e.due('p', 1000)).toBe(true)
+  })
+  it('emit() records lastEmit and calls handleMessage with bare $source', () => {
+    const app: EmitApp = { handleMessage: vi.fn() }
+    const c = fakeClock(0)
+    const e = new Emitter(app, 'sv', c)
+    e.emit('q', 42, 'sv')
+    const delta: any = (app.handleMessage as any).mock.calls[0][1]
+    expect(delta.updates[0].$source).toBe('sv')
+    expect(delta.updates[0].timestamp).toBeUndefined()
+    expect(delta.context).toBeUndefined()
+    expect(delta.updates[0].values[0]).toEqual({ path: 'q', value: 42 })
+  })
+})
