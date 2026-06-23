@@ -2,30 +2,30 @@
 
 This directory holds the visual assets shipped with the plugin tarball.
 
-## Required before publish
+## App icon
 
-### App icon
+The app icon is complete. The following files exist:
 
-`assets/appicon.png` - a square PNG, at least 512x512 pixels. Referenced by `signalk.appIcon` in `package.json`.
+- `assets/icons/icon.svg` - source SVG
+- `assets/icons/icon-72.png` - 72x72 PNG
+- `assets/icons/icon-96.png` - 96x96 PNG
+- `assets/icons/icon-192.png` - 192x192 PNG (referenced by `signalk.appIcon` in `package.json`)
+- `assets/icons/icon-512.png` - 512x512 PNG
 
-This file must exist before `npm publish`. The App Store and the admin UI both display it.
+## Screenshots (not yet captured)
 
-### Screenshots
+The following three screenshots need to be captured on a live server and placed under `assets/screenshots/` before the next release:
 
-Add these three screenshots under `assets/screenshots/` before publish:
-
-1. `assets/screenshots/config-form.png` - the plugin config form with at least one detected path opted in, showing the per-path options.
+1. `assets/screenshots/config-form.png` - the plugin config form with at least one detected path opted in, showing the per-path options (method, outlier rejection, and so on).
 2. `assets/screenshots/data-browser.png` - the Signal K data browser showing a path with its raw sources and the synthetic source (`signalk-synthetic-values`) listed alongside them.
 3. `assets/screenshots/source-priority.png` - the Source Priorities panel mid-setup, with `signalk-synthetic-values` dragged to the top of a path's source list.
 
-### Wiring the screenshots into package.json
-
-Once the images exist, set `signalk.screenshots` in `package.json` to their shipped paths:
+Once the screenshots exist, set `signalk.screenshots` in `package.json` to their shipped paths:
 
 ```json
 "signalk": {
   "displayName": "Synthetic Values",
-  "appIcon": "assets/appicon.png",
+  "appIcon": "./assets/icons/icon-192.png",
   "screenshots": [
     "assets/screenshots/config-form.png",
     "assets/screenshots/data-browser.png",
@@ -36,7 +36,7 @@ Once the images exist, set `signalk.screenshots` in `package.json` to their ship
 
 Then verify the files are included in the tarball:
 
-```
+```bash
 npm pack --dry-run
 ```
 

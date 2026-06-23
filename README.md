@@ -1,39 +1,85 @@
-# signalk-synthetic-values
+# Synthetic Values
 
-Combine redundant sensors on one Signal K path into a robust median or outlier-rejected synthetic value.
+[![npm version](https://img.shields.io/npm/v/signalk-synthetic-values.svg)](https://www.npmjs.com/package/signalk-synthetic-values)
+[![npm downloads](https://img.shields.io/npm/dm/signalk-synthetic-values.svg)](https://www.npmjs.com/package/signalk-synthetic-values)
+[![CI](https://github.com/NearlCrews/signalk-synthetic-values/actions/workflows/ci.yml/badge.svg)](https://github.com/NearlCrews/signalk-synthetic-values/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/LICENSE)
+[![node](https://img.shields.io/badge/node-%3E%3D20.18-brightgreen.svg)](https://nodejs.org)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/nearlcrews)
 
-## Install
+When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-Install from the Signal K App Store: search for **Synthetic Values** and click Install. After installation, restart the server and configure the plugin from the admin UI under Server, Plugin Config, Synthetic Values.
+## What's new in 0.1.0
+
+Initial release: combine multiple sources of one Signal K path into a robust synthetic value.
+
+- **Median, trimmed mean, and mean combining.** Choose the method per path; median is the default and requires no tuning.
+- **Kind-aware outlier rejection.** Scaled-MAD whole-source rejection for scalars and angular paths; geodesic-distance rejection for position.
+- **Angular and position support.** Circular-mean combining for headings and bearings, with a spread guard that suppresses a synthetic value when sensors point in opposite directions. Position uses the geodesic centroid with per-source outlier rejection.
+- **Optional jump rejection and slew limiting.** Per-source spike rejection holds back a sudden reading and re-accepts it after a genuine step is confirmed. A per-path slew limit clamps the emitted output against runaway jumps that survive rejection.
+- **Auto-detection of multi-source paths.** The plugin watches all incoming deltas and surfaces the paths it has seen with two or more distinct sources, so you can opt in by selecting from a dropdown rather than typing paths by hand.
+
+See the [v0.1.0 changelog entry](CHANGELOG.md#v010), or the [full changelog](CHANGELOG.md).
 
 ## What it does
 
-When two or more sources feed the same Signal K path (multiple GPS receivers on `navigation.position`, duplicate depth sounders, and redundant wind or heading sensors), the Signal K server picks one source at a time. This plugin watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path. One flaky or biased sensor cannot drag the result.
+Signal K is an open marine data standard that streams a boat's navigation, environment, and AIS data over a single API. When redundant sensors all feed the same path, the server picks whichever source wrote last: a stuttering GPS can make the chart plotter jump, and a bad depth sounder can suppress a good one.
 
-The synthetic value does not automatically win. You must set source priority once per path (see "Make the synthetic source win" below). Until you do, the top-level value flickers across all sources.
+Synthetic Values subscribes to every source on the opted-in paths, applies a combining method (median by default), and emits the result under the plugin's own source label. Because the result rides a separate source, it does not displace raw sensor data and real-instrument consumers can still see the underlying sources.
 
-## Configuration options
+The plugin handles three value kinds:
+
+- **Scalar:** standard numeric combining. Median is robust; trimmed mean and mean are available. Whole-source outlier rejection uses scaled MAD at four or more sources, and a configured `rejectThreshold` at smaller N.
+- **Angular:** headings, bearings, and any path with radian units. Uses circular mean to avoid the 0/360-degree wrap artifact. Suppresses the synthetic value when the circular pairwise spread exceeds `angularSpreadThreshold`, so a sensor pointing 180 degrees from the rest does not produce a meaningless average.
+- **Position:** latitude/longitude pairs. Combines to the geodesic centroid and applies per-source distance-based outlier rejection so a phantom GPS fix does not drag the result.
+
+A staleness timeout excludes sources that have not sent a fresh reading within the configured window, so a sensor that goes quiet does not silently anchor the average.
+
+## Installation
+
+Install from the Signal K admin UI under **Appstore, then Available**, or from npm:
+
+```bash
+cd ~/.signalk
+npm install signalk-synthetic-values
+```
+
+From source:
+
+```bash
+git clone https://github.com/NearlCrews/signalk-synthetic-values.git
+cd signalk-synthetic-values
+npm install
+npm run build
+ln -s "$(pwd)" ~/.signalk/node_modules/signalk-synthetic-values
+```
+
+## Configuration
+
+In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic Values", and enable the plugin. The plugin is disabled by default.
 
 ### Global options
 
 | Option | Default | Description |
-| --- | --- | --- |
-| `defaultStalenessTimeoutMs` | `1000` | A source whose last receipt is older than this is excluded from combining. Per-path overridable. |
-| `defaultEmitMinIntervalMs` | `1000` | Minimum interval between synthetic emits for a path. Per-path overridable. |
-| `defaultMinSources` | `2` | Minimum fresh sources required to emit a combined value. Per-path overridable; set to `1` to enable single-source passthrough. |
+|--------|---------|-------------|
+| `defaultStalenessTimeoutMs` | `1000` | A source whose last receipt is older than this is excluded from combining. Override per path with `stalenessTimeoutMs`. |
+| `defaultEmitMinIntervalMs` | `1000` | Minimum interval in milliseconds between synthetic emits for a path. Override per path with `emitMinIntervalMs`. |
+| `defaultMinSources` | `2` | Minimum fresh sources required to emit a combined value. Set to `1` to pass through a single-source path without combining. Override per path with `minSources`. |
 | `maxSourcesPerPath` | `16` | Global cap on tracked sources per path. |
 
 ### Per-path options
 
+Add one entry to **Paths to combine** for each path you want to opt in. The dropdown shows paths the plugin has already seen with two or more sources. If a path does not appear yet, type it directly or reload the page after the sensors have been running for a moment.
+
 | Option | Default | Description |
-| --- | --- | --- |
-| `path` | required | The Signal K path to combine. Pick from the detected multi-source paths in the dropdown, or type a path directly. |
-| `method` | `median` | Combining method: `median`, `trimmedMean`, or `mean`. Ignored for angular paths (which always use circular mean). |
+|--------|---------|-------------|
+| `path` | required | The Signal K path to combine. |
+| `method` | `median` | Combining method: `median`, `trimmedMean`, or `mean`. Ignored for angular paths, which always use circular mean. |
 | `trimFraction` | `0.25` | Fraction trimmed from each end when using `trimmedMean`. Falls back to median or mean at small N. |
 | `outlierRejection` | `true` | Reject whole-source outliers before combining. |
 | `madThreshold` | `3` | Sigma-equivalent multiplier for scaled-MAD outlier rejection when N is 4 or more. |
-| `rejectThreshold` | unset | Absolute rejection distance in kind units (meters for position, radians for angular, and value units for scalar). Used at small N or when the robust scale is degenerate. |
-| `disagreeThreshold` | unset | Absolute distance in kind units above which sources are flagged as disagreeing in the plugin status. |
+| `rejectThreshold` | unset | Absolute rejection distance in kind units: meters for position, radians for angular, and value units for scalar. Used at small N or when the robust scale is degenerate. |
+| `disagreeThreshold` | unset | Absolute distance in kind units above which sources are flagged as disagreeing in the plugin status. The combined value is still emitted. |
 | `angularSpreadThreshold` | `pi/2` | Angular paths only: maximum circular pairwise spread in radians. Sources beyond this threshold cause the synthetic value to be suppressed. |
 | `angular` | `auto` | Override angular detection: `auto`, `yes`, or `no`. `auto` uses the known-circular path list and metadata units. |
 | `includeSources` | unset | If set, only these sourceRefs are combined for this path. Cannot be set together with `excludeSources`. |
@@ -41,41 +87,53 @@ The synthetic value does not automatically win. You must set source priority onc
 | `minSources` | global default | Per-path override for the minimum fresh sources required. |
 | `stalenessTimeoutMs` | global default | Per-path override for the staleness timeout. |
 | `emitMinIntervalMs` | global default | Per-path override for the minimum emit interval. |
-| `jumpRejection` | unset (off) | Per-source jump rejection: `{ maxRate, persistSamples, persistMs }`. Rejects a sudden spike and re-accepts after a genuine step is confirmed. |
-| `slewLimit` | unset (off) | Maximum change of the emitted value per second, in kind units. Clamps the output to suppress sudden jumps that survive rejection. |
-
-The config dropdown shows paths the plugin has already seen with two or more sources. If a path does not appear yet, type it directly or reload the page after the sensors have been running for a moment.
+| `jumpRejection` | unset | Per-source jump rejection: `{ maxRate, persistSamples, persistMs }`. Rejects a sudden spike and re-accepts after a genuine step is confirmed. |
+| `slewLimit` | unset | Maximum change of the emitted value per second, in kind units. Clamps the output to suppress sudden jumps that survive rejection. |
 
 ## Make the synthetic source win
 
 The synthetic value is emitted as an additional source alongside the raw sensors. With no priority set, the server uses last-writer-wins, so the displayed value flickers. You must set source priority once per path. The synthetic value does not win until this step is done.
 
-1. Open the Signal K admin UI and navigate to **Server**, then **Data**, then **Sources** (Source Priorities).
-2. Find the path you opted in (for example `navigation.position`).
+1. Open the Signal K admin UI and navigate to **Server, then Data, then Sources** (Source Priorities).
+2. Find the path you opted in, for example `navigation.position`.
 3. Drag **signalk-synthetic-values** to the top of that path's source list.
 4. Set a **timeout** on the synthetic source so that if the plugin stops emitting, the server falls back to a raw source rather than displaying a stale synthetic value.
-5. Save. The plugin status keeps showing the priority reminder in v1, because the plugin cannot read the server's priority store directly. The priority still takes effect server-side and the synthetic value will win.
+5. Save.
 
 Repeat steps 2 through 4 for each path you have opted in.
+
+The plugin status line will show "Set this path's source priority..." until priority is configured. The instruction is informational: the plugin cannot read the server's priority store directly, but the priority takes effect server-side once saved.
 
 ## Plugin status messages
 
 The plugin reports its state in the admin UI status line:
 
 - **No multi-source paths detected yet** - the plugin is running but has not yet seen any path with two or more distinct sources.
-- **Combining N sources on `<path>`. Set this path's source priority...** - the path is opted in and combining, but source priority has not been set yet for that path.
+- **Combining N sources on `<path>`. Set this path's source priority...** - the path is opted in and combining, but source priority has not been configured for that path yet.
 - **`<path>`: running on 1 source, redundancy lost** - only one fresh source is available.
 - **`<path>`: waiting for N sources (have K)** - not enough fresh sources to combine.
 - **`<path>`: sources diverge, synthetic value suppressed** - angular sources point in opposite directions, or position sources are too far apart to combine safely.
 - **`<path>`: sources disagree (max spread X), emitting `<method>`** - the spread exceeds `disagreeThreshold` but a combined value is still emitted.
 - **Combining N sources on M paths** - fully operational.
 
-## What's new in 0.1.0
+## Development
 
-- Initial release. Combine multiple sources of one Signal K path into a robust synthetic value: median, trimmed mean, or mean, with kind-aware outlier rejection, angular divergence guards, and disagreement detection.
-- Auto-detection of multi-source paths, opt-in per path.
-- Optional jump rejection and output slew limiting.
+This project targets Node 20.18 or newer with TypeScript 6 (development only) and `@signalk/server-api` 2.24 or newer.
+
+```bash
+git clone https://github.com/NearlCrews/signalk-synthetic-values.git
+cd signalk-synthetic-values
+npm install          # install dependencies
+npm run build        # compile to dist/
+npm test             # Vitest suite, single run
+npm run type-check   # TypeScript type check
+npm run lint         # Biome check
+npm run lint:fix     # lint and auto-fix
+npm run validate     # type-check, lint, and tests in one pass
+```
+
+Run `npm run validate` before committing. See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for the pull request process.
 
 ## License
 
-Apache-2.0
+Apache-2.0: see [LICENSE](LICENSE) for the full text.
