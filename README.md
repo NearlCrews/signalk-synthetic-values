@@ -21,6 +21,14 @@ Initial release: combine multiple sources of one Signal K path into a robust syn
 
 See the [v0.1.0 changelog entry](CHANGELOG.md#v010), or the [full changelog](CHANGELOG.md).
 
+## Why you'd want this
+
+Many boats carry more than one of the same instrument: two or three GPS receivers, a backup depth sounder, a couple of compasses. Signal K can only show one of them at a time for each reading, and it simply uses whichever sensor reported most recently. If that one happens to be drifting, noisy, or briefly wrong, your position jumps, your heading wanders, or your depth reads badly, even though a perfectly good sensor is sitting right next to it.
+
+Synthetic Values fixes that. It listens to all of your duplicate sensors at once and publishes a single steadier reading made from them together. Think of it like asking three people for the time and going with the answer in the middle, rather than trusting whoever happened to speak last. One sensor going haywire no longer throws off the number you navigate by, and the value you see is usually more accurate and far less jumpy than any single sensor on its own.
+
+You stay in control. The combined reading is published as its own extra source, so your original sensors are untouched and still visible. You choose which readings to combine (the plugin shows you which ones actually have duplicates), and you tell Signal K to prefer the combined value when you are ready. Nothing on your boat changes until you opt a reading in.
+
 ## What it does
 
 Signal K is an open marine data standard that streams a boat's navigation, environment, and AIS data over a single API. When redundant sensors all feed the same path, the server picks whichever source wrote last: a stuttering GPS can make the chart plotter jump, and a bad depth sounder can suppress a good one.
@@ -115,19 +123,19 @@ The synthetic value is emitted as an additional source alongside the raw sensors
 
 Repeat steps 2 through 4 for each path you have opted in.
 
-The plugin status line will show "Set this path's source priority..." until priority is configured. The instruction is informational: the plugin cannot read the server's priority store directly, but the priority takes effect server-side once saved.
+The configuration panel shows a priority reminder once you opt a path in. The reminder is informational: the plugin cannot read or write the server's priority store directly, but the priority takes effect server-side once you save it.
 
 ## Plugin status messages
 
-The plugin reports its state in the admin UI status line:
+The admin UI status line shows one stable summary of the whole plugin, so it stays readable instead of flickering through one message per path. You will see one of:
 
-- **No multi-source paths detected yet** - the plugin is running but has not yet seen any path with two or more distinct sources.
-- **Combining N sources on `<path>`. Set this path's source priority...** - the path is opted in and combining, but source priority has not been configured for that path yet.
-- **`<path>`: running on 1 source, redundancy lost** - only one fresh source is available.
-- **`<path>`: waiting for N sources (have K)** - not enough fresh sources to combine.
-- **`<path>`: sources diverge, synthetic value suppressed** - angular sources point in opposite directions, or position sources are too far apart to combine safely.
-- **`<path>`: sources disagree (max spread X), emitting `<method>`** - the spread exceeds `disagreeThreshold` but a combined value is still emitted.
-- **Combining N sources on M paths** - fully operational.
+- **No multi-source paths detected yet (need 2+ sources on a path)** - the plugin is running but has not yet seen any path with two or more distinct sources.
+- **N multi-source paths detected. Add paths in the config panel to combine them** - the plugin found duplicates but none are opted in yet.
+- **Combining N of M paths** - M paths are opted in, and N of them are currently producing a combined value. Plain "Combining N of M paths." means everything is healthy.
+
+When some paths need attention, the summary appends counts rather than naming each path: **waiting for sources** (not enough fresh sources), **diverging** (angular sources point in opposite directions, or position sources are too far apart to combine safely), **disagreeing** (spread exceeds `disagreeThreshold`, but a value is still emitted), and **on a single source** (running without redundancy). For example: `Combining 9 of 12 paths. 2 waiting for sources, and 1 disagreeing.`
+
+For the per-path detail behind those counts (which path is waiting, the exact spread, and so on), enable the plugin's debug log in **Server, then Plugin Config**. The plugin writes a line per path as its state changes.
 
 ## Development
 

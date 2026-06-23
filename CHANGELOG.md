@@ -15,15 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Paths were only detected after being added to the configured paths list. Detection now runs for every observed delta, so the panel populates before any path is configured.
+- The configuration panel crashed with "Cannot read properties of undefined" on a fresh install when no configuration had been saved yet. It now renders with defaults.
+- Detected paths in the panel showed an "unknown" kind badge. They now report the correct scalar, angular, or position kind.
 - The panel could show a stale save snapshot when a tuning change was made immediately after a Combine or Remove action.
 - The schema description for the paths array cited the wrong discovery route URL; it now correctly points to `/api/detected`.
 
 ### Changed
 
+- The plugin status line now shows one stable summary (how many paths are combining, plus counts of any waiting, diverging, disagreeing, or single-source paths) instead of cycling a separate message for every path on each emit. Per-path detail moved to the debug log.
 - Shared style tokens extracted into a module; component styles now reference tokens rather than inlined values.
 - Duplicate helper functions deduplicated across the combining and registry modules.
 - Build output is now deterministic across runs.
-- Test coverage expanded from 122 to 230 tests; new tests cover the config panel components, the per-path settings form, and the detected-path row states.
+- Test coverage expanded from 122 to 237 tests; new tests cover the config panel components, the per-path settings form, the detected-path row states, and the aggregate status summary.
 
 <a id="v010"></a>
 
