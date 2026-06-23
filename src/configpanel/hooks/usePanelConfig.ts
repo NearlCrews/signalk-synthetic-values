@@ -1,12 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { PluginOptions, RawPathConfig } from '../../config.js';
+import { COMBINABLE_KINDS } from '../constants.js';
 import type { DetectedRow } from './useDetected.js';
-
-// The set of path kinds that can be meaningfully combined. 'other' is excluded
-// because the plugin cannot average text or non-numeric objects. 'unknown'
-// is included: classification resolves on the first live value, and combining
-// is allowed in advance.
-const COMBINABLE_KINDS = new Set(['position', 'angular', 'scalar', 'unknown']);
 
 // -- Pure state transitions ---------------------------------------------------
 // Exported so tests can drive them directly without a DOM renderer.

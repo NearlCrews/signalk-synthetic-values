@@ -410,6 +410,48 @@ describe('DetectedPathList: optedIn consistency', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Live region
+// ---------------------------------------------------------------------------
+
+describe('DetectedPathList: live region', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('renders a role="status" live region and updates its text when detected count changes', () => {
+    const props = {
+      detected: [scalRow],
+      configByPath: emptyMap(),
+      onAdd: vi.fn(),
+      onAddAll: vi.fn(),
+      onRemove: vi.fn(),
+      onUpdate: vi.fn(),
+      lastChecked: Date.now(),
+      loading: false,
+      error: null,
+      onRefresh: vi.fn(),
+    };
+
+    const { rerender } = render(createElement(DetectedPathList, props));
+
+    // The role="status" live region must exist from the first render.
+    expect(screen.getByRole('status')).toBeInTheDocument();
+
+    // Re-render with two detected rows so the count changes from 1 to 2.
+    rerender(
+      createElement(DetectedPathList, {
+        ...props,
+        detected: [scalRow, angRow],
+      })
+    );
+
+    const region = screen.getByRole('status');
+    // The announcement text should reflect the new count of 2 paths.
+    expect(region.textContent).toMatch(/2 paths? detected/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // PriorityBanner
 // ---------------------------------------------------------------------------
 

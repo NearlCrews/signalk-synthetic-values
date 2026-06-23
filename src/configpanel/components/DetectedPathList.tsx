@@ -1,15 +1,10 @@
 import type * as React from 'react';
 import { useCallback, useId, useRef, useState } from 'react';
 import type { RawPathConfig } from '../../config.js';
+import { COMBINABLE_KINDS } from '../constants.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
 import { DetectedPathRow } from './DetectedPathRow.js';
-
-// ---------------------------------------------------------------------------
-// Kinds that can be meaningfully combined. Mirrors the constant in
-// usePanelConfig so that "Combine all" and the config hook agree on scope.
-// ---------------------------------------------------------------------------
-const COMBINABLE_KINDS = new Set(['position', 'angular', 'scalar', 'unknown']);
 
 // ---------------------------------------------------------------------------
 // Funnel glyph: an inline SVG in currentColor so it recolors per theme
