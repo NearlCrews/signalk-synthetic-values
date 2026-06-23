@@ -71,7 +71,10 @@ export function applySlew(
     const a = state.value as LatLon
     const b = value as LatLon
     const f = maxStep / distance(kind, a, b)
-    limited = { latitude: a.latitude + f * (b.latitude - a.latitude), longitude: a.longitude + f * (b.longitude - a.longitude) }
+    limited = {
+      latitude: a.latitude + f * (b.latitude - a.latitude),
+      longitude: a.longitude + f * (b.longitude - a.longitude),
+    }
   } else if (kind === 'angular') {
     const a = state.value as number
     const b = value as number

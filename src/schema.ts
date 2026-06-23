@@ -1,4 +1,4 @@
-import { DetectedPath } from './discovery'
+import type { DetectedPath } from './discovery'
 
 export function buildSchema(detected: () => DetectedPath[]): object {
   let examples: string[] = []
@@ -24,7 +24,7 @@ export function buildSchema(detected: () => DetectedPath[]): object {
           required: ['path'],
           properties: {
             path: { type: 'string', title: 'Signal K path', examples },
-            method: { type: 'string', enum: ['median', 'trimmedMean', 'mean'], default: 'median' },
+            method: { type: 'string', title: 'Combine method', enum: ['median', 'trimmedMean', 'mean'], default: 'median' },
             outlierRejection: { type: 'boolean', default: true },
             madThreshold: { type: 'number', default: 3 },
             rejectThreshold: { type: 'number', title: 'Absolute reject distance (kind units)' },

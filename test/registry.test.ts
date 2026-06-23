@@ -42,6 +42,17 @@ describe('Registry', () => {
     r.reset()
     expect(r.fresh('p', 1000)).toEqual([])
   })
+  it('updating an existing sourceRef at capacity does not evict any source', () => {
+    const c = fakeClock(0)
+    const r = new Registry(c, 2)
+    r.update('p', 'a', 1, 0)
+    r.update('p', 'b', 2, 1)
+    // Update 'a' again while at cap=2: the !has(sourceRef) guard prevents eviction
+    r.update('p', 'a', 99, 2)
+    c.set(2)
+    const refs = r.fresh('p', 1000).map((s) => s.sourceRef).sort()
+    expect(refs).toEqual(['a', 'b'])
+  })
   it('setMaxSourcesPerPath takes effect on subsequent updates', () => {
     const c = fakeClock(0)
     const r = new Registry(c, 16)

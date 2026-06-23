@@ -12,6 +12,7 @@ describe('buildSchema', () => {
       throw new Error('boom')
     })
     expect(schema.properties.paths).toBeDefined()
+    expect(schema.properties.paths.items.properties.path.examples).toEqual([])
   })
   it('description names the discovery route', () => {
     const schema: any = buildSchema(() => [])

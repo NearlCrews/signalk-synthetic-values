@@ -47,4 +47,25 @@ describe('distance dispatch and maxPairwiseDistance', () => {
   it('finds the max pairwise scalar distance', () => {
     expect(maxPairwiseDistance('scalar', [1, 2, 10])).toBe(9)
   })
+  it('maxPairwiseDistance works for angular kind', () => {
+    // Three angles clustered near 0: largest separation is 0.3 rad
+    const d = maxPairwiseDistance('angular', [0.0, 0.1, 0.3])
+    expect(d).toBeCloseTo(0.3, 9)
+  })
+  it('maxPairwiseDistance works for position kind', () => {
+    const a: LatLon = { latitude: 0, longitude: 0 }
+    const b: LatLon = { latitude: 1, longitude: 0 }
+    const c: LatLon = { latitude: 0, longitude: 0.5 }
+    const d = maxPairwiseDistance('position', [a, b, c])
+    // Distance from a to b is ~111 km; result must be greater than a-to-c
+    expect(d).toBeGreaterThan(100000)
+  })
+  it('distance("position", ...) dispatches to geodesic and returns nonzero meters', () => {
+    const a: LatLon = { latitude: 0, longitude: 0 }
+    const b: LatLon = { latitude: 1, longitude: 0 }
+    const d = distance('position', a, b)
+    // One degree of latitude is approximately 111 km
+    expect(d).toBeGreaterThan(111000)
+    expect(d).toBeLessThan(111400)
+  })
 })

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { applyJump, applySlew, JumpConfig } from '../src/damping'
+import { LatLon } from '../src/metrics'
 
 const cfg: JumpConfig = { maxRate: 5, persistSamples: 2, persistMs: 3000 }
 
@@ -24,7 +25,7 @@ describe('applyJump', () => {
     let r = applyJump('scalar', st, 800, 1000, cfg) // engine starts, rejected once
     expect(r.accepted).toBe(0)
     r = applyJump('scalar', r.state, 805, 2000, cfg) // persists near 800
-    expect(r.accepted).toBeGreaterThan(700) // re-accepted at the new level
+    expect(r.accepted).toBe(805) // re-accepted at the new level
   })
 })
 
@@ -37,5 +38,52 @@ describe('applySlew', () => {
     const st = applySlew('scalar', undefined, 0, 0, 1).state
     const r = applySlew('scalar', st, 10, 1000, 1) // 1 unit/s, dt 1s
     expect(r.value).toBeCloseTo(1, 6)
+  })
+  it('angular slew steps the short way around the circle', () => {
+    // From 0.1 rad, target is 2*pi - 0.1 rad (just below 0 going clockwise).
+    // The short angular distance is 0.2 rad; with maxRatePerSec=0.05 and dt=1s
+    // the step is clamped to 0.05 rad in the negative direction.
+    const prev = 0.1
+    const target = 2 * Math.PI - 0.1
+    const st = applySlew('angular', undefined, prev, 0, 0.05).state
+    const r = applySlew('angular', st, target, 1000, 0.05) // max 0.05 rad/s over 1 s
+    // Should step 0.05 rad backward (shortest path), landing near 0.1 - 0.05 = 0.05
+    expect(r.value as number).toBeCloseTo(0.05, 6)
+  })
+  it('position slew clamps a large step and moves toward target', () => {
+    const a: LatLon = { latitude: 0, longitude: 0 }
+    const b: LatLon = { latitude: 10, longitude: 0 } // ~1110 km away
+    const st = applySlew('position', undefined, a, 0, 1).state
+    // maxRatePerSec=100 m/s, dt=1 s => maxStep=100 m; full distance ~1110 km
+    const r = applySlew('position', st, b, 1000, 100)
+    const result = r.value as LatLon
+    // Moved toward target but not all the way: latitude should be slightly above 0
+    expect(result.latitude).toBeGreaterThan(0)
+    expect(result.latitude).toBeLessThan(10)
+    expect(result.longitude).toBeCloseTo(0, 6)
+  })
+  it('persistMs re-acceptance branch accepts a persisted level even with count 1', () => {
+    // cfg2 has persistSamples=5 so count alone won't trigger acceptance,
+    // but persistMs=1000 means a 2-second wait should trigger acceptance.
+    const cfg2: JumpConfig = { maxRate: 5, persistSamples: 5, persistMs: 1000 }
+    let st = applyJump('scalar', undefined, 0, 0, cfg2).state
+    // Spike at t=1000: rejected, pending starts at count=1 and ts=1000
+    let r = applyJump('scalar', st, 800, 1000, cfg2)
+    expect(r.accepted).toBe(0) // rejected
+    // Same level at t=3000: ts - pending.ts = 2000 >= persistMs=1000, so accepted
+    r = applyJump('scalar', r.state, 800, 3000, cfg2)
+    expect(r.accepted).toBe(800)
+  })
+  it('a non-near second spike resets the pending cluster count', () => {
+    // First spike: count becomes 1
+    let st = applyJump('scalar', undefined, 0, 0, cfg).state
+    let r = applyJump('scalar', st, 800, 1000, cfg)
+    expect(r.accepted).toBe(0)
+    // A very different spike: not near 800, so count resets to 1 (not accepted yet)
+    r = applyJump('scalar', r.state, 9000, 1500, cfg)
+    expect(r.accepted).toBe(0) // still rejected, count reset to 1
+    // One more near the same spike value: count becomes 2, now accepted
+    r = applyJump('scalar', r.state, 9001, 2000, cfg)
+    expect(r.accepted).toBe(9001)
   })
 })

@@ -33,6 +33,7 @@ export function geoDistance(a: LatLon, b: LatLon): number {
 export function distance(kind: Kind, a: SampleValue, b: SampleValue): number {
   if (kind === 'position') return geoDistance(a as LatLon, b as LatLon)
   if (kind === 'angular') return angularDistance(a as number, b as number)
+  // Intentional fallthrough: both 'scalar' and 'other' use scalar (absolute) distance.
   return scalarDistance(a as number, b as number)
 }
 

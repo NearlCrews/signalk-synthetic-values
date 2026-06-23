@@ -19,6 +19,9 @@ describe('classify', () => {
   it('angular:yes forces angular off the allowlist', () => {
     expect(classify('some.custom.angle', 1.2, 'yes', none, 'vessels.self')).toBe('angular')
   })
+  it('angular:no forces scalar even for an allowlisted rad path', () => {
+    expect(classify('navigation.headingTrue', 1.2, 'no', rad, 'vessels.self')).toBe('scalar')
+  })
   it('plain number is scalar', () => {
     expect(classify('environment.depth.belowTransducer', 4.2, 'auto', none, 'vessels.self')).toBe('scalar')
   })

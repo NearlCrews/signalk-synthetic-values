@@ -28,7 +28,9 @@ describe('Emitter', () => {
     expect(e.maybeEmit('p', 2, 'sv', 1000)).toBe(false)
     c.set(1000)
     expect(e.maybeEmit('p', 3, 'sv', 1000)).toBe(true)
-    expect((app.handleMessage as any).mock.calls).toHaveLength(2)
+    const calls = (app.handleMessage as any).mock.calls
+    expect(calls).toHaveLength(2)
+    expect(calls[1][1].updates[0].values[0].value).toBe(3)
   })
   it('emits a position value object', () => {
     const app: EmitApp = { handleMessage: vi.fn() }
@@ -36,5 +38,8 @@ describe('Emitter', () => {
     e.maybeEmit('navigation.position', { latitude: 1, longitude: 2 }, 'sv', 1000)
     const delta: any = (app.handleMessage as any).mock.calls[0][1]
     expect(delta.updates[0].values[0].value).toEqual({ latitude: 1, longitude: 2 })
+    expect(delta.updates[0].$source).toBe('sv')
+    expect(delta.updates[0].timestamp).toBeUndefined()
+    expect(delta.context).toBeUndefined()
   })
 })
