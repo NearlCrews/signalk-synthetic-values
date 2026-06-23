@@ -1,0 +1,36 @@
+{
+  "name": "signalk-synthetic-values",
+  "version": "0.1.0",
+  "description": "Combine redundant sensors on one Signal K path into a robust median or outlier-rejected value",
+  "main": "dist/index.js",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=22" },
+  "files": ["dist", "assets", "README.md", "CHANGELOG.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc",
+    "clean": "node scripts/clean.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
+  },
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-category-utility",
+    "signalk",
+    "redundancy",
+    "sensor-fusion",
+    "median",
+    "outlier"
+  ],
+  "signalk": {
+    "displayName": "Synthetic Values",
+    "appIcon": "assets/appicon.png",
+    "screenshots": []
+  },
+  "devDependencies": {
+    "@signalk/server-api": "^2.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
