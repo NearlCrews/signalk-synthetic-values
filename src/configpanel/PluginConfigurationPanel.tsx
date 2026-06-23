@@ -1,12 +1,18 @@
 import type * as React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PluginOptions, RawPathConfig } from '../config.js';
 import { DetectedPathList } from './components/DetectedPathList.js';
 import { PriorityBanner } from './components/PriorityBanner.js';
 import ThemeToggle from './components/ThemeToggle.js';
 import type { DetectedRow } from './hooks/useDetected.js';
 import { useDetected } from './hooks/useDetected.js';
-import { usePanelConfig } from './hooks/usePanelConfig.js';
+import {
+  applyAddAllCombinable,
+  applyAddPath,
+  applyRemovePath,
+  applyUpdatePath,
+  usePanelConfig,
+} from './hooks/usePanelConfig.js';
 import { injectStyles } from './styles.js';
 
 interface Props {
@@ -52,23 +58,29 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
   // DetectedPathList can reconcile local edits against the server optedIn field.
   const configByPath = new Map<string, RawPathConfig>(options.paths.map((p) => [p.path, p]));
 
+  // Always-current ref to options, so the debounced save callback reads the
+  // latest state rather than a stale closure.
+  const optionsRef = useRef<PluginOptions>(options);
+  optionsRef.current = options;
+
+  // Debounce timer ref for tuning saves (handleUpdate).
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear the debounce timer on unmount so no stale save fires.
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current !== null) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
   // Write actions: mutate form state then immediately persist.
+  // React state updates are asynchronous, so next-state is computed
+  // synchronously via the pure transitions to call save immediately.
 
   const handleAdd = useCallback(
     (path: string): void => {
+      const next = applyAddPath(options, path);
       addPath(path);
-      // commit reads the updated state via the hook's internal closure, but
-      // since addPath is synchronous React state, we need the updated options.
-      // usePanelConfig exposes commit which always reads the latest options via
-      // its own useCallback closure over options. We call commit() which will
-      // pick up the freshly added path in the next micro-task render cycle.
-      // To be safe, we construct the next options directly and call save.
-      const next: PluginOptions = {
-        ...options,
-        paths: options.paths.some((p) => p.path === path)
-          ? options.paths
-          : [...options.paths, { path }],
-      };
       void Promise.resolve(save(next)).then(() => {
         refresh();
       });
@@ -78,15 +90,8 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
 
   const handleAddAll = useCallback(
     (rows: DetectedRow[]): void => {
+      const next = applyAddAllCombinable(options, rows);
       addAllCombinable(rows);
-      const existing = new Set(options.paths.map((p) => p.path));
-      const toAdd = rows
-        .filter((r) => !existing.has(r.path))
-        .map((r): RawPathConfig => ({ path: r.path }));
-      const next: PluginOptions = {
-        ...options,
-        paths: [...options.paths, ...toAdd],
-      };
       void Promise.resolve(save(next)).then(() => {
         refresh();
       });
@@ -96,11 +101,8 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
 
   const handleRemove = useCallback(
     (path: string): void => {
+      const next = applyRemovePath(options, path);
       removePath(path);
-      const next: PluginOptions = {
-        ...options,
-        paths: options.paths.filter((p) => p.path !== path),
-      };
       void Promise.resolve(save(next)).then(() => {
         refresh();
       });
@@ -110,9 +112,20 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
 
   const handleUpdate = useCallback(
     (path: string, patch: Partial<RawPathConfig>): void => {
+      // Update local state immediately for responsive UI.
       updatePath(path, patch);
+      // Debounce the persist call so rapid number-input keystrokes do not
+      // trigger a plugin restart on every character.
+      if (debounceRef.current !== null) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
+        // optionsRef.current is always the latest React state, avoiding a
+        // stale closure. Apply the patch and persist the full PluginOptions.
+        const next = applyUpdatePath(optionsRef.current, path, patch);
+        void Promise.resolve(save(next));
+      }, 500);
     },
-    [updatePath]
+    [save, updatePath]
   );
 
   const showBanner = options.paths.length > 0 && !bannerDismissed;

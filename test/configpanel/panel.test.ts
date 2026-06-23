@@ -132,5 +132,67 @@ describe('PluginConfigurationPanel', () => {
     const savedPaths = savedConfig.paths.map((p) => p.path);
     expect(savedPaths).toContain(combinedPath);
     expect(savedPaths).toContain(availablePath);
+
+    // Top-level defaults must be preserved in the saved payload.
+    expect(savedConfig).toMatchObject({
+      defaultStalenessTimeoutMs: baseConfig.defaultStalenessTimeoutMs,
+      defaultEmitMinIntervalMs: baseConfig.defaultEmitMinIntervalMs,
+      defaultMinSources: baseConfig.defaultMinSources,
+      maxSourcesPerPath: baseConfig.maxSourcesPerPath,
+    });
+  });
+
+  it('debounces tuning updates: save is called after the debounce delay with the patched entry and preserved defaults', async () => {
+    const mockSave = vi.fn().mockResolvedValue(undefined);
+    render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
+
+    // Wait for the combined path row to appear (real timers; fetch is a microtask).
+    await waitFor(() => {
+      expect(screen.getByText(combinedPath)).toBeInTheDocument();
+    });
+
+    // Open the Tune disclosure on the combined row so the inputs render.
+    const tuneBtn = screen.getByRole('button', { name: /tune/i });
+    fireEvent.click(tuneBtn);
+
+    // The "Minimum sources" number input is now in the DOM.
+    const minSourcesInput = screen.getByLabelText(/minimum sources/i);
+    expect(minSourcesInput).toBeInTheDocument();
+
+    // Switch to fake timers AFTER the component has settled so the polling
+    // interval and debounce timer are both under our control from here on.
+    vi.useFakeTimers();
+
+    // Record save calls BEFORE the tuning change.
+    const callsBefore = mockSave.mock.calls.length;
+
+    // Fire a change on the minimum-sources input.
+    fireEvent.change(minSourcesInput, { target: { value: '3' } });
+
+    // save must NOT have been called synchronously (debounce is still pending).
+    expect(mockSave.mock.calls.length).toBe(callsBefore);
+
+    // Advance fake timers past the 500 ms debounce and flush microtasks.
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    vi.useRealTimers();
+
+    // save must now have been called exactly once more.
+    expect(mockSave.mock.calls.length).toBe(callsBefore + 1);
+    const lastSaved = mockSave.mock.calls[mockSave.mock.calls.length - 1][0] as PluginOptions;
+
+    // The saved payload includes the patched entry.
+    const savedEntry = lastSaved.paths.find((p) => p.path === combinedPath);
+    expect(savedEntry).toBeDefined();
+    expect(savedEntry?.minSources).toBe(3);
+
+    // The saved payload preserves the top-level defaults.
+    expect(lastSaved).toMatchObject({
+      defaultStalenessTimeoutMs: baseConfig.defaultStalenessTimeoutMs,
+      defaultEmitMinIntervalMs: baseConfig.defaultEmitMinIntervalMs,
+      defaultMinSources: baseConfig.defaultMinSources,
+      maxSourcesPerPath: baseConfig.maxSourcesPerPath,
+    });
   });
 });
