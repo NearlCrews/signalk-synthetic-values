@@ -27,7 +27,13 @@
   },
   "sideEffects": false,
   "type": "module",
-  "files": ["dist", "assets", "README.md", "CHANGELOG.md", "LICENSE"],
+  "files": [
+    "dist",
+    "assets",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "author": {
     "name": "Nearl Crews",
     "email": "NearlCrews@users.noreply.github.com",
