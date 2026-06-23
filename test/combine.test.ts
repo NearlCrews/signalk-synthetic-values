@@ -23,11 +23,28 @@ describe('combine source-count outcomes', () => {
   it('below minSources is belowMin', () => {
     const r = combine([s('a', 5)], { ...base, kind: 'scalar' })
     expect(r.outcome).toBe('belowMin')
+    expect(r.value).toBeUndefined()
   })
   it('single source passes through when minSources is 1', () => {
     const r = combine([s('a', 5)], { ...base, kind: 'scalar', minSources: 1 })
     expect(r.outcome).toBe('singleSource')
     expect(r.value).toBe(5)
+  })
+})
+
+describe('combine outlier rejection empties the source set', () => {
+  it('returns diverged with no value when all sources are rejected', () => {
+    // Two sources 100 units apart with rejectThreshold: 10 and minSources: 2.
+    // Both sources are far from the center (50), so both get rejected.
+    const r = combine([s('a', 0), s('b', 100)], {
+      ...base,
+      kind: 'scalar',
+      minSources: 2,
+      outlierRejection: true,
+      rejectThreshold: 10,
+    })
+    expect(r.outcome).toBe('diverged')
+    expect(r.value).toBeUndefined()
   })
 })
 

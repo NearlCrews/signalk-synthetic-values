@@ -1,5 +1,4 @@
-import { angularDistance, distance, Kind, SampleValue, LatLon } from './metrics'
-import { maxPairwiseDistance } from './metrics'
+import { angularDistance, distance, Kind, SampleValue, LatLon, maxPairwiseDistance } from './metrics'
 
 const TWO_PI = 2 * Math.PI
 
@@ -150,6 +149,10 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
     used = samples.filter((_, i) => mask[i])
   }
   const usedSources = used.map((s) => s.sourceRef)
+
+  if (used.length === 0) {
+    return { usedSources, freshCount, outcome: 'diverged' }
+  }
 
   let value: SampleValue
   if (opts.kind === 'angular') {
