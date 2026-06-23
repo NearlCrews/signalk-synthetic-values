@@ -21,8 +21,9 @@ const META: Record<string, KindMeta> = {
   unknown: { label: 'unknown', token: 'muted', srLabel: 'kind: unknown' },
 };
 
-const FALLBACK: KindMeta = { label: 'unknown', token: 'muted', srLabel: 'kind: unknown' };
-
+// META.unknown is a required fallback entry defined above; the non-null
+// assertion is safe because removing it would be a compile-visible omission.
 export function kindMeta(kind: string): KindMeta {
-  return META[kind] ?? FALLBACK;
+  // biome-ignore lint/style/noNonNullAssertion: META.unknown is always defined above
+  return META[kind] ?? META.unknown!;
 }

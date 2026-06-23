@@ -1,7 +1,7 @@
 import type * as React from 'react';
 import { useCallback, useId, useRef, useState } from 'react';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
-import { COMBINABLE_KINDS } from '../constants.js';
+import { isCombinableKind } from '../constants.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
 import { DetectedPathRow } from './DetectedPathRow.js';
@@ -324,7 +324,7 @@ export function DetectedPathList({
 
   for (const row of detected) {
     const optedIn = configByPath.has(row.path);
-    if (!COMBINABLE_KINDS.has(row.kind)) {
+    if (!isCombinableKind(row.kind)) {
       nonCombinableRows.push(row);
     } else if (optedIn) {
       combinedRows.push(row);

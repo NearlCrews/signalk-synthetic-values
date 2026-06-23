@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../config.js';
 import { DetectedPathList } from './components/DetectedPathList.js';
 import { PriorityBanner } from './components/PriorityBanner.js';
@@ -54,7 +54,12 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
 
   // Build a Map<path, RawPathConfig> from the current form state so
   // DetectedPathList can reconcile local edits against the server optedIn field.
-  const configByPath = new Map<string, RawPathConfig>(options.paths.map((p) => [p.path, p]));
+  // Memoized so the reference is stable when options.paths hasn't changed,
+  // avoiding spurious re-renders of DetectedPathList.
+  const configByPath = useMemo(
+    () => new Map<string, RawPathConfig>(options.paths.map((p) => [p.path, p])),
+    [options.paths]
+  );
 
   // Always-current ref to options, so the debounced save callback reads the
   // latest state rather than a stale closure.
@@ -71,47 +76,54 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
     };
   }, []);
 
+  // Ref that always holds the last successfully saved options so the no-op
+  // guard can compare without a stale closure.
+  const savedOptionsRef = useRef<PluginOptions>(configuration);
+
   // Write actions: mutate form state then immediately persist.
   // React state updates are asynchronous, so next-state is computed
   // synchronously via the pure transitions to call save immediately.
 
   const handleAdd = useCallback(
     (path: string): void => {
-      const next = applyAddPath(options, path);
+      const next = applyAddPath(optionsRef.current, path);
       addPath(path);
+      savedOptionsRef.current = next;
       void Promise.resolve(save(next)).then(() => {
         refresh();
       });
     },
-    [options, save, addPath, refresh]
+    [save, addPath, refresh]
   );
 
   const handleAddAll = useCallback(
     (rows: DetectedRow[]): void => {
-      const next = applyAddAllCombinable(options, rows);
+      const next = applyAddAllCombinable(optionsRef.current, rows);
       addAllCombinable(rows);
+      savedOptionsRef.current = next;
       void Promise.resolve(save(next)).then(() => {
         refresh();
       });
     },
-    [options, save, addAllCombinable, refresh]
+    [save, addAllCombinable, refresh]
   );
 
   const handleRemove = useCallback(
     (path: string): void => {
-      const next = applyRemovePath(options, path);
+      const next = applyRemovePath(optionsRef.current, path);
       removePath(path);
+      savedOptionsRef.current = next;
       void Promise.resolve(save(next)).then(() => {
         refresh();
       });
     },
-    [options, save, removePath, refresh]
+    [save, removePath, refresh]
   );
 
-  // Ref that always holds the last successfully saved options so the no-op
-  // guard can compare without a stale closure.
-  const savedOptionsRef = useRef<PluginOptions>(configuration);
-
+  // handleUpdate updates local state immediately so the input feels responsive,
+  // then coalesces rapid edits (e.g. typing a number digit by digit) into a
+  // single save call after the user pauses. This avoids restarting the plugin
+  // on every keystroke, which would disrupt live data collection.
   const handleUpdate = useCallback(
     (path: string, patch: RawPathConfigPatch): void => {
       // Update local state immediately for responsive UI.

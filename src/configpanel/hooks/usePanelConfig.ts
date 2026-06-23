@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../../config.js';
-import { COMBINABLE_KINDS } from '../constants.js';
+import { isCombinableKind } from '../constants.js';
 import type { DetectedRow } from './useDetected.js';
 
 // -- Pure state transitions ---------------------------------------------------
@@ -26,7 +26,7 @@ export function applyAddAllCombinable(
   rows: ReadonlyArray<DetectedRow>
 ): PluginOptions {
   const existing = new Set(options.paths.map((p) => p.path));
-  const toAdd = rows.filter((r) => COMBINABLE_KINDS.has(r.kind) && !existing.has(r.path));
+  const toAdd = rows.filter((r) => isCombinableKind(r.kind) && !existing.has(r.path));
   if (toAdd.length === 0) return options;
   const added: RawPathConfig[] = toAdd.map((r) => ({ path: r.path }));
   return { ...options, paths: [...options.paths, ...added] };

@@ -35,14 +35,18 @@ export interface UseDetectedResult extends DetectedState {
  *
  * Exported for direct unit testing without a DOM renderer.
  */
+function errorState(prev: DetectedState): DetectedState {
+  return {
+    paths: prev.paths,
+    lastChecked: prev.lastChecked,
+    loading: false,
+    error: 'invalid JSON in detected response',
+  };
+}
+
 export function nextDetectedState(prev: DetectedState, incoming: string | null): DetectedState {
   if (incoming === null) {
-    return {
-      paths: prev.paths,
-      lastChecked: prev.lastChecked,
-      loading: false,
-      error: 'invalid JSON in detected response',
-    };
+    return errorState(prev);
   }
 
   // Changed-payload gate: return the same object when nothing changed.
@@ -55,12 +59,7 @@ export function nextDetectedState(prev: DetectedState, incoming: string | null):
   try {
     parsed = JSON.parse(incoming) as DetectedResponse;
   } catch {
-    return {
-      paths: prev.paths,
-      lastChecked: prev.lastChecked,
-      loading: false,
-      error: 'invalid JSON in detected response',
-    };
+    return errorState(prev);
   }
 
   return {
@@ -87,8 +86,6 @@ export function useDetected(): UseDetectedResult {
   // The last serialized payload for the changed-payload gate.
   const lastPayloadRef = useRef<string | null>(null);
   const cancelled = useRef(false);
-  const stateRef = useRef(state);
-  stateRef.current = state;
 
   const doFetch = useCallback(async (): Promise<void> => {
     let incoming: string | null = null;
@@ -102,15 +99,16 @@ export function useDetected(): UseDetectedResult {
     }
     if (cancelled.current) return;
 
-    // Only update state when the payload actually changed.
-    if (
-      incoming !== lastPayloadRef.current ||
-      stateRef.current.loading ||
-      stateRef.current.error !== null
-    ) {
-      lastPayloadRef.current = incoming;
-      setState((prev) => nextDetectedState(prev, incoming));
-    }
+    // Only update state when the payload actually changed. The loading and
+    // error checks use the functional setState form (prev) inside
+    // nextDetectedState so we don't need a separate stateRef here.
+    setState((prev) => {
+      if (incoming !== lastPayloadRef.current || prev.loading || prev.error !== null) {
+        lastPayloadRef.current = incoming;
+        return nextDetectedState(prev, incoming);
+      }
+      return prev;
+    });
   }, []);
 
   const refresh = useCallback((): void => {
