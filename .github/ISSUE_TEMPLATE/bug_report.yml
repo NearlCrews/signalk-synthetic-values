@@ -1,0 +1,151 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the sections below to help us understand and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what went wrong
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps to reproduce the behavior
+      placeholder: |
+        1. Install plugin version X.X.X
+        2. Configure two or more sources on the same Signal K path
+        3. Start Signal K server
+        4. Observe error in logs
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+      placeholder: The plugin should...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+      placeholder: Instead, the plugin...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Please copy and paste any relevant log output
+      render: shell
+      placeholder: |
+        Paste logs here
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin Version
+      description: Which version of signalk-synthetic-values are you using?
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: signalk-version
+    attributes:
+      label: Signal K Server Version
+      description: Which version of Signal K server are you running?
+      placeholder: "2.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js Version
+      description: Which version of Node.js? (run `node --version`)
+      placeholder: "v20.18.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install Method
+      description: How did you install the plugin?
+      options:
+        - Signal K App Store
+        - npm install
+        - From source (git clone)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      options:
+        - Linux (Raspberry Pi OS)
+        - Linux (Ubuntu/Debian)
+        - Linux (Other)
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Plugin Configuration
+      description: Your plugin configuration (redact any sensitive values)
+      render: json
+      placeholder: |
+        {
+          "paths": [
+            {
+              "path": "environment.depth.belowKeel",
+              "strategy": "median",
+              "sources": []
+            }
+          ]
+        }
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission Checklist
+      description: Please verify the following before submitting
+      options:
+        - label: I have checked existing issues to avoid duplicates
+          required: true
+        - label: I have included all relevant information above
+          required: true
+        - label: I have redacted any sensitive information
+          required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context about the problem (screenshots, related issues, etc.)
+      placeholder: Add any other context or screenshots here
