@@ -56,10 +56,15 @@ describe('validateConfig', () => {
     expect(r.config.paths).toHaveLength(0)
     expect(r.errors[0].path).toBe('a')
   })
-  it('rejects a non-positive emitMinIntervalMs', () => {
-    const r = validateConfig(opts([{ path: 'a', emitMinIntervalMs: 0 }]))
+  it('rejects a negative emitMinIntervalMs', () => {
+    const r = validateConfig(opts([{ path: 'a', emitMinIntervalMs: -1 }]))
     expect(r.config.paths).toHaveLength(0)
     expect(r.errors[0].path).toBe('a')
+  })
+  it('accepts emitMinIntervalMs of 0 (emit on every update)', () => {
+    const r = validateConfig(opts([{ path: 'a', emitMinIntervalMs: 0 }]))
+    expect(r.config.paths).toHaveLength(1)
+    expect(r.errors).toHaveLength(0)
   })
   it('rejects a non-positive minSources', () => {
     const r = validateConfig(opts([{ path: 'a', minSources: 0 }]))

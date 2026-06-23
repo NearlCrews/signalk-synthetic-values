@@ -70,6 +70,10 @@ function positive(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n) && n > 0
 }
 
+function nonNegative(n: unknown): n is number {
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0
+}
+
 export function validateConfig(options: PluginOptions): ValidationResult {
   const errors: ConfigError[] = []
   const advisories: ConfigError[] = []
@@ -110,8 +114,8 @@ export function validateConfig(options: PluginOptions): ValidationResult {
     const staleness = raw.stalenessTimeoutMs ?? options.defaultStalenessTimeoutMs
     const emitInterval = raw.emitMinIntervalMs ?? options.defaultEmitMinIntervalMs
     const minSources = raw.minSources ?? options.defaultMinSources
-    if (!positive(staleness) || !positive(emitInterval) || !positive(minSources)) {
-      errors.push({ path: id, message: 'staleness, emit interval, and minSources must be positive' })
+    if (!positive(staleness) || !nonNegative(emitInterval) || !positive(minSources)) {
+      errors.push({ path: id, message: 'staleness and minSources must be positive; emit interval must be non-negative' })
       continue
     }
     for (const [k, v] of [
