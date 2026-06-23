@@ -39,12 +39,9 @@ export interface PathConfig {
   slewLimit?: number | undefined;
 }
 
-/**
- * A patch object for RawPathConfig where a value of `undefined` means
- * "remove this key from the entry so the plugin default re-applies".
- * Separate from `Partial<RawPathConfig>` because `exactOptionalPropertyTypes`
- * does not permit explicit `undefined` in a standard `Partial<>`.
- */
+// Used by the config panel patch/clear flow: the panel sends explicit `undefined` to delete a key
+// so the plugin default re-applies. `Partial<RawPathConfig>` cannot express this under
+// exactOptionalPropertyTypes, so we use a mapped type that allows the `| undefined` union.
 export type RawPathConfigPatch = {
   [K in keyof RawPathConfig]?: RawPathConfig[K] | undefined;
 };
@@ -75,8 +72,8 @@ export interface ValidationResult {
 
 export const DEFAULT_MAX_SOURCES_PER_PATH = 16;
 
-const METHODS: CombineMethod[] = ['median', 'trimmedMean', 'mean'];
-const ANGULAR_MODES = ['auto', 'yes', 'no'];
+const METHODS: ReadonlySet<string> = new Set(['median', 'trimmedMean', 'mean']);
+const ANGULAR_MODES: ReadonlySet<string> = new Set(['auto', 'yes', 'no']);
 
 function positive(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n) && n > 0;
@@ -112,11 +109,11 @@ function validateScalars(
     };
   }
   const method = raw.method ?? 'median';
-  if (!METHODS.includes(method)) {
+  if (!METHODS.has(method)) {
     return { error: { path: id, message: `unknown method ${method}` } };
   }
   const angular = raw.angular ?? 'auto';
-  if (!ANGULAR_MODES.includes(angular)) {
+  if (!ANGULAR_MODES.has(angular)) {
     return { error: { path: id, message: `unknown angular mode ${angular}` } };
   }
   const trimFraction = raw.trimFraction ?? 0.25;
@@ -126,22 +123,21 @@ function validateScalars(
   const staleness = raw.stalenessTimeoutMs ?? options.defaultStalenessTimeoutMs;
   const emitInterval = raw.emitMinIntervalMs ?? options.defaultEmitMinIntervalMs;
   const minSources = raw.minSources ?? options.defaultMinSources;
-  if (!positive(staleness) || !nonNegative(emitInterval) || !positive(minSources)) {
-    return {
-      error: {
-        path: id,
-        message: 'staleness and minSources must be positive; emit interval must be non-negative',
-      },
-    };
+  if (!positive(staleness)) {
+    return { error: { path: id, message: 'stalenessTimeoutMs must be a positive number' } };
+  }
+  if (!nonNegative(emitInterval)) {
+    return { error: { path: id, message: 'emitMinIntervalMs must be a non-negative number' } };
+  }
+  if (!positive(minSources)) {
+    return { error: { path: id, message: 'minSources must be a positive number' } };
   }
   return { scalars: { method, angular, trimFraction, staleness, emitInterval, minSources } };
 }
 
 function validatePathEntry(raw: RawPathConfig, options: PluginOptions): PathValidation {
+  // Callers must ensure raw.path is a non-empty string before calling this function.
   const id = raw.path;
-  if (!id || typeof id !== 'string') {
-    return { errors: [{ path: String(id), message: 'missing path' }], advisories: [] };
-  }
 
   const scalarsResult = validateScalars(id, raw, options);
   if ('error' in scalarsResult) {
@@ -166,6 +162,7 @@ function validatePathEntry(raw: RawPathConfig, options: PluginOptions): PathVali
   if (errors.length > 0) return { errors, advisories: [] };
 
   const advisories: ConfigError[] = [];
+  // Defaults to true: outlier rejection is on unless the user explicitly disables it.
   const outlierRejection = raw.outlierRejection ?? true;
   if (!outlierRejection && raw.madThreshold != null) {
     advisories.push({ path: id, message: 'madThreshold ignored while outlierRejection is off' });

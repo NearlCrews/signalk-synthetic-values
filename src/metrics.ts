@@ -7,6 +7,7 @@ export interface LatLon {
 
 export type SampleValue = number | LatLon;
 
+// Mean radius of the Earth in meters; sufficient for haversine at navigation scales.
 const EARTH_RADIUS_M = 6371000;
 
 export function scalarDistance(a: number, b: number): number {
@@ -39,7 +40,12 @@ export function maxPairwiseDistance(kind: Kind, values: SampleValue[]): number {
   let max = 0;
   for (let i = 0; i < values.length; i++) {
     for (let j = i + 1; j < values.length; j++) {
-      max = Math.max(max, distance(kind, values[i] as SampleValue, values[j] as SampleValue));
+      // Loop bounds guarantee values[i] and values[j] are defined; we guard defensively.
+      const vi = values[i];
+      const vj = values[j];
+      if (vi !== undefined && vj !== undefined) {
+        max = Math.max(max, distance(kind, vi, vj));
+      }
     }
   }
   return max;

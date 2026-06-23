@@ -19,14 +19,15 @@ export class Discovery {
   ) {}
 
   observe(path: string, sourceRef: string): void {
+    const now = this.clock.now();
     let entry = this.store.get(path);
     if (!entry) {
       if (this.store.size >= this.maxPaths) this.evictOldest();
-      entry = { sources: new Set(), lastSeen: this.clock.now() };
+      entry = { sources: new Set(), lastSeen: now };
       this.store.set(path, entry);
     }
     entry.sources.add(sourceRef);
-    entry.lastSeen = this.clock.now();
+    entry.lastSeen = now;
   }
 
   private evictOldest(): void {

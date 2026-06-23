@@ -1,8 +1,9 @@
 import type { Kind, LatLon, SampleValue } from './metrics';
-import { angularDistance, distance, maxPairwiseDistance } from './metrics';
+import { distance, maxPairwiseDistance } from './metrics';
 
 const TWO_PI = 2 * Math.PI;
 
+// Callers must pass non-empty arrays.
 export function mean(xs: number[]): number {
   return xs.reduce((s, x) => s + x, 0) / xs.length;
 }
@@ -38,13 +39,7 @@ export function circularMeanRad(angles: number[]): { mean: number; R: number } {
 }
 
 export function maxCircularSpread(angles: number[]): number {
-  let max = 0;
-  for (let i = 0; i < angles.length; i++) {
-    for (let j = i + 1; j < angles.length; j++) {
-      max = Math.max(max, angularDistance(angles[i] as number, angles[j] as number));
-    }
-  }
-  return max;
+  return maxPairwiseDistance('angular', angles);
 }
 
 function lonsToRadians(lons: number[]): number[] {
@@ -56,12 +51,15 @@ function radiansToLonDegrees(rad: number): number {
   return ((((deg + 180) % 360) + 360) % 360) - 180;
 }
 
+function lonCircularMean(lons: number[]): number {
+  return radiansToLonDegrees(circularMeanRad(lonsToRadians(lons)).mean);
+}
+
 export function robustCenter(kind: Kind, values: SampleValue[]): SampleValue {
   if (kind === 'position') {
     const lats = (values as LatLon[]).map((v) => v.latitude);
     const lons = (values as LatLon[]).map((v) => v.longitude);
-    const lonMeanRad = circularMeanRad(lonsToRadians(lons)).mean;
-    return { latitude: median(lats), longitude: radiansToLonDegrees(lonMeanRad) };
+    return { latitude: median(lats), longitude: lonCircularMean(lons) };
   }
   if (kind === 'angular') {
     return circularMeanRad(values as number[]).mean;
@@ -84,6 +82,7 @@ export function rejectMask(
   let scale = 1.4826 * median(distances);
   if (scale === 0) {
     const meanAbs = mean(distances);
+    // Four points minimum for scaled-MAD to be meaningful.
     scale = meanAbs > 0 && n >= 4 ? 1.2533 * meanAbs : 0;
   }
 
@@ -132,6 +131,7 @@ export interface CombineResult {
   spread?: number;
 }
 
+// Mean resultant length below this means angles are too scattered to trust.
 const R_MIN = 0.2;
 
 function linear(method: CombineMethod, xs: number[], trimFraction: number): number {
@@ -140,15 +140,19 @@ function linear(method: CombineMethod, xs: number[], trimFraction: number): numb
   return median(xs);
 }
 
+// Returns { value, outcome } where value is undefined when the output is diverged/skipped.
+// The union is intentional: angular and position paths may decline to produce a value.
 function computeValue(
   used: Sample[],
   opts: CombineOptions,
   usedSources: string[],
   freshCount: number
-): { value: SampleValue; outcome: Outcome } | CombineResult {
+): { value?: SampleValue; outcome: Outcome; usedSources?: string[]; freshCount?: number } {
   if (opts.kind === 'angular') {
     const angles = used.map((s) => s.value as number);
     const { mean: cm, R } = circularMeanRad(angles);
+    // Diverged when R < R_MIN (too scattered) OR spread exceeds threshold.
+    // Skip the O(n^2) spread loop when R already gates the output.
     if (R < R_MIN || maxCircularSpread(angles) > opts.angularSpreadThreshold) {
       return { usedSources, freshCount, outcome: 'diverged' };
     }
@@ -157,11 +161,10 @@ function computeValue(
   if (opts.kind === 'position') {
     const lats = used.map((s) => (s.value as LatLon).latitude);
     const lons = used.map((s) => (s.value as LatLon).longitude);
-    const lonMeanRad = circularMeanRad(lonsToRadians(lons)).mean;
     return {
       value: {
         latitude: linear(opts.method, lats, opts.trimFraction),
-        longitude: radiansToLonDegrees(lonMeanRad),
+        longitude: lonCircularMean(lons),
       },
       outcome: 'ok',
     };
@@ -194,14 +197,10 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
     return { usedSources: samples.map((s) => s.sourceRef), freshCount, outcome: 'belowMin' };
   }
 
+  const sampleValues = samples.map((s) => s.value);
   let used = samples;
   if (opts.outlierRejection) {
-    const mask = rejectMask(
-      opts.kind,
-      samples.map((s) => s.value),
-      opts.madThreshold,
-      opts.rejectThreshold
-    );
+    const mask = rejectMask(opts.kind, sampleValues, opts.madThreshold, opts.rejectThreshold);
     used = samples.filter((_, i) => mask[i]);
   }
   const usedSources = used.map((s) => s.sourceRef);
@@ -211,7 +210,13 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
   }
 
   const computed = computeValue(used, opts, usedSources, freshCount);
-  if (!('value' in computed) || computed.value === undefined) return computed as CombineResult;
+  if (computed.value === undefined) {
+    return {
+      usedSources: computed.usedSources ?? usedSources,
+      freshCount,
+      outcome: computed.outcome,
+    };
+  }
 
   let outcome: Outcome = computed.outcome;
   let spread: number | undefined;

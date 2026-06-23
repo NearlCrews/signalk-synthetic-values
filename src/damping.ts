@@ -1,6 +1,10 @@
 import type { Kind, LatLon, SampleValue } from './metrics';
 import { distance } from './metrics';
 
+function signedAngularDelta(a: number, b: number): number {
+  return Math.atan2(Math.sin(b - a), Math.cos(b - a));
+}
+
 export interface JumpConfig {
   maxRate: number;
   persistSamples: number;
@@ -33,7 +37,8 @@ export function applyJump(
   }
   // Candidate jump: track a pending level that must persist before acceptance.
   const near =
-    state.pending !== undefined && distance(kind, state.pending.value, value) <= cfg.maxRate;
+    state.pending !== undefined &&
+    rate(kind, state.pending.value, value, ts - state.pending.ts) <= cfg.maxRate;
   const pending =
     near && state.pending !== undefined
       ? { value, ts: state.pending.ts, count: state.pending.count + 1 }
@@ -84,7 +89,7 @@ export function applySlew(
   } else if (kind === 'angular') {
     const a = state.value as number;
     const b = value as number;
-    const diff = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+    const diff = signedAngularDelta(a, b);
     const step = Math.sign(diff) * Math.min(Math.abs(diff), maxStep);
     limited = a + step;
   } else {

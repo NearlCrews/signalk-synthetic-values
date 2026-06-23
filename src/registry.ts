@@ -9,17 +9,17 @@ interface Entry {
 
 export class Registry {
   private store = new Map<string, Map<string, Entry>>();
-  private _maxSourcesPerPath: number;
+  private maxSources: number;
 
   constructor(
     private clock: Clock,
     maxSourcesPerPath: number
   ) {
-    this._maxSourcesPerPath = maxSourcesPerPath;
+    this.maxSources = maxSourcesPerPath;
   }
 
   setMaxSourcesPerPath(n: number): void {
-    this._maxSourcesPerPath = n;
+    this.maxSources = n;
   }
 
   update(path: string, sourceRef: string, value: SampleValue, ts: number): void {
@@ -28,7 +28,7 @@ export class Registry {
       bySource = new Map();
       this.store.set(path, bySource);
     }
-    if (!bySource.has(sourceRef) && bySource.size >= this._maxSourcesPerPath) {
+    if (!bySource.has(sourceRef) && bySource.size >= this.maxSources) {
       let oldestRef: string | undefined;
       let oldestTs = Infinity;
       for (const [ref, e] of bySource) {
@@ -48,6 +48,7 @@ export class Registry {
     const cutoff = this.clock.now() - stalenessMs;
     const out: Sample[] = [];
     for (const [sourceRef, e] of bySource) {
+      // `>` means a sample exactly stalenessMs old is considered stale.
       if (e.receiptTs > cutoff) out.push({ sourceRef, value: e.value });
     }
     return out;

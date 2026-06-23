@@ -12,7 +12,7 @@ export function valueCategory(value: unknown): ValueCategory {
   if (typeof value === 'object') {
     const obj = value as Record<string, unknown>;
     if ('latitude' in obj || 'longitude' in obj) {
-      return Number.isFinite(obj.latitude) && Number.isFinite(obj.longitude) ? 'latlon' : 'invalid';
+      return isLatLon(value) ? 'latlon' : 'invalid';
     }
     return 'nonCombinable';
   }
@@ -50,5 +50,7 @@ export function classify(
   if (angularMode === 'yes') return 'angular';
   if (angularMode === 'no') return 'scalar';
   const units = getUnits(`${context}.${path}`)?.units;
+  // Both gates are required: path must be on the allowlist AND units must be 'rad'.
+  // A recently-rescaled path (units changed away from 'rad') silently downgrades to scalar.
   return ANGULAR_ALLOWLIST.has(path) && units === 'rad' ? 'angular' : 'scalar';
 }
