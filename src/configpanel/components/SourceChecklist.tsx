@@ -28,7 +28,7 @@ export function SourceChecklist({
   const useIncludeModel = Array.isArray(includeSources) && includeSources.length > 0;
 
   function isChecked(src: string): boolean {
-    if (useIncludeModel) return includeSources?.includes(src) ?? false;
+    if (useIncludeModel) return includeSources.includes(src);
     return !excludeSources?.includes(src);
   }
 

@@ -145,7 +145,7 @@ describe('DetectedPathRow: opted-in row', () => {
   });
 
   it('shows the "added" pill', () => {
-    render(
+    const { container } = render(
       createElement(DetectedPathRow, {
         row: optedInRow,
         config: optedInConfig,
@@ -154,9 +154,14 @@ describe('DetectedPathRow: opted-in row', () => {
         onUpdate: vi.fn(),
       })
     );
-    // The "added" pill appears as a visible element (the sr span also contains
-    // "added", so we accept one or more matches and confirm at least one is present).
-    expect(screen.getAllByText(/added/i).length).toBeGreaterThan(0);
+    // The AddedPill renders a <span> with exact text "added" and the success
+    // palette. Target it specifically to avoid matching the visually-hidden sr span.
+    const pill = Array.from(container.querySelectorAll('span')).find(
+      (el) => el.textContent === 'added',
+    ) as HTMLElement | undefined;
+    expect(pill).toBeDefined();
+    const style = pill?.getAttribute('style') ?? '';
+    expect(style).toMatch(/--skn-success/);
   });
 
   it('shows the priority instruction', () => {

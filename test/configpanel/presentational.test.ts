@@ -61,18 +61,18 @@ describe('KindBadge', () => {
     expect(getByText('position')).toBeInTheDocument();
   });
 
-  it('provides an accessible label for position', () => {
+  it('provides an accessible label for position via a visually-hidden span', () => {
     const { container } = render(createElement(KindBadge, { kind: 'position' }));
-    // The badge must have an aria-label or a visually-hidden span with the srLabel.
-    const srText = container.querySelector('[aria-label]') ?? container.querySelector('.sr-only, [data-sr]');
-    // At least one of: aria-label on the pill, or a visually-hidden span with text.
-    const hasAriaLabel = container.querySelector('[aria-label]') !== null;
-    const hasVisuallyHidden =
-      Array.from(container.querySelectorAll('span')).some(
-        (el) => el.textContent && el.textContent.includes('position') && el.getAttribute('aria-hidden') !== 'true',
-      );
-    expect(hasAriaLabel || hasVisuallyHidden).toBe(true);
-    void srText;
+    // KindBadge appends a visually-hidden span carrying the srLabel ("kind: position").
+    // It must be clipped and absolutely positioned (S.visuallyHidden pattern).
+    const spans = Array.from(container.querySelectorAll('span'));
+    const hiddenSpan = spans.find(
+      (el) =>
+        (el as HTMLElement).style.position === 'absolute' &&
+        (el as HTMLElement).style.clip !== '',
+    );
+    expect(hiddenSpan).toBeDefined();
+    expect(hiddenSpan?.textContent).toContain('position');
   });
 
   it('uses the warn style for kind "other"', () => {
@@ -113,10 +113,10 @@ describe('SourceChips', () => {
   });
 
   it('does not show gps.4 or gps.5 as visible chips when there are 5 sources', () => {
-    const { queryByText } = render(createElement(SourceChips, { sources: five }));
+    const { queryByText, container } = render(createElement(SourceChips, { sources: five }));
     // gps.4 and gps.5 may appear in the visually-hidden list but NOT as visible chips.
     // The visible chip text is the direct text nodes; we query for visible chip spans only.
-    const allSpans = Array.from(document.querySelectorAll('span'));
+    const allSpans = Array.from(container.querySelectorAll('span'));
     const visibleChips = allSpans.filter((el) => {
       const s = (el as HTMLElement).style;
       return (

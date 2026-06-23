@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { RawPathConfig } from '../../config.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
@@ -43,21 +43,10 @@ export function PerPathSettings({ row, config, onChange }: Props): React.ReactEl
   const showMinSourcesWarning =
     effectiveMinSources !== undefined && effectiveMinSources > sourceCount;
 
-  // --- Tier 1 controls ---
-
-  const fieldRowStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--skn-space-2)',
-    marginBottom: 'var(--skn-space-1)',
-    flexWrap: 'wrap',
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: 'var(--skn-font-body)',
-    color: 'var(--skn-text-muted)',
-    flex: '0 1 180px',
-  };
+  // Sync the draft when the incoming prop changes (e.g. after a save round-trip).
+  useEffect(() => {
+    setDraftMinSources(config.minSources);
+  }, [config.minSources]);
 
   // --- Tier 2 advanced disclosure ---
 
@@ -66,8 +55,9 @@ export function PerPathSettings({ row, config, onChange }: Props): React.ReactEl
   return (
     <div>
       {/* Tier 1: method */}
-      <div style={fieldRowStyle}>
-        <label htmlFor="skn-method" style={labelStyle}>
+      <div style={S.fieldRow}>
+        {/* Narrower flex-basis than S.label (180px vs 280px) so short labels stay compact in this panel. */}
+        <label htmlFor="skn-method" style={{ ...S.label, flex: '0 1 180px' }}>
           Method
         </label>
         <select
@@ -88,8 +78,8 @@ export function PerPathSettings({ row, config, onChange }: Props): React.ReactEl
       </div>
 
       {/* Tier 1: minSources */}
-      <div style={fieldRowStyle}>
-        <label htmlFor="skn-min-sources" style={labelStyle}>
+      <div style={S.fieldRow}>
+        <label htmlFor="skn-min-sources" style={{ ...S.label, flex: '0 1 180px' }}>
           Minimum sources
         </label>
         <input
@@ -172,19 +162,8 @@ interface AdvancedFieldsProps {
 }
 
 function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactElement {
-  const fieldRowStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--skn-space-2)',
-    marginBottom: 'var(--skn-space-1)',
-    flexWrap: 'wrap',
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: 'var(--skn-font-body)',
-    color: 'var(--skn-text-muted)',
-    flex: '0 1 220px',
-  };
+  // Narrower flex-basis than S.label (220px vs 280px) to match the longer Advanced labels.
+  const advLabelStyle: React.CSSProperties = { ...S.label, flex: '0 1 220px' };
 
   function numberField(
     label: string,
@@ -205,8 +184,8 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
     >
   ): React.ReactElement {
     return (
-      <div style={fieldRowStyle}>
-        <label htmlFor={id} style={labelStyle}>
+      <div style={S.fieldRow}>
+        <label htmlFor={id} style={advLabelStyle}>
           {label}
         </label>
         <input
@@ -275,8 +254,8 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
       )}
 
       {/* Angular override */}
-      <div style={fieldRowStyle}>
-        <label htmlFor="skn-angular" style={labelStyle}>
+      <div style={S.fieldRow}>
+        <label htmlFor="skn-angular" style={advLabelStyle}>
           Angular (circular averaging)
         </label>
         <select
@@ -295,8 +274,8 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
       </div>
 
       {/* Jump rejection: just maxRate for now */}
-      <div style={fieldRowStyle}>
-        <label htmlFor="skn-jump-max-rate" style={labelStyle}>
+      <div style={S.fieldRow}>
+        <label htmlFor="skn-jump-max-rate" style={advLabelStyle}>
           Jump rejection max rate
         </label>
         <input

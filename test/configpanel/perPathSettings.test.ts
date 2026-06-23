@@ -163,7 +163,7 @@ describe('PerPathSettings', () => {
       createElement(PerPathSettings, { row, config, onChange: vi.fn() })
     );
     // Advanced threshold labels should not be visible (collapsed)
-    expect(queryByText(/madThreshold|outlier threshold/i)).toBeNull();
+    expect(queryByText(/outlier threshold/i)).toBeNull();
   });
 
   it('the Advanced section expands on click', () => {

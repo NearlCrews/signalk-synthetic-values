@@ -1,12 +1,14 @@
+// @vitest-environment jsdom
 // Tests for the pure state transitions in usePanelConfig.
-// No DOM rendering: we drive the exported pure functions directly.
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
 
 import {
   applyAddPath,
   applyAddAllCombinable,
   applyRemovePath,
   applyUpdatePath,
+  usePanelConfig,
 } from '../../src/configpanel/hooks/usePanelConfig.js';
 import type { PluginOptions } from '../../src/config.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
@@ -164,26 +166,46 @@ describe('applyUpdatePath', () => {
   });
 });
 
-// -- save integration ---------------------------------------------------------
+// -- usePanelConfig hook (renderHook) ----------------------------------------
 
-describe('usePanelConfig save', () => {
-  it('calls save with the full PluginOptions object including top-level defaults', async () => {
-    // Dynamic import so the test can exercise the hook save path.
-    // We call the save wrapper directly by constructing what the hook does:
-    // save({ ...options, paths }).
+describe('usePanelConfig hook', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('commit() calls save with the full PluginOptions and saved becomes true', async () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
 
-    // Simulate what commit() does: spread the options and pass updated paths.
-    const options = { ...baseOptions };
-    const updatedPaths = [{ path: 'navigation.position' }];
-    await mockSave({ ...options, paths: updatedPaths });
+    const { result } = renderHook(() => usePanelConfig(baseOptions, mockSave));
+
+    // Mutate state first, then commit in a separate act so the state update settles.
+    act(() => {
+      result.current.addPath('navigation.position');
+    });
+    await act(async () => {
+      await result.current.commit();
+    });
 
     expect(mockSave).toHaveBeenCalledOnce();
     const calledWith = mockSave.mock.calls[0]?.[0] as PluginOptions;
+
+    // The path added before commit must be present.
     expect(calledWith.paths).toEqual([{ path: 'navigation.position' }]);
-    expect(calledWith.defaultStalenessTimeoutMs).toBe(5000);
-    expect(calledWith.defaultEmitMinIntervalMs).toBe(500);
-    expect(calledWith.defaultMinSources).toBe(2);
-    expect(calledWith.maxSourcesPerPath).toBe(16);
+
+    // Top-level defaults must be preserved intact.
+    expect(calledWith.defaultStalenessTimeoutMs).toBe(baseOptions.defaultStalenessTimeoutMs);
+    expect(calledWith.defaultEmitMinIntervalMs).toBe(baseOptions.defaultEmitMinIntervalMs);
+    expect(calledWith.defaultMinSources).toBe(baseOptions.defaultMinSources);
+    expect(calledWith.maxSourcesPerPath).toBe(baseOptions.maxSourcesPerPath);
+
+    // saved flag becomes true after a successful commit.
+    expect(result.current.saved).toBe(true);
+
+    // saving flag must be false once the commit resolves.
+    expect(result.current.saving).toBe(false);
   });
 });

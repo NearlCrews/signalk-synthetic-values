@@ -66,7 +66,7 @@ export interface UsePanelConfigResult {
   /** True for a moment after a successful save, to show a confirmation. */
   saved: boolean;
   addPath: (path: string) => void;
-  addAllCombinable: (rows: DetectedRow[]) => void;
+  addAllCombinable: (rows: ReadonlyArray<DetectedRow>) => void;
   removePath: (path: string) => void;
   updatePath: (path: string, patch: Partial<RawPathConfig>) => void;
   /** Persist the current options via the host save callback. */
@@ -99,7 +99,7 @@ export function usePanelConfig(
     setOptions((prev) => applyAddPath(prev, path));
   }, []);
 
-  const addAllCombinable = useCallback((rows: DetectedRow[]): void => {
+  const addAllCombinable = useCallback((rows: ReadonlyArray<DetectedRow>): void => {
     setOptions((prev) => applyAddAllCombinable(prev, rows));
   }, []);
 
