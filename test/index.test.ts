@@ -194,5 +194,7 @@ describe('plugin integration', () => {
     const res = h.routerGet(router, '/api/detected')
     expect(res.paths.map((p: any) => p.path)).toContain('navigation.position')
     expect(res.paths.find((p: any) => p.path === 'navigation.position').optedIn).toBe(false)
+    // Path is only discovered, not opted in, so no synthetic value should have been emitted.
+    expect(h.emitted).toHaveLength(0)
   })
 })

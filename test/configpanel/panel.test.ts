@@ -142,6 +142,44 @@ describe('PluginConfigurationPanel', () => {
     });
   });
 
+  it('a no-change tuning edit does not call save after the debounce fires', async () => {
+    const mockSave = vi.fn().mockResolvedValue(undefined);
+    render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
+
+    await waitFor(() => {
+      expect(screen.getByText(combinedPath)).toBeInTheDocument();
+    });
+
+    // Open the Tune disclosure on the combined row.
+    const tuneBtn = screen.getByRole('button', { name: /tune/i });
+    fireEvent.click(tuneBtn);
+
+    const minSourcesInput = screen.getByLabelText(/minimum sources/i);
+
+    // Record save calls before the tuning edit.
+    const callsBefore = mockSave.mock.calls.length;
+
+    vi.useFakeTimers();
+
+    // Set minSources to 3 so it becomes the "saved" baseline.
+    fireEvent.change(minSourcesInput, { target: { value: '3' } });
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    const callsAfterFirst = mockSave.mock.calls.length;
+    expect(callsAfterFirst).toBe(callsBefore + 1);
+
+    // Now set it back to the same value: this should be a no-op save.
+    fireEvent.change(minSourcesInput, { target: { value: '3' } });
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+
+    vi.useRealTimers();
+
+    // No additional save should have fired.
+    expect(mockSave.mock.calls.length).toBe(callsAfterFirst);
+  });
+
   it('debounces tuning updates: save is called after the debounce delay with the patched entry and preserved defaults', async () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Tests for the pure state transitions in usePanelConfig.
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 
 import {
@@ -166,46 +166,66 @@ describe('applyUpdatePath', () => {
   });
 });
 
+// -- applyUpdatePath: undefined patch values remove the key ------------------
+
+describe('applyUpdatePath: clearing a field', () => {
+  it('removes a key when its patch value is undefined', () => {
+    const withEntry: PluginOptions = {
+      ...baseOptions,
+      paths: [{ path: 'navigation.position', minSources: 3 }],
+    };
+    const next = applyUpdatePath(withEntry, 'navigation.position', { minSources: undefined });
+    expect(Object.prototype.hasOwnProperty.call(next.paths[0], 'minSources')).toBe(false);
+  });
+
+  it('removes an advanced field when cleared, so the plugin default re-applies', () => {
+    const withEntry: PluginOptions = {
+      ...baseOptions,
+      paths: [{ path: 'navigation.depth', madThreshold: 5 }],
+    };
+    const next = applyUpdatePath(withEntry, 'navigation.depth', { madThreshold: undefined });
+    expect(Object.prototype.hasOwnProperty.call(next.paths[0], 'madThreshold')).toBe(false);
+  });
+
+  it('still merges a defined patch value as before', () => {
+    const withEntry: PluginOptions = {
+      ...baseOptions,
+      paths: [{ path: 'navigation.position', minSources: 2 }],
+    };
+    const next = applyUpdatePath(withEntry, 'navigation.position', { minSources: 4 });
+    expect(next.paths[0]?.minSources).toBe(4);
+  });
+});
+
 // -- usePanelConfig hook (renderHook) ----------------------------------------
 
 describe('usePanelConfig hook', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
+  it('updatePath propagates into options state', () => {
+    const { result } = renderHook(() => usePanelConfig(baseOptions));
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('commit() calls save with the full PluginOptions and saved becomes true', async () => {
-    const mockSave = vi.fn().mockResolvedValue(undefined);
-
-    const { result } = renderHook(() => usePanelConfig(baseOptions, mockSave));
-
-    // Mutate state first, then commit in a separate act so the state update settles.
     act(() => {
       result.current.addPath('navigation.position');
     });
-    await act(async () => {
-      await result.current.commit();
+    act(() => {
+      result.current.updatePath('navigation.position', { minSources: 4 });
     });
 
-    expect(mockSave).toHaveBeenCalledOnce();
-    const calledWith = mockSave.mock.calls[0]?.[0] as PluginOptions;
+    const entry = result.current.options.paths.find((p) => p.path === 'navigation.position');
+    expect(entry?.minSources).toBe(4);
+  });
 
-    // The path added before commit must be present.
-    expect(calledWith.paths).toEqual([{ path: 'navigation.position' }]);
+  it('updatePath with undefined removes the key from the path entry', () => {
+    const initial: PluginOptions = {
+      ...baseOptions,
+      paths: [{ path: 'navigation.position', minSources: 3 }],
+    };
+    const { result } = renderHook(() => usePanelConfig(initial));
 
-    // Top-level defaults must be preserved intact.
-    expect(calledWith.defaultStalenessTimeoutMs).toBe(baseOptions.defaultStalenessTimeoutMs);
-    expect(calledWith.defaultEmitMinIntervalMs).toBe(baseOptions.defaultEmitMinIntervalMs);
-    expect(calledWith.defaultMinSources).toBe(baseOptions.defaultMinSources);
-    expect(calledWith.maxSourcesPerPath).toBe(baseOptions.maxSourcesPerPath);
+    act(() => {
+      result.current.updatePath('navigation.position', { minSources: undefined });
+    });
 
-    // saved flag becomes true after a successful commit.
-    expect(result.current.saved).toBe(true);
-
-    // saving flag must be false once the commit resolves.
-    expect(result.current.saving).toBe(false);
+    const entry = result.current.options.paths.find((p) => p.path === 'navigation.position');
+    expect(Object.prototype.hasOwnProperty.call(entry, 'minSources')).toBe(false);
   });
 });

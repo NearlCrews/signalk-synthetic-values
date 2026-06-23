@@ -6,7 +6,7 @@ import { createElement } from 'react';
 
 import { SourceChecklist } from '../../src/configpanel/components/SourceChecklist.js';
 import { PerPathSettings } from '../../src/configpanel/components/PerPathSettings.js';
-import type { RawPathConfig } from '../../src/config.js';
+import type { RawPathConfig, RawPathConfigPatch } from '../../src/config.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
 
 // ---------------------------------------------------------------------------
@@ -27,6 +27,7 @@ describe('SourceChecklist', () => {
         includeSources: undefined,
         excludeSources: undefined,
         onChange: vi.fn(),
+        idPrefix: 'test-row',
       })
     );
     expect(getAllByRole('checkbox')).toHaveLength(3);
@@ -40,13 +41,14 @@ describe('SourceChecklist', () => {
         includeSources: undefined,
         excludeSources: undefined,
         onChange,
+        idPrefix: 'test-row',
       })
     );
     const checkboxes = getAllByRole('checkbox') as HTMLInputElement[];
     // Uncheck gps.1 (the first checkbox)
     fireEvent.click(checkboxes[0] as HTMLElement);
     expect(onChange).toHaveBeenCalledOnce();
-    const payload: Partial<RawPathConfig> = onChange.mock.calls[0][0];
+    const payload: RawPathConfigPatch = onChange.mock.calls[0][0];
 
     // Must have excludeSources containing the unchecked source
     expect(payload.excludeSources).toContain('gps.1');
@@ -65,6 +67,7 @@ describe('SourceChecklist', () => {
         includeSources: undefined,
         excludeSources: undefined,
         onChange,
+        idPrefix: 'test-row',
       })
     );
     const checkboxes = getAllByRole('checkbox') as HTMLInputElement[];
@@ -73,7 +76,7 @@ describe('SourceChecklist', () => {
     }
 
     for (const call of onChange.mock.calls) {
-      const payload: Partial<RawPathConfig> = call[0];
+      const payload: RawPathConfigPatch = call[0];
       const hasIncludes =
         Array.isArray(payload.includeSources) && payload.includeSources.length > 0;
       const hasExcludes =
@@ -90,12 +93,13 @@ describe('SourceChecklist', () => {
         includeSources: ['gps.1', 'gps.2', 'gps.3'],
         excludeSources: undefined,
         onChange,
+        idPrefix: 'test-row',
       })
     );
     const checkboxes = getAllByRole('checkbox') as HTMLInputElement[];
     // Uncheck gps.1
     fireEvent.click(checkboxes[0] as HTMLElement);
-    const payload: Partial<RawPathConfig> = onChange.mock.calls[0][0];
+    const payload: RawPathConfigPatch = onChange.mock.calls[0][0];
 
     // Must NOT produce excludeSources when includeSources was pre-set
     const hasExcludes = Array.isArray(payload.excludeSources) && payload.excludeSources.length > 0;
@@ -127,9 +131,11 @@ describe('PerPathSettings', () => {
     path: 'navigation.speedOverGround',
   };
 
+  const idPrefix = 'test-row';
+
   it('renders Tier 1 controls: method selector, minSources input, and source checklist', () => {
     const { getByLabelText, getAllByRole } = render(
-      createElement(PerPathSettings, { row, config, onChange: vi.fn() })
+      createElement(PerPathSettings, { row, config, onChange: vi.fn(), idPrefix })
     );
     // Method selector
     expect(getByLabelText(/method/i)).toBeInTheDocument();
@@ -142,7 +148,7 @@ describe('PerPathSettings', () => {
   it('raises minSources past source count and renders a warning but still fires onChange', () => {
     const onChange = vi.fn();
     const { getByLabelText, getByText } = render(
-      createElement(PerPathSettings, { row, config, onChange })
+      createElement(PerPathSettings, { row, config, onChange, idPrefix })
     );
     const minSourcesInput = getByLabelText(/minimum sources/i) as HTMLInputElement;
     // row has 3 sources; set minSources to 5 (above count)
@@ -154,13 +160,28 @@ describe('PerPathSettings', () => {
     // onChange must still have fired with the new value
     expect(onChange).toHaveBeenCalled();
     const calls = onChange.mock.calls;
-    const lastPayload: Partial<RawPathConfig> = calls[calls.length - 1][0];
+    const lastPayload: RawPathConfigPatch = calls[calls.length - 1][0];
     expect(lastPayload.minSources).toBe(5);
+  });
+
+  it('clearing minSources emits { minSources: undefined } to signal key removal', () => {
+    const onChange = vi.fn();
+    const configWithMin: RawPathConfig = { path: 'navigation.speedOverGround', minSources: 3 };
+    const { getByLabelText } = render(
+      createElement(PerPathSettings, { row, config: configWithMin, onChange, idPrefix })
+    );
+    const minSourcesInput = getByLabelText(/minimum sources/i) as HTMLInputElement;
+    // Clear the field
+    fireEvent.change(minSourcesInput, { target: { value: '' } });
+    expect(onChange).toHaveBeenCalled();
+    const payload: RawPathConfigPatch = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(Object.prototype.hasOwnProperty.call(payload, 'minSources')).toBe(true);
+    expect(payload.minSources).toBeUndefined();
   });
 
   it('the Advanced section is collapsed by default', () => {
     const { queryByText } = render(
-      createElement(PerPathSettings, { row, config, onChange: vi.fn() })
+      createElement(PerPathSettings, { row, config, onChange: vi.fn(), idPrefix })
     );
     // Advanced threshold labels should not be visible (collapsed)
     expect(queryByText(/outlier threshold/i)).toBeNull();
@@ -168,7 +189,7 @@ describe('PerPathSettings', () => {
 
   it('the Advanced section expands on click', () => {
     const { getByText } = render(
-      createElement(PerPathSettings, { row, config, onChange: vi.fn() })
+      createElement(PerPathSettings, { row, config, onChange: vi.fn(), idPrefix })
     );
     const advancedToggle = getByText(/advanced/i);
     fireEvent.click(advancedToggle);

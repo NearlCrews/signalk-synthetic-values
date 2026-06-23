@@ -1,6 +1,6 @@
 import type * as React from 'react';
 import { useCallback, useId, useRef, useState } from 'react';
-import type { RawPathConfig } from '../../config.js';
+import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import { COMBINABLE_KINDS } from '../constants.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
@@ -141,7 +141,7 @@ interface NonCombinableGroupProps {
   configByPath: Map<string, RawPathConfig>;
   onAdd: (path: string) => void;
   onRemove: (path: string) => void;
-  onUpdate: (path: string, patch: Partial<RawPathConfig>) => void;
+  onUpdate: (path: string, patch: RawPathConfigPatch) => void;
   bodyId: string;
 }
 
@@ -272,7 +272,7 @@ export interface DetectedPathListProps {
   /** Called with the exact slice of combinable, not-yet-configured rows to add. */
   onAddAll: (rows: DetectedRow[]) => void;
   onRemove: (path: string) => void;
-  onUpdate: (path: string, patch: Partial<RawPathConfig>) => void;
+  onUpdate: (path: string, patch: RawPathConfigPatch) => void;
   lastChecked: number | null;
   loading: boolean;
   error: string | null;

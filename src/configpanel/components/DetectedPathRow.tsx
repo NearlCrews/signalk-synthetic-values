@@ -1,6 +1,6 @@
 import type * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { RawPathConfig } from '../../config.js';
+import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
 import { KindBadge } from './KindBadge.js';
@@ -23,7 +23,7 @@ export interface DetectedPathRowProps {
   config: RawPathConfig | undefined;
   onAdd: (path: string) => void;
   onRemove: (path: string) => void;
-  onUpdate: (path: string, patch: Partial<RawPathConfig>) => void;
+  onUpdate: (path: string, patch: RawPathConfigPatch) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +101,8 @@ interface TuneSectionProps {
   tuneBodyId: string;
   tuneToggleRef: React.RefObject<HTMLButtonElement | null>;
   onToggle: () => void;
-  onUpdate: (patch: Partial<RawPathConfig>) => void;
+  onUpdate: (patch: RawPathConfigPatch) => void;
+  idPrefix: string;
 }
 
 function TuneSection({
@@ -112,6 +113,7 @@ function TuneSection({
   tuneToggleRef,
   onToggle,
   onUpdate,
+  idPrefix,
 }: TuneSectionProps): React.ReactElement {
   return (
     <div style={{ borderTop: '1px solid var(--skn-border)' }}>
@@ -137,7 +139,7 @@ function TuneSection({
           id={tuneBodyId}
           style={{ padding: 'var(--skn-space-1) var(--skn-space-2) var(--skn-space-2)' }}
         >
-          <PerPathSettings row={row} config={config} onChange={onUpdate} />
+          <PerPathSettings row={row} config={config} onChange={onUpdate} idPrefix={idPrefix} />
         </div>
       ) : (
         <div id={tuneBodyId} hidden />
@@ -195,7 +197,7 @@ export function DetectedPathRow({
   }, []);
 
   const handleUpdate = useCallback(
-    (patch: Partial<RawPathConfig>) => {
+    (patch: RawPathConfigPatch) => {
       onUpdate(path, patch);
     },
     [onUpdate, path]
@@ -322,6 +324,7 @@ export function DetectedPathRow({
           tuneToggleRef={tuneToggleRef}
           onToggle={handleTuneToggle}
           onUpdate={handleUpdate}
+          idPrefix={safeId}
         />
       )}
     </div>

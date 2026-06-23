@@ -39,6 +39,16 @@ export interface PathConfig {
   slewLimit?: number | undefined;
 }
 
+/**
+ * A patch object for RawPathConfig where a value of `undefined` means
+ * "remove this key from the entry so the plugin default re-applies".
+ * Separate from `Partial<RawPathConfig>` because `exactOptionalPropertyTypes`
+ * does not permit explicit `undefined` in a standard `Partial<>`.
+ */
+export type RawPathConfigPatch = {
+  [K in keyof RawPathConfig]?: RawPathConfig[K] | undefined;
+};
+
 export interface PluginOptions {
   defaultStalenessTimeoutMs: number;
   defaultEmitMinIntervalMs: number;

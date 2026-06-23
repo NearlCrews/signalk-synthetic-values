@@ -1,12 +1,14 @@
 import type * as React from 'react';
-import type { RawPathConfig } from '../../config.js';
+import type { RawPathConfigPatch } from '../../config.js';
 import { S } from '../styles.js';
 
 interface Props {
   sources: string[];
   includeSources: string[] | undefined;
   excludeSources: string[] | undefined;
-  onChange: (patch: Partial<RawPathConfig>) => void;
+  onChange: (patch: RawPathConfigPatch) => void;
+  /** Prefix for all DOM ids in this instance to avoid duplicates across rows. */
+  idPrefix: string;
 }
 
 /**
@@ -24,6 +26,7 @@ export function SourceChecklist({
   includeSources,
   excludeSources,
   onChange,
+  idPrefix,
 }: Props): React.ReactElement {
   const useIncludeModel = Array.isArray(includeSources) && includeSources.length > 0;
 
@@ -63,7 +66,7 @@ export function SourceChecklist({
     <div>
       <div style={{ ...S.textSmallMuted, marginBottom: 4 }}>Sources</div>
       {sources.map((src) => {
-        const id = `skn-src-${src.replace(/[^a-z0-9]/gi, '-')}`;
+        const id = `${idPrefix}-src-${src.replace(/[^a-z0-9]/gi, '-')}`;
         return (
           <div key={src} style={rowStyle}>
             <input

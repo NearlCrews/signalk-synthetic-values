@@ -1,6 +1,6 @@
 import type * as React from 'react';
 import { useEffect, useState } from 'react';
-import type { RawPathConfig } from '../../config.js';
+import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
 import { SourceChecklist } from './SourceChecklist.js';
@@ -8,7 +8,9 @@ import { SourceChecklist } from './SourceChecklist.js';
 interface Props {
   row: DetectedRow;
   config: RawPathConfig;
-  onChange: (patch: Partial<RawPathConfig>) => void;
+  onChange: (patch: RawPathConfigPatch) => void;
+  /** Prefix for all DOM ids in this instance to avoid duplicates across rows. */
+  idPrefix: string;
 }
 
 const METHOD_CHOICES = [
@@ -31,7 +33,7 @@ const ANGULAR_CHOICES = [
  * Raising minSources above the row's live source count shows an inline
  * warning but does not block the onChange.
  */
-export function PerPathSettings({ row, config, onChange }: Props): React.ReactElement {
+export function PerPathSettings({ row, config, onChange, idPrefix }: Props): React.ReactElement {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   // Track the draft minSources value locally so the warning shows immediately
   // as the user types, before the parent re-renders with the new prop.
@@ -51,17 +53,20 @@ export function PerPathSettings({ row, config, onChange }: Props): React.ReactEl
   // --- Tier 2 advanced disclosure ---
 
   const caretChar = advancedOpen ? '▾' : '▸';
+  const methodId = `${idPrefix}-method`;
+  const minSourcesId = `${idPrefix}-min-sources`;
+  const advancedBodyId = `${idPrefix}-advanced-body`;
 
   return (
     <div>
       {/* Tier 1: method */}
       <div style={S.fieldRow}>
         {/* Narrower flex-basis than S.label (180px vs 280px) so short labels stay compact in this panel. */}
-        <label htmlFor="skn-method" style={{ ...S.label, flex: '0 1 180px' }}>
+        <label htmlFor={methodId} style={{ ...S.label, flex: '0 1 180px' }}>
           Method
         </label>
         <select
-          id="skn-method"
+          id={methodId}
           aria-label="Method"
           style={S.select}
           value={config.method ?? 'median'}
@@ -79,11 +84,11 @@ export function PerPathSettings({ row, config, onChange }: Props): React.ReactEl
 
       {/* Tier 1: minSources */}
       <div style={S.fieldRow}>
-        <label htmlFor="skn-min-sources" style={{ ...S.label, flex: '0 1 180px' }}>
+        <label htmlFor={minSourcesId} style={{ ...S.label, flex: '0 1 180px' }}>
           Minimum sources
         </label>
         <input
-          id="skn-min-sources"
+          id={minSourcesId}
           type="number"
           min={1}
           aria-label="Minimum sources"
@@ -94,8 +99,7 @@ export function PerPathSettings({ row, config, onChange }: Props): React.ReactEl
             const n = Number(e.target.value);
             if (e.target.value.trim() === '') {
               setDraftMinSources(undefined);
-              // Omit the key entirely to satisfy exactOptionalPropertyTypes.
-              onChange({});
+              onChange({ minSources: undefined });
             } else if (Number.isFinite(n) && n >= 1) {
               const truncated = Math.trunc(n);
               setDraftMinSources(truncated);
@@ -121,6 +125,7 @@ export function PerPathSettings({ row, config, onChange }: Props): React.ReactEl
             includeSources={config.includeSources}
             excludeSources={config.excludeSources}
             onChange={onChange}
+            idPrefix={idPrefix}
           />
         </div>
       )}
@@ -131,7 +136,7 @@ export function PerPathSettings({ row, config, onChange }: Props): React.ReactEl
           type="button"
           style={S.disclosureToggle}
           aria-expanded={advancedOpen}
-          aria-controls="skn-advanced-body"
+          aria-controls={advancedBodyId}
           onClick={() => setAdvancedOpen((o) => !o)}
         >
           <span aria-hidden="true" style={{ marginRight: 6 }}>
@@ -141,11 +146,11 @@ export function PerPathSettings({ row, config, onChange }: Props): React.ReactEl
         </button>
 
         {advancedOpen ? (
-          <div id="skn-advanced-body" style={S.disclosureBody}>
-            <AdvancedFields config={config} onChange={onChange} />
+          <div id={advancedBodyId} style={S.disclosureBody}>
+            <AdvancedFields config={config} onChange={onChange} idPrefix={idPrefix} />
           </div>
         ) : (
-          <div id="skn-advanced-body" hidden />
+          <div id={advancedBodyId} hidden />
         )}
       </div>
     </div>
@@ -158,16 +163,17 @@ export function PerPathSettings({ row, config, onChange }: Props): React.ReactEl
 
 interface AdvancedFieldsProps {
   config: RawPathConfig;
-  onChange: (patch: Partial<RawPathConfig>) => void;
+  onChange: (patch: RawPathConfigPatch) => void;
+  idPrefix: string;
 }
 
-function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactElement {
+function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): React.ReactElement {
   // Narrower flex-basis than S.label (220px vs 280px) to match the longer Advanced labels.
   const advLabelStyle: React.CSSProperties = { ...S.label, flex: '0 1 220px' };
 
   function numberField(
     label: string,
-    id: string,
+    idSuffix: string,
     ariaLabel: string,
     value: number | undefined,
     placeholder: string,
@@ -183,6 +189,7 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
       | 'slewLimit'
     >
   ): React.ReactElement {
+    const id = `${idPrefix}-${idSuffix}`;
     return (
       <div style={S.fieldRow}>
         <label htmlFor={id} style={advLabelStyle}>
@@ -199,8 +206,7 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
           onChange={(e) => {
             const n = Number(e.target.value);
             if (e.target.value.trim() === '') {
-              // Omit the key to satisfy exactOptionalPropertyTypes.
-              onChange({});
+              onChange({ [key]: undefined });
             } else if (Number.isFinite(n)) {
               onChange({ [key]: n });
             }
@@ -210,11 +216,14 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
     );
   }
 
+  const angularId = `${idPrefix}-angular`;
+  const jumpMaxRateId = `${idPrefix}-jump-max-rate`;
+
   return (
     <div>
       {numberField(
         'Outlier threshold (MAD multiplier)',
-        'skn-mad',
+        'mad',
         'MAD threshold',
         config.madThreshold,
         'default: 3',
@@ -222,7 +231,7 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
       )}
       {numberField(
         'Reject threshold (absolute distance)',
-        'skn-reject',
+        'reject',
         'Reject threshold',
         config.rejectThreshold,
         'not set',
@@ -230,7 +239,7 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
       )}
       {numberField(
         'Disagree threshold (max spread)',
-        'skn-disagree',
+        'disagree',
         'Disagree threshold',
         config.disagreeThreshold,
         'not set',
@@ -238,7 +247,7 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
       )}
       {numberField(
         'Angular spread threshold (radians)',
-        'skn-angular-spread',
+        'angular-spread',
         'Angular spread threshold',
         config.angularSpreadThreshold,
         'default: π/2',
@@ -246,7 +255,7 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
       )}
       {numberField(
         'Trim fraction (0 to 0.5)',
-        'skn-trim',
+        'trim',
         'Trim fraction',
         config.trimFraction,
         'default: 0.25',
@@ -255,11 +264,11 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
 
       {/* Angular override */}
       <div style={S.fieldRow}>
-        <label htmlFor="skn-angular" style={advLabelStyle}>
+        <label htmlFor={angularId} style={advLabelStyle}>
           Angular (circular averaging)
         </label>
         <select
-          id="skn-angular"
+          id={angularId}
           aria-label="Angular mode"
           style={S.select}
           value={config.angular ?? 'auto'}
@@ -275,11 +284,11 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
 
       {/* Jump rejection: just maxRate for now */}
       <div style={S.fieldRow}>
-        <label htmlFor="skn-jump-max-rate" style={advLabelStyle}>
+        <label htmlFor={jumpMaxRateId} style={advLabelStyle}>
           Jump rejection max rate
         </label>
         <input
-          id="skn-jump-max-rate"
+          id={jumpMaxRateId}
           type="number"
           min={0}
           aria-label="Jump rejection max rate"
@@ -289,8 +298,7 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
           onChange={(e) => {
             const n = Number(e.target.value);
             if (e.target.value.trim() === '') {
-              // Omit the key to satisfy exactOptionalPropertyTypes.
-              onChange({});
+              onChange({ jumpRejection: undefined });
             } else if (Number.isFinite(n) && n > 0) {
               onChange({
                 jumpRejection: {
@@ -306,7 +314,7 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
 
       {numberField(
         'Slew limit (units/sec)',
-        'skn-slew',
+        'slew',
         'Slew limit',
         config.slewLimit,
         'disabled',
@@ -314,7 +322,7 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
       )}
       {numberField(
         'Staleness timeout (ms)',
-        'skn-staleness',
+        'staleness',
         'Staleness timeout ms',
         config.stalenessTimeoutMs,
         'default: 5000',
@@ -322,7 +330,7 @@ function AdvancedFields({ config, onChange }: AdvancedFieldsProps): React.ReactE
       )}
       {numberField(
         'Emit min interval (ms)',
-        'skn-emit-interval',
+        'emit-interval',
         'Emit min interval ms',
         config.emitMinIntervalMs,
         'default: 500',

@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { PluginOptions, RawPathConfig } from '../../config.js';
+import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import { COMBINABLE_KINDS } from '../constants.js';
 import type { DetectedRow } from './useDetected.js';
 
@@ -42,18 +42,38 @@ export function applyRemovePath(options: PluginOptions, path: string): PluginOpt
 }
 
 /**
- * Merge `patch` into the entry matching `path`. Returns the same object
+ * Merge `patch` into the entry matching `path`. A patch value of `undefined`
+ * removes that key from the entry (so the plugin default re-applies). A patch
+ * value of any defined type merges as before. Returns the same object
  * reference when the path is not present.
  */
 export function applyUpdatePath(
   options: PluginOptions,
   path: string,
-  patch: Partial<RawPathConfig>
+  patch: RawPathConfigPatch
 ): PluginOptions {
   if (!options.paths.some((p) => p.path === path)) return options;
   return {
     ...options,
-    paths: options.paths.map((p) => (p.path === path ? { ...p, ...patch } : p)),
+    paths: options.paths.map((p) => {
+      if (p.path !== path) return p;
+      // Build a new entry starting from the existing one, then apply the patch.
+      // Keys in the patch that are explicitly `undefined` are omitted from the
+      // result so the plugin default re-applies (satisfies exactOptionalPropertyTypes).
+      const next: RawPathConfig = { path: p.path };
+      const merged = { ...p, ...patch };
+      for (const k of Object.keys(merged) as Array<keyof typeof merged>) {
+        if (k === 'path') continue;
+        const v = merged[k];
+        if (v !== undefined) {
+          // The value is defined; assign it. Cast is safe because `k` and `v`
+          // come from the same object so the types align.
+          // biome-ignore lint/suspicious/noExplicitAny: safe cast; k and v come from the same object
+          (next as any)[k] = v;
+        }
+      }
+      return next;
+    }),
   };
 }
 
@@ -62,15 +82,10 @@ export function applyUpdatePath(
 export interface UsePanelConfigResult {
   /** Current form state: the full PluginOptions being edited. */
   options: PluginOptions;
-  saving: boolean;
-  /** True for a moment after a successful save, to show a confirmation. */
-  saved: boolean;
   addPath: (path: string) => void;
   addAllCombinable: (rows: ReadonlyArray<DetectedRow>) => void;
   removePath: (path: string) => void;
-  updatePath: (path: string, patch: Partial<RawPathConfig>) => void;
-  /** Persist the current options via the host save callback. */
-  commit: () => Promise<void>;
+  updatePath: (path: string, patch: RawPathConfigPatch) => void;
 }
 
 /**
@@ -80,13 +95,8 @@ export interface UsePanelConfigResult {
  * preserved on every save. The pure transitions (`applyAddPath`, etc.) are
  * exported separately for unit testing without a DOM renderer.
  */
-export function usePanelConfig(
-  configuration: PluginOptions,
-  save: (config: PluginOptions) => unknown
-): UsePanelConfigResult {
+export function usePanelConfig(configuration: PluginOptions): UsePanelConfigResult {
   const [options, setOptions] = useState<PluginOptions>(configuration);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
 
   // Resync when the host supplies a new configuration object after a restart.
   const [prevConfiguration, setPrevConfiguration] = useState(configuration);
@@ -107,20 +117,9 @@ export function usePanelConfig(
     setOptions((prev) => applyRemovePath(prev, path));
   }, []);
 
-  const updatePath = useCallback((path: string, patch: Partial<RawPathConfig>): void => {
+  const updatePath = useCallback((path: string, patch: RawPathConfigPatch): void => {
     setOptions((prev) => applyUpdatePath(prev, path, patch));
   }, []);
 
-  const commit = useCallback(async (): Promise<void> => {
-    setSaving(true);
-    setSaved(false);
-    try {
-      await Promise.resolve(save(options));
-      setSaved(true);
-    } finally {
-      setSaving(false);
-    }
-  }, [options, save]);
-
-  return { options, saving, saved, addPath, addAllCombinable, removePath, updatePath, commit };
+  return { options, addPath, addAllCombinable, removePath, updatePath };
 }

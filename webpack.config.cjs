@@ -16,9 +16,9 @@
  * classic script and export nothing via ESM, so the import returns an
  * empty module and the admin UI logs "Could not load module ...". The fix
  * is to emit a real ESM module here via `experiments.outputModule`,
- * `output.module`, and `library: { type: 'module' }`. Sibling plugins with
- * the same `"type": "module"` constraint (`signalk-openrouter-companion`)
- * use this exact configuration.
+ * `output.module`, and `library: { type: 'module' }`. Sibling plugins that
+ * use this same Module Federation pattern (`signalk-virtual-weather-sensors`,
+ * `signalk-nmea2000-emitter-cannon`) are the templates this config mirrors.
  *
  * This config sits alongside `esbuild.config.js`. esbuild builds the plugin
  * runtime; webpack builds only the panel into `public/`. Both run from the

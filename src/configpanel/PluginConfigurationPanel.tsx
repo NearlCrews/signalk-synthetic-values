@@ -1,6 +1,6 @@
 import type * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { PluginOptions, RawPathConfig } from '../config.js';
+import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../config.js';
 import { DetectedPathList } from './components/DetectedPathList.js';
 import { PriorityBanner } from './components/PriorityBanner.js';
 import ThemeToggle from './components/ThemeToggle.js';
@@ -40,10 +40,8 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
   }, []);
 
   // Form state: holds the full PluginOptions being edited.
-  const { options, addPath, addAllCombinable, removePath, updatePath } = usePanelConfig(
-    configuration,
-    save
-  );
+  const { options, addPath, addAllCombinable, removePath, updatePath } =
+    usePanelConfig(configuration);
 
   // Live detection: polls /api/detected every 10 s.
   const { paths: detected, lastChecked, loading, error, refresh } = useDetected();
@@ -110,8 +108,12 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
     [options, save, removePath, refresh]
   );
 
+  // Ref that always holds the last successfully saved options so the no-op
+  // guard can compare without a stale closure.
+  const savedOptionsRef = useRef<PluginOptions>(configuration);
+
   const handleUpdate = useCallback(
-    (path: string, patch: Partial<RawPathConfig>): void => {
+    (path: string, patch: RawPathConfigPatch): void => {
       // Update local state immediately for responsive UI.
       updatePath(path, patch);
       // Debounce the persist call so rapid number-input keystrokes do not
@@ -122,6 +124,10 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
         // optionsRef.current is always the latest React state, avoiding a
         // stale closure. Apply the patch and persist the full PluginOptions.
         const next = applyUpdatePath(optionsRef.current, path, patch);
+        // Skip saving when nothing actually changed to avoid a pointless
+        // plugin restart.
+        if (JSON.stringify(next) === JSON.stringify(savedOptionsRef.current)) return;
+        savedOptionsRef.current = next;
         void Promise.resolve(save(next));
       }, 500);
     },
