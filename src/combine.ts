@@ -1,4 +1,5 @@
 import { angularDistance, distance, Kind, SampleValue, LatLon } from './metrics'
+import { maxPairwiseDistance } from './metrics'
 
 const TWO_PI = 2 * Math.PI
 
@@ -93,4 +94,84 @@ export function rejectMask(
     return distances.map((d) => d <= rejectThreshold)
   }
   return values.map(() => true)
+}
+
+export type CombineMethod = 'median' | 'trimmedMean' | 'mean'
+export type Outcome =
+  | 'ok' | 'singleSource' | 'belowMin' | 'allStale' | 'diverged' | 'disagree' | 'skipped'
+
+export interface Sample {
+  sourceRef: string
+  value: SampleValue
+}
+
+export interface CombineOptions {
+  kind: Kind
+  method: CombineMethod
+  minSources: number
+  outlierRejection: boolean
+  madThreshold: number
+  rejectThreshold?: number
+  disagreeThreshold?: number
+  angularSpreadThreshold: number
+  trimFraction: number
+}
+
+export interface CombineResult {
+  value?: SampleValue
+  usedSources: string[]
+  freshCount: number
+  outcome: Outcome
+}
+
+const R_MIN = 0.2
+
+function linear(method: CombineMethod, xs: number[], trimFraction: number): number {
+  if (method === 'mean') return mean(xs)
+  if (method === 'trimmedMean') return trimmedMean(xs, trimFraction)
+  return median(xs)
+}
+
+export function combine(samples: Sample[], opts: CombineOptions): CombineResult {
+  const freshCount = samples.length
+  if (freshCount === 0) {
+    return { usedSources: [], freshCount, outcome: 'allStale' }
+  }
+  if (freshCount === 1 && opts.minSources <= 1) {
+    return { value: samples[0].value, usedSources: [samples[0].sourceRef], freshCount, outcome: 'singleSource' }
+  }
+  if (freshCount < opts.minSources) {
+    return { usedSources: samples.map((s) => s.sourceRef), freshCount, outcome: 'belowMin' }
+  }
+
+  let used = samples
+  if (opts.outlierRejection) {
+    const mask = rejectMask(opts.kind, samples.map((s) => s.value), opts.madThreshold, opts.rejectThreshold)
+    used = samples.filter((_, i) => mask[i])
+  }
+  const usedSources = used.map((s) => s.sourceRef)
+
+  let value: SampleValue
+  if (opts.kind === 'angular') {
+    const angles = used.map((s) => s.value as number)
+    const { mean: cm, R } = circularMeanRad(angles)
+    if (R < R_MIN || maxCircularSpread(angles) > opts.angularSpreadThreshold) {
+      return { usedSources, freshCount, outcome: 'diverged' }
+    }
+    value = cm
+  } else if (opts.kind === 'position') {
+    const lats = used.map((s) => (s.value as LatLon).latitude)
+    const lons = used.map((s) => (s.value as LatLon).longitude)
+    const lonMeanRad = circularMeanRad(lonsToRadians(lons)).mean
+    value = { latitude: linear(opts.method, lats, opts.trimFraction), longitude: radiansToLonDegrees(lonMeanRad) }
+  } else {
+    value = linear(opts.method, used.map((s) => s.value as number), opts.trimFraction)
+  }
+
+  let outcome: Outcome = 'ok'
+  if (opts.disagreeThreshold != null) {
+    const spread = maxPairwiseDistance(opts.kind, used.map((s) => s.value))
+    if (spread > opts.disagreeThreshold) outcome = 'disagree'
+  }
+  return { value, usedSources, freshCount, outcome }
 }
