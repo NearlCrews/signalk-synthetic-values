@@ -86,6 +86,8 @@ export function validateConfig(options: PluginOptions): ValidationResult {
       errors.push({ path: id, message: 'duplicate path entry ignored' })
       continue
     }
+    seen.add(id)
+    let hadError = false
     if (raw.includeSources?.length && raw.excludeSources?.length) {
       errors.push({ path: id, message: 'set either includeSources or excludeSources, not both' })
       continue
@@ -119,18 +121,19 @@ export function validateConfig(options: PluginOptions): ValidationResult {
     ] as const) {
       if (v != null && !positive(v)) {
         errors.push({ path: id, message: `${k} must be positive when set` })
+        hadError = true
       }
     }
     if (raw.jumpRejection && !positive(raw.jumpRejection.maxRate)) {
       errors.push({ path: id, message: 'jumpRejection.maxRate must be positive' })
+      hadError = true
     }
-    if (errors.length && errors[errors.length - 1].path === id) continue
+    if (hadError) continue
 
     const outlierRejection = raw.outlierRejection ?? true
     if (!outlierRejection && raw.madThreshold != null) {
       advisories.push({ path: id, message: 'madThreshold ignored while outlierRejection is off' })
     }
-    seen.add(id)
     paths.push({
       path: id,
       method,

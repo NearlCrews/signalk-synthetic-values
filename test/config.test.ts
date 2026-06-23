@@ -36,4 +36,62 @@ describe('validateConfig', () => {
     const r = validateConfig(opts([{ path: 'a', stalenessTimeoutMs: 0 }]))
     expect(r.config.paths).toHaveLength(0)
   })
+  it('rejects an unknown method', () => {
+    const r = validateConfig(opts([{ path: 'a', method: 'bogus' }]))
+    expect(r.config.paths).toHaveLength(0)
+    expect(r.errors[0].path).toBe('a')
+  })
+  it('rejects an unknown angular mode', () => {
+    const r = validateConfig(opts([{ path: 'a', angular: 'maybe' }]))
+    expect(r.config.paths).toHaveLength(0)
+    expect(r.errors[0].path).toBe('a')
+  })
+  it('rejects trimFraction of 0.5 (out of [0, 0.5))', () => {
+    const r = validateConfig(opts([{ path: 'a', trimFraction: 0.5 }]))
+    expect(r.config.paths).toHaveLength(0)
+    expect(r.errors[0].path).toBe('a')
+  })
+  it('rejects trimFraction of -0.1 (out of [0, 0.5))', () => {
+    const r = validateConfig(opts([{ path: 'a', trimFraction: -0.1 }]))
+    expect(r.config.paths).toHaveLength(0)
+    expect(r.errors[0].path).toBe('a')
+  })
+  it('rejects a non-positive emitMinIntervalMs', () => {
+    const r = validateConfig(opts([{ path: 'a', emitMinIntervalMs: 0 }]))
+    expect(r.config.paths).toHaveLength(0)
+    expect(r.errors[0].path).toBe('a')
+  })
+  it('rejects a non-positive minSources', () => {
+    const r = validateConfig(opts([{ path: 'a', minSources: 0 }]))
+    expect(r.config.paths).toHaveLength(0)
+    expect(r.errors[0].path).toBe('a')
+  })
+  it('rejects a non-positive rejectThreshold', () => {
+    const r = validateConfig(opts([{ path: 'a', rejectThreshold: 0 }]))
+    expect(r.config.paths).toHaveLength(0)
+    expect(r.errors[0].path).toBe('a')
+  })
+  it('rejects a non-positive jumpRejection.maxRate', () => {
+    const r = validateConfig(opts([{ path: 'a', jumpRejection: { maxRate: 0 } }]))
+    expect(r.config.paths).toHaveLength(0)
+    expect(r.errors[0].path).toBe('a')
+  })
+  it('rejects a missing path string', () => {
+    const r = validateConfig(opts([{ path: '' }]))
+    expect(r.config.paths).toHaveLength(0)
+    expect(r.errors[0].message).toBe('missing path')
+  })
+  it('rejects the second occurrence of a path even when the first entry is invalid', () => {
+    // First entry: invalid because both includeSources and excludeSources are set.
+    // Second entry: valid on its own, but must be rejected as a duplicate.
+    const r = validateConfig(
+      opts([
+        { path: 'a', includeSources: ['x'], excludeSources: ['y'] },
+        { path: 'a' },
+      ]),
+    )
+    expect(r.config.paths).toHaveLength(0)
+    const dupeError = r.errors.find((e) => e.path === 'a' && e.message === 'duplicate path entry ignored')
+    expect(dupeError).toBeDefined()
+  })
 })
