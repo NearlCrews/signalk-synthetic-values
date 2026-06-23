@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
 // Tests for the pure state transitions in usePanelConfig.
-import { describe, it, expect, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
 
+import { act, renderHook } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import type { PluginOptions } from '../../src/config.js';
+import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
 import {
-  applyAddPath,
   applyAddAllCombinable,
+  applyAddPath,
   applyRemovePath,
   applyUpdatePath,
   usePanelConfig,
 } from '../../src/configpanel/hooks/usePanelConfig.js';
-import type { PluginOptions } from '../../src/config.js';
-import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
 
 const baseOptions: PluginOptions = {
   defaultStalenessTimeoutMs: 5000,
@@ -47,7 +47,10 @@ describe('applyAddPath', () => {
   });
 
   it('does not mutate the input object', () => {
-    const frozen = Object.freeze({ ...baseOptions, paths: Object.freeze([]) as PluginOptions['paths'] });
+    const frozen = Object.freeze({
+      ...baseOptions,
+      paths: Object.freeze([]) as PluginOptions['paths'],
+    });
     const next = applyAddPath(frozen as PluginOptions, 'navigation.headingTrue');
     expect(next).not.toBe(frozen);
     expect(next.paths).toHaveLength(1);
@@ -59,8 +62,18 @@ describe('applyAddPath', () => {
 describe('applyAddAllCombinable', () => {
   const rows: DetectedRow[] = [
     { path: 'navigation.position', sources: ['gps1', 'gps2'], kind: 'position', optedIn: false },
-    { path: 'navigation.headingTrue', sources: ['compass1', 'compass2'], kind: 'angular', optedIn: false },
-    { path: 'environment.depth.belowKeel', sources: ['depth1', 'depth2'], kind: 'scalar', optedIn: false },
+    {
+      path: 'navigation.headingTrue',
+      sources: ['compass1', 'compass2'],
+      kind: 'angular',
+      optedIn: false,
+    },
+    {
+      path: 'environment.depth.belowKeel',
+      sources: ['depth1', 'depth2'],
+      kind: 'scalar',
+      optedIn: false,
+    },
     { path: 'some.unknown.path', sources: ['s1', 's2'], kind: 'unknown', optedIn: false },
     { path: 'vessel.name', sources: ['ais', 'manual'], kind: 'other', optedIn: false },
   ];
@@ -175,7 +188,7 @@ describe('applyUpdatePath: clearing a field', () => {
       paths: [{ path: 'navigation.position', minSources: 3 }],
     };
     const next = applyUpdatePath(withEntry, 'navigation.position', { minSources: undefined });
-    expect(Object.prototype.hasOwnProperty.call(next.paths[0], 'minSources')).toBe(false);
+    expect(Object.hasOwn(next.paths[0], 'minSources')).toBe(false);
   });
 
   it('removes an advanced field when cleared, so the plugin default re-applies', () => {
@@ -184,7 +197,7 @@ describe('applyUpdatePath: clearing a field', () => {
       paths: [{ path: 'navigation.depth', madThreshold: 5 }],
     };
     const next = applyUpdatePath(withEntry, 'navigation.depth', { madThreshold: undefined });
-    expect(Object.prototype.hasOwnProperty.call(next.paths[0], 'madThreshold')).toBe(false);
+    expect(Object.hasOwn(next.paths[0], 'madThreshold')).toBe(false);
   });
 
   it('still merges a defined patch value as before', () => {
@@ -226,7 +239,7 @@ describe('usePanelConfig hook', () => {
     });
 
     const entry = result.current.options.paths.find((p) => p.path === 'navigation.position');
-    expect(Object.prototype.hasOwnProperty.call(entry, 'minSources')).toBe(false);
+    expect(Object.hasOwn(entry, 'minSources')).toBe(false);
   });
 
   it('addAllCombinable adds combinable paths and updates options.paths', () => {

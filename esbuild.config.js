@@ -8,7 +8,7 @@ const config = {
   bundle: true,
   outfile: 'dist/index.js',
   platform: 'node',
-  target: 'node20',
+  target: 'node20.18',
   format: 'esm',
   sourcemap: true,
   // Whitespace and syntax minification are always on (cheap, no debug cost).
@@ -51,9 +51,8 @@ const config = {
   banner: {
     js: `
 // signalk-synthetic-values - Signal K Synthetic Values Plugin
-// Generated: ${new Date().toISOString()}
 // Version: ${packageJson.version}
-// Target: Node.js 20+
+// Target: Node.js 20.18+
 `.trim(),
   },
 

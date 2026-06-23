@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createElement } from 'react';
-
-import PluginConfigurationPanel from '../../src/configpanel/PluginConfigurationPanel.js';
 import type { PluginOptions } from '../../src/config.js';
+import PluginConfigurationPanel from '../../src/configpanel/PluginConfigurationPanel.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures

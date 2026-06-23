@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import { render, fireEvent, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { createElement } from 'react';
-
+import type { RawPathConfig } from '../../src/config.js';
 import { DetectedPathRow } from '../../src/configpanel/components/DetectedPathRow.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
-import type { RawPathConfig } from '../../src/config.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -161,7 +160,12 @@ describe('DetectedPathRow: opted-in row', () => {
     const pill = pills[0] as HTMLElement;
     // Confirm the pill itself (or its containing span in the container) carries success tokens.
     // Fall back to checking the container for the style if the node is a text fragment.
-    const style = pill.getAttribute('style') ?? (container.querySelector('[style*="--skn-success"]') as HTMLElement | null)?.getAttribute('style') ?? '';
+    const style =
+      pill.getAttribute('style') ??
+      (container.querySelector('[style*="--skn-success"]') as HTMLElement | null)?.getAttribute(
+        'style'
+      ) ??
+      '';
     expect(style).toMatch(/--skn-success/);
   });
 

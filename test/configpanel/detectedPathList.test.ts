@@ -1,13 +1,12 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import { render, fireEvent, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { createElement } from 'react';
-
+import type { RawPathConfig } from '../../src/config.js';
 import { DetectedPathList } from '../../src/configpanel/components/DetectedPathList.js';
 import { PriorityBanner } from '../../src/configpanel/components/PriorityBanner.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
-import type { RawPathConfig } from '../../src/config.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures

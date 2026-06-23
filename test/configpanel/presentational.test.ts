@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import '@testing-library/jest-dom';
 import { render } from '@testing-library/react';
 import { createElement } from 'react';
-
-import { kindMeta } from '../../src/configpanel/kindMeta';
 import { KindBadge } from '../../src/configpanel/components/KindBadge';
 import { SourceChips } from '../../src/configpanel/components/SourceChips';
+import { kindMeta } from '../../src/configpanel/kindMeta';
 
 // ---- kindMeta unit tests ----
 
@@ -70,8 +69,7 @@ describe('KindBadge', () => {
     const spans = Array.from(container.querySelectorAll('span'));
     const hiddenSpan = spans.find(
       (el) =>
-        (el as HTMLElement).style.position === 'absolute' &&
-        (el as HTMLElement).style.clip !== '',
+        (el as HTMLElement).style.position === 'absolute' && (el as HTMLElement).style.clip !== ''
     );
     expect(hiddenSpan).toBeDefined();
     expect(hiddenSpan?.textContent).toContain('position');

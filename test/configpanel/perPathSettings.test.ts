@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import { render, fireEvent } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 import { createElement } from 'react';
-
-import { SourceChecklist } from '../../src/configpanel/components/SourceChecklist.js';
-import { PerPathSettings } from '../../src/configpanel/components/PerPathSettings.js';
 import type { RawPathConfig, RawPathConfigPatch } from '../../src/config.js';
+import { PerPathSettings } from '../../src/configpanel/components/PerPathSettings.js';
+import { SourceChecklist } from '../../src/configpanel/components/SourceChecklist.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
 
 // ---------------------------------------------------------------------------
@@ -175,7 +174,7 @@ describe('PerPathSettings', () => {
     fireEvent.change(minSourcesInput, { target: { value: '' } });
     expect(onChange).toHaveBeenCalled();
     const payload: RawPathConfigPatch = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-    expect(Object.prototype.hasOwnProperty.call(payload, 'minSources')).toBe(true);
+    expect(Object.hasOwn(payload, 'minSources')).toBe(true);
     expect(payload.minSources).toBeUndefined();
   });
 

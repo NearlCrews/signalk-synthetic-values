@@ -1,6 +1,6 @@
 // Tests for api-base fetchJson and the useDetected pure reducer.
 // No DOM rendering; we test the pure core directly.
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // -- fetchJson tests ----------------------------------------------------------
 // We must import the module under test after stubbing global.fetch.
@@ -17,9 +17,7 @@ describe('fetchJson', () => {
 
   it('calls the correct URL for /detected', async () => {
     const mockFetch = vi.mocked(fetch);
-    mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ paths: [] }), { status: 200 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ paths: [] }), { status: 200 }));
 
     const { fetchJson } = await import('../../src/configpanel/api-base.js');
     await fetchJson('/detected');
@@ -31,9 +29,7 @@ describe('fetchJson', () => {
 
   it('throws on a non-ok response', async () => {
     const mockFetch = vi.mocked(fetch);
-    mockFetch.mockResolvedValueOnce(
-      new Response('Not Found', { status: 404 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
 
     const { fetchJson } = await import('../../src/configpanel/api-base.js');
     await expect(fetchJson('/detected')).rejects.toThrow('HTTP 404');
@@ -44,9 +40,7 @@ describe('fetchJson', () => {
 
 describe('nextDetectedState', () => {
   it('returns the same state object when the incoming payload is unchanged', async () => {
-    const { nextDetectedState } = await import(
-      '../../src/configpanel/hooks/useDetected.js'
-    );
+    const { nextDetectedState } = await import('../../src/configpanel/hooks/useDetected.js');
 
     const rows = [
       { path: 'navigation.position', sources: ['gps1', 'gps2'], kind: 'position', optedIn: false },
@@ -65,9 +59,7 @@ describe('nextDetectedState', () => {
   });
 
   it('returns a new state object when the incoming payload differs', async () => {
-    const { nextDetectedState } = await import(
-      '../../src/configpanel/hooks/useDetected.js'
-    );
+    const { nextDetectedState } = await import('../../src/configpanel/hooks/useDetected.js');
 
     const rows = [
       { path: 'navigation.position', sources: ['gps1', 'gps2'], kind: 'position', optedIn: false },
@@ -80,7 +72,12 @@ describe('nextDetectedState', () => {
     };
     const newRows = [
       ...rows,
-      { path: 'environment.depth.belowKeel', sources: ['depth1', 'depth2'], kind: 'scalar', optedIn: false },
+      {
+        path: 'environment.depth.belowKeel',
+        sources: ['depth1', 'depth2'],
+        kind: 'scalar',
+        optedIn: false,
+      },
     ];
     const incoming = JSON.stringify({ paths: newRows });
 
@@ -93,9 +90,7 @@ describe('nextDetectedState', () => {
   });
 
   it('returns an error state when the incoming text is not valid JSON', async () => {
-    const { nextDetectedState } = await import(
-      '../../src/configpanel/hooks/useDetected.js'
-    );
+    const { nextDetectedState } = await import('../../src/configpanel/hooks/useDetected.js');
 
     const prev = {
       paths: [],
