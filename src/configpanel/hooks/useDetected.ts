@@ -16,6 +16,8 @@ export interface DetectedRow {
   recommended?: boolean;
   /** Reason shown in the panel when the path is not combinable or not recommended. */
   advisory?: string;
+  /** Groups of sources reporting identical changing values: likely the same feed re-broadcast. */
+  duplicateGroups?: string[][];
 }
 
 interface DetectedResponse {

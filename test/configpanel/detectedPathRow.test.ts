@@ -314,3 +314,78 @@ describe('DetectedPathRow: non-combinable row', () => {
     expect(onAdd).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Not-recommended (GNSS fix metadata) row: combinable but flagged
+// ---------------------------------------------------------------------------
+
+describe('DetectedPathRow: not-recommended row', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const metadataRow: DetectedRow = {
+    path: 'navigation.gnss.satellites',
+    sources: ['gps.1', 'gps.2'],
+    kind: 'scalar',
+    optedIn: false,
+    combinable: true,
+    recommended: false,
+    advisory: 'GNSS fix metadata. It describes one receiver, so averaging it is not meaningful.',
+  };
+
+  it('keeps the Combine button enabled but shows the advisory', () => {
+    render(
+      createElement(DetectedPathRow, {
+        row: metadataRow,
+        config: undefined,
+        onAdd: vi.fn(),
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+      })
+    );
+    expect(screen.getByRole('button', { name: /combine/i })).not.toBeDisabled();
+    expect(screen.getByText(/GNSS fix metadata/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Duplicate-sources hint
+// ---------------------------------------------------------------------------
+
+describe('DetectedPathRow: duplicate sources hint', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('shows a hint naming the duplicated sources', () => {
+    const row: DetectedRow = {
+      ...availableRow,
+      duplicateGroups: [['gps.1', 'gps.2']],
+    };
+    render(
+      createElement(DetectedPathRow, {
+        row,
+        config: undefined,
+        onAdd: vi.fn(),
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+      })
+    );
+    expect(screen.getByText(/identical values and may be the same feed/i)).toBeInTheDocument();
+    expect(screen.getByText(/gps\.1 and gps\.2/i)).toBeInTheDocument();
+  });
+
+  it('shows no hint when there are no duplicate groups', () => {
+    render(
+      createElement(DetectedPathRow, {
+        row: availableRow,
+        config: undefined,
+        onAdd: vi.fn(),
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+      })
+    );
+    expect(screen.queryByText(/may be the same feed/i)).not.toBeInTheDocument();
+  });
+});

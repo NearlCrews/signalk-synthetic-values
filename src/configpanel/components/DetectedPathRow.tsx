@@ -2,6 +2,7 @@ import type * as React from 'react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { NON_NUMERIC_ADVISORY } from '../../combinability.js';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
+import { oxfordJoin } from '../../textFormat.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
 import { KindBadge } from './KindBadge.js';
@@ -24,6 +25,38 @@ export interface DetectedPathRowProps {
 // ---------------------------------------------------------------------------
 // Small pure sub-components (extracted to keep DetectedPathRow complexity ≤ 15)
 // ---------------------------------------------------------------------------
+
+// Hint shown when two or more sources report identical changing values, which
+// usually means one feed is re-broadcast under several names (so it outvotes
+// the independent sensors). Advises excluding the duplicates rather than
+// excluding them automatically, since identical values can be legitimate.
+function DuplicateSourcesHint({ groups }: { groups: string[][] }): React.ReactElement | null {
+  if (groups.length === 0) return null;
+  return (
+    <div
+      style={{
+        paddingLeft: 'calc(var(--skn-space-2) + 3px)',
+        paddingRight: 'var(--skn-space-2)',
+        paddingBottom: 'var(--skn-space-1)',
+      }}
+    >
+      {groups.map((group) => (
+        <span
+          key={group.join('|')}
+          style={{
+            display: 'block',
+            fontSize: 'var(--skn-font-small)',
+            color: 'var(--skn-text-muted)',
+            marginTop: 2,
+          }}
+        >
+          {oxfordJoin(group)} report identical values and may be the same feed re-broadcast.
+          Consider combining only one of them so it does not outvote your independent sensors.
+        </span>
+      ))}
+    </div>
+  );
+}
 
 function SourceCountBadge({ count }: { count: number }): React.ReactElement {
   const label = `${count} source${count !== 1 ? 's' : ''}`;
@@ -305,6 +338,9 @@ export function DetectedPathRow({
           </span>
         </div>
       )}
+
+      {/* Likely-duplicate sources hint */}
+      <DuplicateSourcesHint groups={row.duplicateGroups ?? []} />
 
       {/* Opted-in sub-states */}
       {optedIn && <PriorityInstruction />}

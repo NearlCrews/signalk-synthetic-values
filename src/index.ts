@@ -11,6 +11,7 @@ import type { PathConfig, PluginOptions } from './config';
 import { DEFAULT_MAX_SOURCES_PER_PATH, validateConfig } from './config';
 import type { JumpState, SlewState } from './damping';
 import { applyJump, applySlew } from './damping';
+import type { DetectedPath } from './discovery';
 import { Discovery } from './discovery';
 import { Emitter } from './emitter';
 import type { Kind, SampleValue } from './metrics';
@@ -74,9 +75,9 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   const skipped: { path: string; reason: string }[] = [];
 
   function refreshStatus(): void {
-    // detectedCount only feeds the no-configured-paths message; skip building
-    // the discovery snapshot once any path is configured.
-    const detectedCount = byPath.size === 0 ? discovery.detected().length : 0;
+    // detectedCount only feeds the no-configured-paths message; skip the count
+    // entirely once any path is configured.
+    const detectedCount = byPath.size === 0 ? discovery.count() : 0;
     const next = aggregateStatus(byPath.size, pathOutcome, detectedCount, skipped);
     if (next !== lastStatus) {
       lastStatus = next;
@@ -202,7 +203,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     cat: ValueCategory
   ): void {
     if (cat !== 'number' && cat !== 'latlon') return;
-    discovery.observe(pv.path, src);
+    discovery.observe(pv.path, src, pv.value as SampleValue);
     if (detectedKind.has(pv.path)) return;
     detectedKind.set(
       pv.path,
@@ -244,29 +245,29 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   // Build the /api/detected row for a path. `combinable` is whether the value
   // can be averaged at all (false for text and objects); `recommended` is
   // whether averaging is meaningful (false for GNSS fix metadata). `advisory`
-  // explains either negative case for the panel.
-  function detectedRow(
-    path: string,
-    sources: string[]
-  ): {
+  // explains either negative case for the panel. `duplicateGroups` flags sources
+  // that look like the same feed re-broadcast.
+  function detectedRow(d: DetectedPath): {
     path: string;
     sources: string[];
     kind: string;
     optedIn: boolean;
     combinable: boolean;
     recommended: boolean;
+    duplicateGroups: string[][];
     advisory?: string;
   } {
-    const kind = detectedKind.get(path) ?? classification.get(path) ?? 'unknown';
+    const kind = detectedKind.get(d.path) ?? classification.get(d.path) ?? 'unknown';
     const combinable = kind !== 'other';
-    const meaningful = isMeaningfulToCombine(path);
+    const meaningful = isMeaningfulToCombine(d.path);
     const row = {
-      path,
-      sources,
+      path: d.path,
+      sources: d.sources,
       kind,
-      optedIn: byPath.has(path),
+      optedIn: byPath.has(d.path),
       combinable,
       recommended: combinable && meaningful,
+      duplicateGroups: d.duplicateGroups,
     };
     if (!combinable) return { ...row, advisory: NON_NUMERIC_ADVISORY };
     if (!meaningful) return { ...row, advisory: NON_MEANINGFUL_ADVISORY };
@@ -331,7 +332,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
 
     registerWithRouter(router) {
       router.get('/api/detected', (_req: unknown, res: RouterResponse) => {
-        res.json({ paths: discovery.detected().map((d) => detectedRow(d.path, d.sources)) });
+        res.json({ paths: discovery.detected().map((d) => detectedRow(d)) });
       });
     },
   };

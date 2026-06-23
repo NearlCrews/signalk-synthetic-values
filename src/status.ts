@@ -1,4 +1,5 @@
 import type { CombineMethod, CombineResult, Outcome } from './combine';
+import { oxfordJoin } from './textFormat';
 
 export function pathStatus(
   path: string,
@@ -49,7 +50,7 @@ export function aggregateStatus(
   if (t.disagreeing > 0) notes.push(`${t.disagreeing} disagreeing`);
   if (t.singleSource > 0) notes.push(`${t.singleSource} on a single source`);
   let body = `Combining ${t.emitting} of ${configuredCount} path${plural}.`;
-  if (notes.length > 0) body += ` ${joinOxford(notes)}.`;
+  if (notes.length > 0) body += ` ${oxfordJoin(notes)}.`;
   return appendSkipped(body, skipped);
 }
 
@@ -101,13 +102,6 @@ function tallyOutcomes(outcomes: Map<string, Outcome>): OutcomeTally {
     }
   }
   return t;
-}
-
-// Join a list with the serial (Oxford) comma: "a", "a and b", "a, b, and c".
-function joinOxford(items: string[]): string {
-  if (items.length <= 1) return items[0] ?? '';
-  if (items.length === 2) return `${items[0]} and ${items[1]}`;
-  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
 }
 
 function appendSkipped(base: string, skipped: { path: string; reason: string }[]): string {

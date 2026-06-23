@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Configurator panel.** The Signal K admin UI now shows a dedicated configuration screen instead of the raw JSON form. The panel lists every detected multi-source path with its source count and kind (scalar, angular, or position). A "Combine" button opts a single path in immediately; "Combine all" opts in every combinable path with one click (with a confirmation step). Each opted-in path has a "Tune" disclosure that exposes the combining method, minimum sources, and a per-source include/exclude checklist; an "Advanced" sub-disclosure covers MAD threshold, reject threshold, disagree threshold, angular spread threshold, trim fraction, angular override, jump rejection, slew limit, staleness timeout, and emit interval. A priority banner reminds you to set Signal K source priority to prefer the synthetic source (the panel shows the instruction but does not set priority for you).
 - **Config-independent multi-source path detection.** The plugin watches all incoming deltas and surfaces detected paths regardless of whether they are configured. Detected paths are available via `GET /plugins/signalk-synthetic-values/api/detected`.
 - **"Combine all" skips paths that are not meaningful to average.** GNSS fix metadata (satellite count, dilution of precision, and differential-correction age and reference) describes a single receiver's solution, so it is detected but grouped under "Detected but not recommended" and left out of "Combine all". It can still be combined by hand.
+- **Likely-duplicate source detection.** When two or more sources report identical values while the value is changing, the panel flags them as probably the same feed re-broadcast and suggests combining only one, so a re-broadcast feed does not outvote your independent sensors. Detection samples each source about once a second, so it adds no measurable cost to the delta path, and it never excludes a source automatically.
 
 ### Fixed
 
@@ -28,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shared style tokens extracted into a module; component styles now reference tokens rather than inlined values.
 - Duplicate helper functions deduplicated across the combining and registry modules.
 - Build output is now deterministic across runs.
-- Test coverage expanded from 122 to 237 tests; new tests cover the config panel components, the per-path settings form, the detected-path row states, and the aggregate status summary.
+- Test coverage expanded from 122 to 252 tests; new tests cover the config panel components, the per-path settings form, the detected-path row states, the aggregate status summary, the circular medoid, the combinability list, and duplicate-source detection.
 
 <a id="v010"></a>
 

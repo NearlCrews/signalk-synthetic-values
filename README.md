@@ -77,6 +77,8 @@ Once enabled, the plugin replaces the raw JSON form with a purpose-built configu
 
 Paths that are detected but not meaningful to average are grouped under **Detected but not recommended**. This covers two cases: values that are not numbers or positions (text and objects, which cannot be averaged at all), and GNSS fix metadata that describes a single receiver's solution rather than a measured quantity (the satellite count, dilution of precision, and differential-correction age and reference). A plotter shows those so you can judge the fix it is using, but averaging them across receivers is not meaningful, so they are kept out of "Combine all". You can still combine one by hand if you have a reason to.
 
+When two or more sources report identical values while the value is changing, the panel flags them as likely the same feed re-broadcast (for example a GPS forwarded by an autopilot under a second source name). Re-broadcast sources are not independent, so counting each one dilutes the combined value toward that single feed. The panel names the duplicates and suggests excluding all but one in the path's **Tune** section; it never excludes a source for you, since identical values can also be legitimate.
+
 After you opt in a path the panel shows a priority reminder: you must still set Signal K source priority to prefer `signalk-synthetic-values` for the combined value to win (see "Make the synthetic source win" below). The panel shows this instruction but does not set priority for you.
 
 Detected multi-source paths are also available programmatically at `GET /plugins/signalk-synthetic-values/api/detected`.

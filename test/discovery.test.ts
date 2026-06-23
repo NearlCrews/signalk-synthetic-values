@@ -9,7 +9,7 @@ describe('Discovery', () => {
     expect(d.detected()).toEqual([]);
     d.observe('p', 'b');
     d.observe('p', 'b');
-    expect(d.detected()).toEqual([{ path: 'p', sources: ['a', 'b'] }]);
+    expect(d.detected()).toEqual([{ path: 'p', sources: ['a', 'b'], duplicateGroups: [] }]);
   });
   it('reset clears state', () => {
     const d = new Discovery(fakeClock());
@@ -17,6 +17,52 @@ describe('Discovery', () => {
     d.observe('p', 'b');
     d.reset();
     expect(d.detected()).toEqual([]);
+  });
+  it('count returns the number of multi-source paths without analysis', () => {
+    const d = new Discovery(fakeClock());
+    d.observe('p', 'a');
+    expect(d.count()).toBe(0);
+    d.observe('p', 'b');
+    d.observe('q', 'a');
+    d.observe('q', 'b');
+    expect(d.count()).toBe(2);
+  });
+});
+
+describe('Discovery duplicate detection', () => {
+  it('flags sources reporting identical changing values as a duplicate group', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c);
+    // Three sources: a and b re-broadcast the same changing value; c differs.
+    for (let i = 0; i < 4; i++) {
+      c.set(i * 1000);
+      d.observe('navigation.position', 'a', i);
+      d.observe('navigation.position', 'b', i);
+      d.observe('navigation.position', 'c', i + 0.5);
+    }
+    const row = d.detected()[0];
+    expect(row?.duplicateGroups).toHaveLength(1);
+    expect(row?.duplicateGroups[0]?.sort()).toEqual(['a', 'b']);
+  });
+  it('does not flag identical values that never change (at rest)', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c);
+    for (let i = 0; i < 4; i++) {
+      c.set(i * 1000);
+      d.observe('navigation.position', 'a', 5);
+      d.observe('navigation.position', 'b', 5);
+    }
+    expect(d.detected()[0]?.duplicateGroups).toEqual([]);
+  });
+  it('does not flag independent sources that move differently', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c);
+    for (let i = 0; i < 4; i++) {
+      c.set(i * 1000);
+      d.observe('navigation.position', 'a', i);
+      d.observe('navigation.position', 'b', i + 0.01);
+    }
+    expect(d.detected()[0]?.duplicateGroups).toEqual([]);
   });
 });
 
