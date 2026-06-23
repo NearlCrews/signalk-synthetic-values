@@ -58,6 +58,19 @@ ln -s "$(pwd)" ~/.signalk/node_modules/signalk-synthetic-values
 
 In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic Values", and enable the plugin. The plugin is disabled by default.
 
+### Configuration panel
+
+Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, kind badge (scalar, angular, or position), and the source names as chips.
+
+- **Combine** opts a single path in immediately with default settings.
+- **Combine all** opts in every combinable path at once, with a confirmation step before writing.
+- **Remove** takes a path back out of combining.
+- **Tune** (per opted-in path) opens a settings panel with: the combining method (median, trimmed mean, or mean), minimum sources, and a per-source include/exclude checklist. An **Advanced** sub-section exposes MAD threshold, reject threshold, disagree threshold, angular spread threshold, trim fraction, angular override, jump rejection max rate, slew limit, staleness timeout, and emit interval.
+
+After you opt in a path the panel shows a priority reminder: you must still set Signal K source priority to prefer `signalk-synthetic-values` for the combined value to win (see "Make the synthetic source win" below). The panel shows this instruction but does not set priority for you.
+
+Detected multi-source paths are also available programmatically at `GET /plugins/signalk-synthetic-values/api/detected`.
+
 ### Global options
 
 | Option | Default | Description |

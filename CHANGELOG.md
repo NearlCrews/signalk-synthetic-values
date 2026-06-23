@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Configurator panel.** The Signal K admin UI now shows a dedicated configuration screen instead of the raw JSON form. The panel lists every detected multi-source path with its source count and kind (scalar, angular, or position). A "Combine" button opts a single path in immediately; "Combine all" opts in every combinable path with one click (with a confirmation step). Each opted-in path has a "Tune" disclosure that exposes the combining method, minimum sources, and a per-source include/exclude checklist; an "Advanced" sub-disclosure covers MAD threshold, reject threshold, disagree threshold, angular spread threshold, trim fraction, angular override, jump rejection, slew limit, staleness timeout, and emit interval. A priority banner reminds you to set Signal K source priority to prefer the synthetic source (the panel shows the instruction but does not set priority for you).
+- **Config-independent multi-source path detection.** The plugin watches all incoming deltas and surfaces detected paths regardless of whether they are configured. Detected paths are available via `GET /plugins/signalk-synthetic-values/api/detected`.
+
+### Fixed
+
+- Paths were only detected after being added to the configured paths list. Detection now runs for every observed delta, so the panel populates before any path is configured.
+- The panel could show a stale save snapshot when a tuning change was made immediately after a Combine or Remove action.
+- The schema description for the paths array cited the wrong discovery route URL; it now correctly points to `/api/detected`.
+
+### Changed
+
+- Shared style tokens extracted into a module; component styles now reference tokens rather than inlined values.
+- Duplicate helper functions deduplicated across the combining and registry modules.
+- Build output is now deterministic across runs.
+- Test coverage expanded from 122 to 230 tests; new tests cover the config panel components, the per-path settings form, and the detected-path row states.
+
 <a id="v010"></a>
 
 ## [0.1.0] - 2026-06-23
@@ -21,11 +39,11 @@ source so raw sensor data is never replaced.
 - **Kind-aware outlier rejection.** Enabled by default (`outlierRejection: true`). Uses scaled-MAD whole-source rejection with a configurable `madThreshold` (default 3) at four or more sources, and a configured `rejectThreshold` for absolute-distance rejection at smaller N or when the robust scale is degenerate.
 - **Angular path support.** Paths with radian units or on the known-circular list (headings, bearings, course over ground) use circular mean to avoid the 0/360-degree wrap artifact. A configurable `angularSpreadThreshold` (default pi/2 radians) suppresses the synthetic value when the circular pairwise spread is too large, for example when sensors point in opposite directions.
 - **Position path support.** Latitude/longitude pairs combine to the geodesic centroid with per-source distance-based outlier rejection, so a phantom GPS fix does not drag the result.
-- **Auto-detection of multi-source paths.** The plugin observes incoming deltas and surfaces paths with two or more distinct sourceRefs, available as a dropdown in the config form and via `GET /plugins/signalk-synthetic-values/detected`.
+- **Auto-detection of multi-source paths.** The plugin observes incoming deltas and surfaces paths with two or more distinct sourceRefs, available as a dropdown in the config form and via `GET /plugins/signalk-synthetic-values/api/detected`.
 - **Staleness timeout.** Sources older than `defaultStalenessTimeoutMs` (default 1000 ms, per-path overridable) are excluded from combining.
 - **Disagreement detection.** When `disagreeThreshold` is set, sources that spread beyond that distance are flagged in the plugin status while a combined value is still emitted.
 - **Jump rejection.** Optional per-source `jumpRejection: { maxRate, persistSamples, persistMs }` holds back a sudden spike and re-accepts it after a genuine step is confirmed over the persistence window.
 - **Slew limiting.** Optional per-path `slewLimit` caps the maximum change of the emitted value per second in kind units, suppressing runaway jumps that survive outlier rejection.
 - **Source include/exclude filters.** `includeSources` and `excludeSources` limit or skip named sourceRefs per path.
 - **Full config validation.** `validateConfig` is pure and runs at every `start()`. Failing path entries are skipped and named in the status without stopping the plugin.
-- **122 tests** across combining math, damping, registry staleness, emitter shape, config validation, path classification, feedback prevention, and stop/start lifecycle.
+- **Tests** across combining math, damping, registry staleness, emitter shape, config validation, path classification, feedback prevention, and stop/start lifecycle.
