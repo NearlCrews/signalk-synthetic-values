@@ -1,5 +1,5 @@
-import { CombineMethod } from './combine'
-import { JumpConfig } from './damping'
+import type { CombineMethod } from './combine'
+import type { JumpConfig } from './damping'
 
 export interface RawPathConfig {
   path: string
@@ -26,17 +26,17 @@ export interface PathConfig {
   trimFraction: number
   outlierRejection: boolean
   madThreshold: number
-  rejectThreshold?: number
-  disagreeThreshold?: number
+  rejectThreshold?: number | undefined
+  disagreeThreshold?: number | undefined
   angularSpreadThreshold: number
   angular: 'auto' | 'yes' | 'no'
-  includeSources?: string[]
-  excludeSources?: string[]
+  includeSources?: string[] | undefined
+  excludeSources?: string[] | undefined
   minSources: number
   stalenessTimeoutMs: number
   emitMinIntervalMs: number
-  jumpRejection?: JumpConfig
-  slewLimit?: number
+  jumpRejection?: JumpConfig | undefined
+  slewLimit?: number | undefined
 }
 
 export interface PluginOptions {

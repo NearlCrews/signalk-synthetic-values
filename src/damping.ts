@@ -1,4 +1,5 @@
-import { Kind, SampleValue, LatLon, distance } from './metrics'
+import { distance } from './metrics'
+import type { Kind, SampleValue, LatLon } from './metrics'
 
 export interface JumpConfig {
   maxRate: number

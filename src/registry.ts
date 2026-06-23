@@ -1,6 +1,6 @@
-import { Clock } from './clock'
-import { SampleValue } from './metrics'
-import { Sample } from './combine'
+import type { Clock } from './clock'
+import type { SampleValue } from './metrics'
+import type { Sample } from './combine'
 
 interface Entry {
   value: SampleValue

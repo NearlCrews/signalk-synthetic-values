@@ -1,4 +1,5 @@
-import { angularDistance, distance, Kind, SampleValue, LatLon, maxPairwiseDistance } from './metrics'
+import { angularDistance, distance, maxPairwiseDistance } from './metrics'
+import type { Kind, SampleValue, LatLon } from './metrics'
 
 const TWO_PI = 2 * Math.PI
 
@@ -9,7 +10,8 @@ export function mean(xs: number[]): number {
 export function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b)
   const m = Math.floor(s.length / 2)
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+  // Callers pass non-empty arrays, so m and m - 1 are always in range.
+  return s.length % 2 ? (s[m] as number) : ((s[m - 1] as number) + (s[m] as number)) / 2
 }
 
 export function trimmedMean(xs: number[], trimFraction: number): number {
@@ -39,7 +41,7 @@ export function maxCircularSpread(angles: number[]): number {
   let max = 0
   for (let i = 0; i < angles.length; i++) {
     for (let j = i + 1; j < angles.length; j++) {
-      max = Math.max(max, angularDistance(angles[i], angles[j]))
+      max = Math.max(max, angularDistance(angles[i] as number, angles[j] as number))
     }
   }
   return max
@@ -110,8 +112,8 @@ export interface CombineOptions {
   minSources: number
   outlierRejection: boolean
   madThreshold: number
-  rejectThreshold?: number
-  disagreeThreshold?: number
+  rejectThreshold?: number | undefined
+  disagreeThreshold?: number | undefined
   angularSpreadThreshold: number
   trimFraction: number
 }
@@ -137,8 +139,9 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
   if (freshCount === 0) {
     return { usedSources: [], freshCount, outcome: 'allStale' }
   }
-  if (freshCount === 1 && opts.minSources <= 1) {
-    return { value: samples[0].value, usedSources: [samples[0].sourceRef], freshCount, outcome: 'singleSource' }
+  const only = samples[0]
+  if (freshCount === 1 && only && opts.minSources <= 1) {
+    return { value: only.value, usedSources: [only.sourceRef], freshCount, outcome: 'singleSource' }
   }
   if (freshCount < opts.minSources) {
     return { usedSources: samples.map((s) => s.sourceRef), freshCount, outcome: 'belowMin' }

@@ -1,4 +1,4 @@
-import { CombineMethod, CombineResult } from './combine'
+import type { CombineMethod, CombineResult } from './combine'
 
 export function pathStatus(
   path: string,

@@ -1,18 +1,51 @@
+import type { DeltaInputHandler, Plugin, ServerAPI } from '@signalk/server-api'
 import { systemClock } from './clock'
-import { Kind, SampleValue } from './metrics'
+import type { Kind, SampleValue } from './metrics'
 import { Registry } from './registry'
 import { Discovery } from './discovery'
 import { Emitter } from './emitter'
-import { combine, CombineOptions, Sample } from './combine'
-import { applyJump, applySlew, JumpState, SlewState } from './damping'
-import { classify, valueCategory, MetadataLookup } from './pathClassifier'
-import { validateConfig, PluginOptions, PathConfig, DEFAULT_MAX_SOURCES_PER_PATH } from './config'
+import { combine } from './combine'
+import type { CombineOptions, Sample } from './combine'
+import { applyJump, applySlew } from './damping'
+import type { JumpState, SlewState } from './damping'
+import { classify, valueCategory } from './pathClassifier'
+import type { MetadataLookup } from './pathClassifier'
+import { validateConfig, DEFAULT_MAX_SOURCES_PER_PATH } from './config'
+import type { PluginOptions, PathConfig } from './config'
 import { buildSchema } from './schema'
 import { pathStatus, summaryStatus } from './status'
 
 const PLUGIN_ID = 'signalk-synthetic-values'
 
-export = function (app: any) {
+// A delta as observed off the wire. The Signal K Delta type uses branded path
+// and source strings; the combiner works on plain values, so this loose shape
+// captures only the fields the plugin reads.
+interface ObservedDelta {
+  context?: string
+  updates?: {
+    $source?: string
+    values?: { path: string; value: unknown }[]
+  }[]
+}
+
+// The published @signalk/server-api types declare registerDeltaInputHandler as
+// returning void, but signalk-server returns an unregister function at runtime
+// (relied on in stop() to detach the handler on plugin stop). Narrow the return
+// type locally to the real contract; this is the house pattern for gaps in the
+// published server types.
+interface ServerAPIWithUnregister extends ServerAPI {
+  registerDeltaInputHandler(handler: DeltaInputHandler): () => void
+}
+
+// Minimal Express response shape for the one route this plugin serves. The
+// server injects a full Express router; @types/express is not a dependency, so
+// only the members used here are declared.
+interface RouterResponse {
+  json(body: unknown): void
+}
+
+export default function createPlugin(appBase: ServerAPI): Plugin {
+  const app = appBase as ServerAPIWithUnregister
   let unregister: (() => void) | null = null
   let selfContext = 'vessels.self'
   let byPath = new Map<string, PathConfig>()
@@ -38,7 +71,7 @@ export = function (app: any) {
   }
 
   function isOwnSource(src: string): boolean {
-    return src === PLUGIN_ID || src.startsWith(PLUGIN_ID + '.')
+    return src === PLUGIN_ID || src.startsWith(`${PLUGIN_ID}.`)
   }
 
   function classifyPath(path: string, value: SampleValue, cfg: PathConfig): Kind {
@@ -51,15 +84,17 @@ export = function (app: any) {
   }
 
   function damped(path: string, cfg: PathConfig, kind: Kind, samples: Sample[], now: number): Sample[] {
-    if (!cfg.jumpRejection) return samples
+    const jumpConfig = cfg.jumpRejection
+    if (!jumpConfig) return samples
     let perSource = jumpState.get(path)
     if (!perSource) {
       perSource = new Map()
       jumpState.set(path, perSource)
     }
+    const state = perSource
     return samples.map((s) => {
-      const r = applyJump(kind, perSource!.get(s.sourceRef), s.value, now, cfg.jumpRejection!)
-      perSource!.set(s.sourceRef, r.state)
+      const r = applyJump(kind, state.get(s.sourceRef), s.value, now, jumpConfig)
+      state.set(s.sourceRef, r.state)
       return { sourceRef: s.sourceRef, value: r.accepted }
     })
   }
@@ -74,8 +109,10 @@ export = function (app: any) {
     if (kind === 'other') return
 
     const now = systemClock.now()
-    if (cfg.includeSources?.length) samples = samples.filter((s) => cfg.includeSources!.includes(s.sourceRef))
-    if (cfg.excludeSources?.length) samples = samples.filter((s) => !cfg.excludeSources!.includes(s.sourceRef))
+    const include = cfg.includeSources
+    if (include?.length) samples = samples.filter((s) => include.includes(s.sourceRef))
+    const exclude = cfg.excludeSources
+    if (exclude?.length) samples = samples.filter((s) => !exclude.includes(s.sourceRef))
     samples = damped(path, cfg, kind, samples, now)
 
     const opts: CombineOptions = {
@@ -102,10 +139,10 @@ export = function (app: any) {
     emitter.emit(path, value, PLUGIN_ID)
   }
 
-  function observe(delta: any): void {
+  function observe(delta: ObservedDelta | undefined): void {
     if (!delta || !isSelf(delta.context)) return
     for (const update of delta.updates ?? []) {
-      const src: string | undefined = update.$source
+      const src = update.$source
       if (!src || isOwnSource(src) || !Array.isArray(update.values)) continue
       for (const pv of update.values) {
         const cfg = byPath.get(pv.path)
@@ -120,7 +157,7 @@ export = function (app: any) {
           }
           continue
         }
-        registry.update(pv.path, src, pv.value, systemClock.now())
+        registry.update(pv.path, src, pv.value as SampleValue, systemClock.now())
         maybeEmit(pv.path, cfg)
       }
     }
@@ -131,8 +168,8 @@ export = function (app: any) {
     name: 'Synthetic Values',
     schema: () => buildSchema(() => discovery.detected()),
 
-    start(options: PluginOptions) {
-      const { config, errors, advisories } = validateConfig(options)
+    start(options) {
+      const { config, errors, advisories } = validateConfig(options as PluginOptions)
       registry.setMaxSourcesPerPath(config.maxSourcesPerPath)
       byPath = new Map(config.paths.map((p) => [p.path, p]))
       selfContext = app.selfContext ?? 'vessels.self'
@@ -147,12 +184,12 @@ export = function (app: any) {
         skipped.push({ path: e.path, reason: e.message })
         app.debug(`config ${e.path}: ${e.message}`)
       }
-      unregister = app.registerDeltaInputHandler((delta: any, next: (d: any) => void) => {
+      unregister = app.registerDeltaInputHandler((delta, next) => {
         try {
-          observe(delta)
+          observe(delta as unknown as ObservedDelta)
         } catch (err) {
           app.setPluginError(err instanceof Error ? err.message : String(err))
-          app.error(err)
+          app.error(err instanceof Error ? err.message : String(err))
         }
         next(delta)
       })
@@ -172,8 +209,8 @@ export = function (app: any) {
       classification.clear()
     },
 
-    registerWithRouter(router: any) {
-      router.get('/detected', (_req: any, res: any) => {
+    registerWithRouter(router) {
+      router.get('/detected', (_req: unknown, res: RouterResponse) => {
         const detected = discovery.detected()
         res.json({
           paths: detected.map((d) => ({

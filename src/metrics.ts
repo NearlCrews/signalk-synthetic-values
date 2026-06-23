@@ -41,7 +41,7 @@ export function maxPairwiseDistance(kind: Kind, values: SampleValue[]): number {
   let max = 0
   for (let i = 0; i < values.length; i++) {
     for (let j = i + 1; j < values.length; j++) {
-      max = Math.max(max, distance(kind, values[i], values[j]))
+      max = Math.max(max, distance(kind, values[i] as SampleValue, values[j] as SampleValue))
     }
   }
   return max

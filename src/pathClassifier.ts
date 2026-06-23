@@ -1,4 +1,4 @@
-import { Kind, SampleValue, LatLon } from './metrics'
+import type { Kind, SampleValue, LatLon } from './metrics'
 
 export type MetadataLookup = (contextPrefixedPath: string) => { units?: string } | undefined
 

@@ -1,5 +1,5 @@
-import { Clock } from './clock'
-import { SampleValue } from './metrics'
+import type { Clock } from './clock'
+import type { SampleValue } from './metrics'
 
 export interface EmitApp {
   handleMessage(id: string, delta: unknown): void
