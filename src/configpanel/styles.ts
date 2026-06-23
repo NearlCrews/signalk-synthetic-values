@@ -33,6 +33,7 @@ const SCALE_TOKENS = `
 	--skn-font-small: 12px;
 	--skn-font-title: 15px;
 	--skn-font-display: 17px;
+	--skn-font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 	--skn-space-1: 8px;
 	--skn-space-2: 12px;
 	--skn-space-3: 16px;
@@ -224,52 +225,7 @@ export function injectStyles(): void {
   document.head.appendChild(el);
 }
 
-export const S: Record<string, CSSProperties> = {
-  // The root paints --skn-bg itself: a pinned Dark or Night theme must read
-  // as one continuous surface, not dark cards floating on the host's light
-  // page (and the sticky footer reuses the same background).
-  root: {
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    color: 'var(--skn-text)',
-    background: 'var(--skn-bg)',
-    padding: 'var(--skn-space-3)',
-    borderRadius: 'var(--skn-radius)',
-  },
-  statusBar: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 'var(--skn-space-3)',
-    padding: 'var(--skn-space-2) var(--skn-space-3)',
-    background: 'var(--skn-surface-muted)',
-    border: '1px solid var(--skn-border)',
-    borderRadius: 'var(--skn-radius)',
-    marginBottom: 'var(--skn-space-3)',
-    alignItems: 'center',
-    fontSize: 'var(--skn-font-body)',
-  },
-  dot: { width: 10, height: 10, borderRadius: '50%', display: 'inline-block' },
-  dotOk: { background: 'var(--skn-ok)' },
-  dotWait: { background: 'var(--skn-wait)' },
-  dotOff: { background: 'var(--skn-off)' },
-  statLabel: { color: 'var(--skn-text-muted)' },
-  statValue: { fontWeight: 600, marginLeft: 4 },
-  errorBadge: {
-    background: 'var(--skn-danger-bg)',
-    color: 'var(--skn-danger-fg)',
-    border: '1px solid var(--skn-danger-border)',
-    padding: '2px 8px',
-    borderRadius: 'var(--skn-radius-sm)',
-    fontSize: 'var(--skn-font-small)',
-  },
-};
-
-// Error badge rendered as a real button (jump to first error). Inherits the
-// badge palette and adds button resets plus a pointer cursor.
-S.errorBadgeButton = {
-  ...S.errorBadge,
-  cursor: 'pointer',
-  font: 'inherit',
-};
+export const S: Record<string, CSSProperties> = {};
 
 // Small (12px) semantic text utilities. Components spread these and add only
 // layout tweaks (margins), so the small-text color treatments live in one
@@ -281,35 +237,6 @@ S.textSmallMuted = {
 S.textSmallFaint = {
   fontSize: 'var(--skn-font-small)',
   color: 'var(--skn-text-faint)',
-};
-S.textSmallSuccess = {
-  fontSize: 'var(--skn-font-small)',
-  fontWeight: 600,
-  color: 'var(--skn-success-fg)',
-};
-S.textSmallDanger = {
-  fontSize: 'var(--skn-font-small)',
-  fontWeight: 600,
-  color: 'var(--skn-danger-fg)',
-};
-// Color-only utilities for cells that already carry their own font size.
-S.textFaint = { color: 'var(--skn-text-faint)' };
-S.textDanger = { color: 'var(--skn-danger-fg)' };
-// Danger count badge in a section header.
-S.sectionErrorCount = { ...S.textSmallDanger, marginLeft: 6 };
-// Danger count pill on a category tab.
-S.tabErrorDot = {
-  display: 'inline-block',
-  minWidth: 16,
-  marginLeft: 6,
-  padding: '0 5px',
-  borderRadius: 'var(--skn-radius-pill)',
-  background: 'var(--skn-danger-fg)',
-  color: 'var(--skn-surface)',
-  fontSize: 'var(--skn-font-small)',
-  fontWeight: 700,
-  lineHeight: '16px',
-  textAlign: 'center',
 };
 S.fieldRow = {
   display: 'flex',
@@ -325,6 +252,10 @@ S.label = {
   color: 'var(--skn-text-muted)',
   flex: '0 1 280px',
 };
+// Narrower label variants for denser panels (PerPathSettings and row editors).
+// Spread S.label and override flex-basis only; all other properties are shared.
+S.labelNarrow = { ...S.label, flex: '0 1 180px' };
+S.labelWide = { ...S.label, flex: '0 1 220px' };
 S.select = {
   padding: '6px 10px',
   borderRadius: 'var(--skn-radius)',
@@ -343,20 +274,6 @@ S.input = {
   fontSize: 'var(--skn-font-body)',
   width: 220,
 };
-S.card = {
-  background: 'var(--skn-surface)',
-  border: '1px solid var(--skn-border)',
-  borderRadius: 'var(--skn-radius)',
-  padding: 'var(--skn-space-2) var(--skn-space-3)',
-  marginBottom: 'var(--skn-space-2)',
-};
-S.cardHeader = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 'var(--skn-space-2)',
-  marginBottom: 0,
-  flexWrap: 'wrap',
-};
 // 22px hit area for marine use: a 16px checkbox is too small for wet fingers
 // on a moving boat. accentColor keeps the checked fill on the token palette.
 S.checkbox = {
@@ -365,53 +282,6 @@ S.checkbox = {
   flexShrink: 0,
   cursor: 'pointer',
   accentColor: 'var(--skn-accent)',
-};
-S.cardMeta = {
-  fontSize: 'var(--skn-font-small)',
-  color: 'var(--skn-text-faint)',
-};
-S.tabs = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: 4,
-  borderBottom: '1px solid var(--skn-border)',
-  marginBottom: 'var(--skn-space-2)',
-};
-S.tab = {
-  padding: '8px 14px',
-  minHeight: 36,
-  background: 'transparent',
-  border: 'none',
-  borderBottom: '2px solid transparent',
-  cursor: 'pointer',
-  fontSize: 'var(--skn-font-body)',
-  color: 'var(--skn-text-muted)',
-};
-S.tabActive = {
-  borderBottom: '2px solid var(--skn-accent)',
-  color: 'var(--skn-accent)',
-  fontWeight: 600,
-};
-S.tabCount = { color: 'var(--skn-text-faint)' };
-// Sticky action bar pinned to the bottom of the viewport.
-S.footer = {
-  position: 'sticky',
-  bottom: 0,
-  display: 'flex',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: 'var(--skn-space-1)',
-  padding: 'var(--skn-space-2) 0',
-  borderTop: '1px solid var(--skn-border)',
-  marginTop: 'var(--skn-space-3)',
-  background: 'var(--skn-bg)',
-  zIndex: 5,
-};
-// Wrapper around the save-status indicator in the footer.
-S.saveStatusFocus = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  outline: 'none',
 };
 S.btnPrimary = {
   padding: '8px 16px',
@@ -432,39 +302,23 @@ S.btnSecondary = {
   borderRadius: 'var(--skn-radius)',
   cursor: 'pointer',
 };
-S.btnDestructive = {
-  padding: '8px 16px',
-  minHeight: 36,
-  background: 'var(--skn-surface)',
-  color: 'var(--skn-danger-fg)',
-  border: '1px solid var(--skn-danger-border)',
-  borderRadius: 'var(--skn-radius)',
-  cursor: 'pointer',
+// Row Combine/Remove buttons: base button plus a 40px touch target for
+// marine use (wider finger clearance in table rows than toolbar buttons).
+S.btnPrimaryRow = {
+  ...S.btnPrimary,
+  minHeight: 40,
+  padding: '8px 14px',
 };
-// Compact destructive button sized for table rows.
-S.btnDestructiveSm = {
-  ...S.btnDestructive,
-  padding: '6px 12px',
-  fontSize: 'var(--skn-font-small)',
+S.btnSecondaryRow = {
+  ...S.btnSecondary,
+  minHeight: 40,
+  padding: '8px 14px',
 };
 // Compact secondary button.
 S.btnSecondarySm = {
   ...S.btnSecondary,
   padding: '6px 12px',
   fontSize: 'var(--skn-font-small)',
-};
-// Armed confirm state for the table-row Remove button.
-S.btnDestructiveSmArmed = {
-  ...S.btnDestructiveSm,
-  background: 'var(--skn-danger-fg)',
-  color: 'var(--skn-surface)',
-  borderColor: 'var(--skn-danger-fg)',
-  fontWeight: 600,
-};
-S.dirty = {
-  color: 'var(--skn-warn-fg)',
-  fontSize: 'var(--skn-font-small)',
-  marginLeft: 8,
 };
 S.cardTitle = {
   fontSize: 'var(--skn-font-title)',
@@ -473,44 +327,6 @@ S.cardTitle = {
   minWidth: 180,
   margin: 0,
   color: 'var(--skn-text)',
-};
-S.cardPurpose = {
-  fontSize: 'var(--skn-font-small)',
-  color: 'var(--skn-text-muted)',
-  lineHeight: 1.45,
-  margin: '2px 0 6px',
-};
-// Shared shape for small inline card badges.
-const badgeBase: CSSProperties = {
-  display: 'inline-block',
-  fontSize: 'var(--skn-font-small)',
-  padding: '1px 6px',
-  borderRadius: 'var(--skn-radius-sm)',
-};
-S.cardCompatibility = {
-  ...badgeBase,
-  marginLeft: 8,
-  fontWeight: 500,
-};
-// Neutral palette on purpose: "Legacy" is a fact, not a warning.
-S.cardLegacy = {
-  ...badgeBase,
-  marginLeft: 8,
-  fontWeight: 500,
-  background: 'var(--skn-surface-raised)',
-  color: 'var(--skn-text-muted)',
-  border: '1px solid var(--skn-border)',
-  cursor: 'help',
-};
-S.helpHint = {
-  fontSize: 'var(--skn-font-small)',
-  color: 'var(--skn-text-muted)',
-  lineHeight: 1.45,
-  margin: '2px 0 6px',
-};
-S.notePrefix = {
-  fontWeight: 600,
-  marginRight: 4,
 };
 S.note = {
   background: 'var(--skn-warn-bg)',
@@ -521,31 +337,6 @@ S.note = {
   lineHeight: 1.45,
   margin: '8px 0 6px',
   padding: '6px 8px',
-};
-// Informational note. Info palette, not amber.
-S.noteInfo = {
-  ...S.note,
-  background: 'var(--skn-info-bg)',
-  border: '1px solid var(--skn-info-border)',
-  color: 'var(--skn-info-fg)',
-};
-S.errorMark = { color: 'var(--skn-danger-fg)', fontSize: 14, fontWeight: 700 };
-S.loadingText = {
-  color: 'var(--skn-text-muted)',
-  fontSize: 'var(--skn-font-body)',
-};
-S.savedPill = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  fontSize: 'var(--skn-font-small)',
-  lineHeight: 1,
-  color: 'var(--skn-success-fg)',
-  background: 'var(--skn-success-bg)',
-  border: '1px solid var(--skn-success-border)',
-  borderRadius: 'var(--skn-radius-pill)',
-  padding: '5px 12px',
-  marginLeft: 8,
 };
 S.errorBanner = {
   color: 'var(--skn-danger-fg)',
@@ -581,23 +372,6 @@ S.visuallyHidden = {
   whiteSpace: 'nowrap',
   border: 0,
 };
-S.chipRow = {
-  display: 'flex',
-  gap: 'var(--skn-space-1)',
-  flexWrap: 'wrap',
-  marginBottom: 'var(--skn-space-3)',
-};
-S.chip = {
-  padding: '6px 12px',
-  minHeight: 36,
-  background: 'var(--skn-info-bg)',
-  color: 'var(--skn-info-fg)',
-  border: '1px solid var(--skn-info-border)',
-  borderRadius: 'var(--skn-radius-pill)',
-  fontSize: 'var(--skn-font-small)',
-  fontWeight: 500,
-  cursor: 'pointer',
-};
 
 // Segmented control (the theme toggle). Buttons share a bordered container;
 // the active segment fills with the accent. 36px segments for marine touch use.
@@ -632,72 +406,28 @@ S.segmentedBtnActive = {
 S.disclosureToggle = {
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
+  gap: 'var(--skn-space-1)',
   width: '100%',
   minHeight: 36,
   background: 'none',
   border: 'none',
   padding: 0,
-  fontSize: 14,
+  fontSize: 'var(--skn-font-body)',
   fontWeight: 600,
   color: 'var(--skn-text)',
   cursor: 'pointer',
   textAlign: 'left',
 };
 S.disclosureBody = { marginTop: 10 };
-S.controlBar = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  flexWrap: 'wrap',
-  gap: 'var(--skn-space-1)',
-  marginBottom: 'var(--skn-space-2)',
-};
-S.controlBarGroup = {
-  display: 'flex',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: 'var(--skn-space-1)',
-};
-S.searchRow = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 'var(--skn-space-1)',
-  marginBottom: 'var(--skn-space-2)',
-};
-S.searchInput = {
-  flex: 1,
-  minWidth: 0,
-  minHeight: 36,
-  boxSizing: 'border-box',
-  padding: '8px 12px',
-  borderRadius: 'var(--skn-radius)',
-  border: '1px solid var(--skn-border)',
-  background: 'var(--skn-surface)',
-  color: 'var(--skn-text)',
-  fontSize: 'var(--skn-font-body)',
-};
-S.searchClear = {
-  minHeight: 36,
-  minWidth: 36,
-  padding: '6px 12px',
-  background: 'var(--skn-surface-raised)',
-  color: 'var(--skn-text)',
-  border: '1px solid var(--skn-border)',
-  borderRadius: 'var(--skn-radius)',
-  cursor: 'pointer',
-  fontSize: 'var(--skn-font-small)',
-};
-S.countPill = {
+
+// Shared pill shape for kind badges, source-count badges, added pills, and
+// source chips. Variant colors are applied per call; this entry is the box
+// model only (layout, size, radius, border placeholder).
+S.pill = {
   display: 'inline-flex',
   alignItems: 'center',
-  justifyContent: 'center',
-  minWidth: 20,
-  padding: '1px 8px',
-  borderRadius: 'var(--skn-radius-pill)',
-  background: 'var(--skn-warn-bg)',
-  color: 'var(--skn-warn-fg)',
-  border: '1px solid var(--skn-warn-border)',
   fontSize: 'var(--skn-font-small)',
-  fontWeight: 600,
+  padding: '1px 6px',
+  borderRadius: 'var(--skn-radius-pill)',
+  border: '1px solid transparent',
 };
