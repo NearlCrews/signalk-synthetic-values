@@ -86,6 +86,12 @@ describe('validateConfig', () => {
     expect(r.config.paths).toHaveLength(0)
     expect(r.errors[0].message).toBe('missing path')
   })
+  it('reports "missing path" for each entry with an empty path, never "duplicate"', () => {
+    const r = validateConfig(opts([{ path: '' }, { path: '' }]))
+    expect(r.config.paths).toHaveLength(0)
+    expect(r.errors).toHaveLength(2)
+    expect(r.errors.every((e) => e.message === 'missing path')).toBe(true)
+  })
   it('rejects the second occurrence of a path even when the first entry is invalid', () => {
     // First entry: invalid because both includeSources and excludeSources are set.
     // Second entry: valid on its own, but must be rejected as a duplicate.

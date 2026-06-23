@@ -192,6 +192,10 @@ export function validateConfig(options: PluginOptions): ValidationResult {
 
   for (const raw of options.paths ?? []) {
     const id = raw.path;
+    if (!id || typeof id !== 'string') {
+      errors.push({ path: String(id), message: 'missing path' });
+      continue;
+    }
     if (seen.has(id)) {
       errors.push({ path: id, message: 'duplicate path entry ignored' });
       continue;
