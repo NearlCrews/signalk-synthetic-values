@@ -197,4 +197,105 @@ describe('plugin integration', () => {
     // Path is only discovered, not opted in, so no synthetic value should have been emitted.
     expect(h.emitted).toHaveLength(0)
   })
+
+  it('excludeSources: the excluded source is ignored even when fresh', () => {
+    const h = makeApp()
+    const plugin = PluginFactory(h.app)
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p', excludeSources: ['bad'] }],
+    })
+    // 'bad' is excluded; only 'a' and 'b' should count
+    h.fire(delta(h.app.selfContext, 'a', 'p', 10))
+    h.fire(delta(h.app.selfContext, 'bad', 'p', 9999))
+    h.fire(delta(h.app.selfContext, 'b', 'p', 20))
+    const last = h.emitted[h.emitted.length - 1]
+    // median of [10, 20] = 15; the 9999 from 'bad' must not affect the result
+    expect(last.updates[0].values[0].value).toBe(15)
+  })
+
+  it('slewLimit: a large jump in combined output is clamped', () => {
+    const h = makeApp()
+    const plugin = PluginFactory(h.app)
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p', slewLimit: 1 }], // 1 unit/s slew rate
+    })
+    // Establish a baseline of 10
+    h.fire(delta(h.app.selfContext, 'a', 'p', 10))
+    h.fire(delta(h.app.selfContext, 'b', 'p', 10))
+    const firstValue = h.emitted[h.emitted.length - 1]?.updates[0].values[0].value as number
+    expect(firstValue).toBe(10)
+    // Now both sources jump to 1000; with slewLimit=1 the large step must be clamped.
+    h.fire(delta(h.app.selfContext, 'a', 'p', 1000))
+    h.fire(delta(h.app.selfContext, 'b', 'p', 1000))
+    const clampedValue = h.emitted[h.emitted.length - 1]?.updates[0].values[0].value as number
+    // Slew limit clamps the output well below the target of 1000
+    expect(clampedValue).toBeLessThan(100)
+  })
+
+  it('jumpRejection: a single spike is suppressed', () => {
+    const h = makeApp()
+    const plugin = PluginFactory(h.app)
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p', jumpRejection: { maxRate: 5, persistSamples: 3, persistMs: 10000 } }],
+    })
+    // Establish baseline at 10
+    h.fire(delta(h.app.selfContext, 'a', 'p', 10))
+    h.fire(delta(h.app.selfContext, 'b', 'p', 10))
+    const baseline = h.emitted[h.emitted.length - 1]?.updates[0].values[0].value as number
+    expect(baseline).toBe(10)
+    // Spike source 'a' to 9999; the combiner still runs with the accepted (held) value for 'a'
+    h.fire(delta(h.app.selfContext, 'a', 'p', 9999))
+    const afterSpike = h.emitted[h.emitted.length - 1]?.updates[0].values[0].value as number
+    // applyJump holds 'a' at its last accepted (10); median of [10, 10] = 10
+    expect(afterSpike).toBe(10)
+  })
+
+  it('disagreeThreshold: result fires but outcome reflects disagreement', () => {
+    const h = makeApp()
+    const plugin = PluginFactory(h.app)
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p', disagreeThreshold: 1 }], // threshold: 1 unit
+    })
+    // Sources disagree by 100 units, well above disagreeThreshold=1
+    h.fire(delta(h.app.selfContext, 'a', 'p', 0))
+    h.fire(delta(h.app.selfContext, 'b', 'p', 100))
+    // A value must still be emitted (disagree does not suppress output)
+    expect(h.emitted.length).toBeGreaterThan(0)
+    // setPluginStatus should have been called with a message containing 'disagree'
+    const statusCalls = (h.app.setPluginStatus as ReturnType<typeof vi.fn>).mock.calls
+    const disagreeCall = statusCalls.find((c: any[]) => String(c[0]).toLowerCase().includes('disagree'))
+    expect(disagreeCall).toBeDefined()
+  })
+
+  it('stop/start restart: stale source from first run does not survive into second run', () => {
+    const h = makeApp()
+    const plugin = PluginFactory(h.app)
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2,
+      maxSourcesPerPath: 16, paths: [{ path: 'p' }],
+    })
+    // Feed two sources so registry has data
+    h.fire(delta(h.app.selfContext, 'a', 'p', 10))
+    h.fire(delta(h.app.selfContext, 'b', 'p', 20))
+    expect(h.emitted.length).toBeGreaterThan(0)
+
+    plugin.stop()
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000, defaultEmitMinIntervalMs: 0, defaultMinSources: 2,
+      maxSourcesPerPath: 16, paths: [{ path: 'p' }],
+    })
+    const countAfterRestart = h.emitted.length
+    // Only one source fires; minSources=2 so no emit should happen from the fresh run.
+    h.fire(delta(h.app.selfContext, 'a', 'p', 99))
+    // State was reset, so 'b' from the first run is gone; no combine with just 'a'.
+    expect(h.emitted.length).toBe(countAfterRestart)
+  })
 })

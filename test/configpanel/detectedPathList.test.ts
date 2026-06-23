@@ -207,7 +207,8 @@ describe('DetectedPathList: sort order', () => {
     // posRow has 4 sources, scalRow has 2 sources; both not combined.
     // angRow is combined (in configByPath).
     const rows = [angRow, scalRow, posRow, otherRow];
-    render(
+    // Each row renders the path in a monospace span with title=path.
+    const { container: sortContainer } = render(
       createElement(DetectedPathList, {
         detected: rows,
         configByPath: mapOf(angRow.path),
@@ -221,8 +222,7 @@ describe('DetectedPathList: sort order', () => {
         onRefresh: vi.fn(),
       })
     );
-    // Each row renders the path in a monospace span with title=path.
-    const pathLabels = Array.from(document.querySelectorAll('.skn-row'))
+    const pathLabels = Array.from(sortContainer.querySelectorAll('.skn-row'))
       .map((el) => (el as HTMLElement).querySelector('[title]')?.getAttribute('title'))
       .filter(Boolean) as string[];
     // Not-yet-combined combinable rows should come first in order: posRow (4 src), scalRow (2 src)
@@ -256,7 +256,7 @@ describe('DetectedPathList: sort order', () => {
 
   it('combined rows appear after not-yet-combined combinable rows', () => {
     const rows = [scalRow, angRow]; // angRow is in configByPath (combined)
-    render(
+    const { container: combinedContainer } = render(
       createElement(DetectedPathList, {
         detected: rows,
         configByPath: mapOf(angRow.path),
@@ -270,7 +270,7 @@ describe('DetectedPathList: sort order', () => {
         onRefresh: vi.fn(),
       })
     );
-    const pathLabels = Array.from(document.querySelectorAll('.skn-row'))
+    const pathLabels = Array.from(combinedContainer.querySelectorAll('.skn-row'))
       .map((el) => (el as HTMLElement).querySelector('[title]')?.getAttribute('title'))
       .filter(Boolean) as string[];
     // scalRow (not combined) must come before angRow (combined)
@@ -490,8 +490,8 @@ describe('PriorityBanner', () => {
         onDismiss: vi.fn(),
       })
     );
-    // The source label appears more than once in the banner (named twice for clarity).
-    expect(screen.getAllByText(/signalk-synthetic-values/i).length).toBeGreaterThan(0);
+    // The banner names the source twice (once in the prose sentence, once in the priorities instruction).
+    expect(screen.getAllByText(/signalk-synthetic-values/i)).toHaveLength(2);
     expect(screen.getByText(/source priorities/i)).toBeInTheDocument();
   });
 

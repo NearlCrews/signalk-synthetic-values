@@ -27,6 +27,31 @@ describe('applyJump', () => {
     r = applyJump('scalar', r.state, 805, 2000, cfg) // persists near 800
     expect(r.accepted).toBe(805) // re-accepted at the new level
   })
+  it('angular: rejects a spike across the 0/2pi wrap by angular distance, not scalar', () => {
+    // maxRate=0.05 rad/s. From 0.05 rad, a jump to 6.20 rad:
+    // scalar distance: |6.20 - 0.05| = 6.15 rad (would be rejected by scalar math)
+    // angular distance: min(6.15, 2*pi - 6.15) = min(6.15, 0.13) = 0.13 rad/s > 0.05, rejected.
+    // Crucially, without wrap-aware distance the test below would show a different result.
+    const tightCfg: JumpConfig = { maxRate: 0.05, persistSamples: 3, persistMs: 10000 }
+    let st = applyJump('angular', undefined, 0.05, 0, tightCfg).state
+    // Jump to 6.20 rad: angular distance from 0.05 is ~0.13 rad/s, above maxRate=0.05 => rejected
+    let r = applyJump('angular', st, 6.20, 1000, tightCfg)
+    expect(r.accepted as number).toBeCloseTo(0.05, 6) // held at 0.05
+    // Persist the same level: count 1 -> 2 -> 3 (persistSamples=3)
+    r = applyJump('angular', r.state, 6.20, 2000, tightCfg)
+    r = applyJump('angular', r.state, 6.20, 3000, tightCfg)
+    // After 3 samples at ~6.20, the pending cluster persists and is accepted
+    expect(r.accepted as number).toBeCloseTo(6.20, 4)
+  })
+  it('position: rejects a large geodesic jump', () => {
+    const posCfg: JumpConfig = { maxRate: 10, persistSamples: 3, persistMs: 10000 } // 10 m/s
+    const here: LatLon = { latitude: 51.5, longitude: -0.1 }
+    const st = applyJump('position', undefined, here, 0, posCfg).state
+    // 100 km away in 1 s = 100,000 m/s, far above maxRate=10
+    const far: LatLon = { latitude: 52.4, longitude: -0.1 }
+    const r = applyJump('position', st, far, 1000, posCfg)
+    expect(r.accepted).toEqual(here)
+  })
 })
 
 describe('applySlew', () => {
@@ -61,6 +86,20 @@ describe('applySlew', () => {
     expect(result.latitude).toBeGreaterThan(0)
     expect(result.latitude).toBeLessThan(10)
     expect(result.longitude).toBeCloseTo(0, 6)
+  })
+  it('position slew with longitude difference exercises the bearing interpolation', () => {
+    // Two points that differ in both lat and lon to ensure the geodesic fraction path runs.
+    const a: LatLon = { latitude: 0, longitude: 0 }
+    const b: LatLon = { latitude: 0, longitude: 10 } // ~1110 km due east
+    const st = applySlew('position', undefined, a, 0, 1).state
+    // maxRatePerSec=100 m/s, dt=1 s => maxStep=100 m; full distance ~1110 km
+    const r = applySlew('position', st, b, 1000, 100)
+    const result = r.value as LatLon
+    // Must have moved east (longitude increased) but not reached the target
+    expect(result.longitude).toBeGreaterThan(0)
+    expect(result.longitude).toBeLessThan(10)
+    // Latitude should be very close to 0 (the path is due east)
+    expect(result.latitude).toBeCloseTo(0, 4)
   })
   it('persistMs re-acceptance branch accepts a persisted level even with count 1', () => {
     // cfg2 has persistSamples=5 so count alone won't trigger acceptance,

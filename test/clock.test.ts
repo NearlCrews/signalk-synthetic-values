@@ -6,5 +6,6 @@ describe('systemClock', () => {
     const before = Date.now()
     const t = systemClock.now()
     expect(t).toBeGreaterThanOrEqual(before)
+    expect(t).toBeLessThan(before + 1000)
   })
 })

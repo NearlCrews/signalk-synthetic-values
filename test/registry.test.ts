@@ -1,12 +1,7 @@
 // test/registry.test.ts
 import { describe, it, expect } from 'vitest'
 import { Registry } from '../src/registry'
-import { Clock } from '../src/clock'
-
-function fakeClock(start = 0): Clock & { set: (t: number) => void } {
-  let t = start
-  return { now: () => t, set: (n: number) => (t = n) }
-}
+import { fakeClock } from './helpers'
 
 describe('Registry', () => {
   it('returns fresh samples within the staleness window', () => {
@@ -52,6 +47,11 @@ describe('Registry', () => {
     c.set(2)
     const refs = r.fresh('p', 1000).map((s) => s.sourceRef).sort()
     expect(refs).toEqual(['a', 'b'])
+  })
+  it('fresh() on a never-updated path returns []', () => {
+    const c = fakeClock(0)
+    const r = new Registry(c, 16)
+    expect(r.fresh('p', 1000)).toEqual([])
   })
   it('setMaxSourcesPerPath takes effect on subsequent updates', () => {
     const c = fakeClock(0)

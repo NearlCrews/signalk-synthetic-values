@@ -15,6 +15,8 @@ describe('trimmedMean small N flooring', () => {
   it('N=3 trims nothing, equals mean', () => expect(trimmedMean([0, 1, 50], 0.25)).toBeCloseTo(17, 6))
   it('N=4 trims one each end, means middle two', () =>
     expect(trimmedMean([0, 10, 12, 100], 0.25)).toBe(11))
+  it('trimFraction=0 degenerates to mean', () =>
+    expect(trimmedMean([1, 2, 3, 4], 0)).toBe(mean([1, 2, 3, 4])))
 })
 
 describe('circularMeanRad', () => {

@@ -1,11 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import type { Clock } from '../src/clock'
 import { Discovery } from '../src/discovery'
-
-function fakeClock(start = 0): Clock & { set: (t: number) => void } {
-  let t = start
-  return { now: () => t, set: (n: number) => (t = n) }
-}
+import { fakeClock } from './helpers'
 
 describe('Discovery', () => {
   it('reports a path only once it has two or more sources', () => {

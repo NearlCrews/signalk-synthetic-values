@@ -41,11 +41,13 @@ describe('kindMeta', () => {
     const meta = kindMeta('unknown');
     expect(meta.label).toBe('unknown');
     expect(meta.token).toBe('muted');
+    expect(meta.srLabel).toContain('unknown');
   });
 
-  it('falls back to muted for unrecognised kind', () => {
+  it('falls back to muted for unrecognised kind and labels as unknown', () => {
     const meta = kindMeta('something-else');
     expect(meta.token).toBe('muted');
+    expect(meta.label).toBe('unknown');
   });
 });
 
@@ -113,7 +115,7 @@ describe('SourceChips', () => {
   });
 
   it('does not show gps.4 or gps.5 as visible chips when there are 5 sources', () => {
-    const { queryByText, container } = render(createElement(SourceChips, { sources: five }));
+    const { container } = render(createElement(SourceChips, { sources: five }));
     // gps.4 and gps.5 may appear in the visually-hidden list but NOT as visible chips.
     // The visible chip text is the direct text nodes; we query for visible chip spans only.
     const allSpans = Array.from(container.querySelectorAll('span'));
@@ -126,7 +128,6 @@ describe('SourceChips', () => {
       );
     });
     expect(visibleChips).toHaveLength(0);
-    void queryByText;
   });
 
   it('renders a visually-hidden enumeration of all 5 sources', () => {

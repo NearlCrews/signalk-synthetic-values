@@ -1,11 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Emitter, EmitApp } from '../src/emitter'
-import { Clock } from '../src/clock'
-
-function fakeClock(start = 0): Clock & { set: (t: number) => void } {
-  let t = start
-  return { now: () => t, set: (n: number) => (t = n) }
-}
+import { fakeClock } from './helpers'
 
 describe('Emitter', () => {
   it('emits a scalar delta with $source set as a bare string', () => {
@@ -46,33 +41,32 @@ describe('Emitter', () => {
   })
 })
 
+function makeEmitter() {
+  const app: EmitApp = { handleMessage: vi.fn() }
+  const c = fakeClock(0)
+  const e = new Emitter(app, 'sv', c)
+  return { app, c, e }
+}
+
 describe('Emitter due() and emit()', () => {
   it('due() returns true on first call', () => {
-    const app: EmitApp = { handleMessage: vi.fn() }
-    const c = fakeClock(0)
-    const e = new Emitter(app, 'sv', c)
+    const { e } = makeEmitter()
     expect(e.due('p', 1000)).toBe(true)
   })
   it('due() returns false within the interval after emit()', () => {
-    const app: EmitApp = { handleMessage: vi.fn() }
-    const c = fakeClock(0)
-    const e = new Emitter(app, 'sv', c)
+    const { c, e } = makeEmitter()
     e.emit('p', 1, 'sv')
     c.set(500)
     expect(e.due('p', 1000)).toBe(false)
   })
   it('due() returns true at exactly the interval boundary', () => {
-    const app: EmitApp = { handleMessage: vi.fn() }
-    const c = fakeClock(0)
-    const e = new Emitter(app, 'sv', c)
+    const { c, e } = makeEmitter()
     e.emit('p', 1, 'sv')
     c.set(1000)
     expect(e.due('p', 1000)).toBe(true)
   })
   it('emit() records lastEmit and calls handleMessage with bare $source', () => {
-    const app: EmitApp = { handleMessage: vi.fn() }
-    const c = fakeClock(0)
-    const e = new Emitter(app, 'sv', c)
+    const { app, e } = makeEmitter()
     e.emit('q', 42, 'sv')
     const delta: any = (app.handleMessage as any).mock.calls[0][1]
     expect(delta.updates[0].$source).toBe('sv')

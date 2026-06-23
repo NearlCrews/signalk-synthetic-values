@@ -26,6 +26,13 @@ describe('rejectMask', () => {
   it('applies an absolute rejectThreshold below N=4', () => {
     expect(rejectMask('scalar', [0, 1, 100], 3, 10)).toEqual([true, true, false])
   })
+  it('applies rejectThreshold at N=2 (non-MAD branch)', () => {
+    // N=2 < 4, MAD path never runs; rejectThreshold gates each point by distance from center.
+    // center of [0, 200] is median = 100; distances are 100 each; threshold 50 rejects both.
+    expect(rejectMask('scalar', [0, 200], 3, 50)).toEqual([false, false])
+    // threshold 150 keeps both
+    expect(rejectMask('scalar', [0, 200], 3, 150)).toEqual([true, true])
+  })
   it('rejects a gross outlier at N=4 with non-identical inliers', () => {
     expect(rejectMask('scalar', [0, 0.1, -0.1, 100], 3)).toEqual([true, true, true, false])
   })

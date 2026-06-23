@@ -228,4 +228,38 @@ describe('usePanelConfig hook', () => {
     const entry = result.current.options.paths.find((p) => p.path === 'navigation.position');
     expect(Object.prototype.hasOwnProperty.call(entry, 'minSources')).toBe(false);
   });
+
+  it('addAllCombinable adds combinable paths and updates options.paths', () => {
+    const rows: DetectedRow[] = [
+      { path: 'navigation.speedOverGround', sources: ['a', 'b'], kind: 'scalar', optedIn: false },
+      { path: 'navigation.headingTrue', sources: ['a', 'b'], kind: 'angular', optedIn: false },
+      { path: 'vessel.name', sources: ['a', 'b'], kind: 'other', optedIn: false },
+    ];
+    const { result } = renderHook(() => usePanelConfig(baseOptions));
+
+    act(() => {
+      result.current.addAllCombinable(rows);
+    });
+
+    const added = result.current.options.paths.map((p) => p.path);
+    expect(added).toContain('navigation.speedOverGround');
+    expect(added).toContain('navigation.headingTrue');
+    expect(added).not.toContain('vessel.name');
+  });
+
+  it('removePath removes the matching path from options.paths', () => {
+    const initial: PluginOptions = {
+      ...baseOptions,
+      paths: [{ path: 'navigation.position' }, { path: 'environment.depth.belowKeel' }],
+    };
+    const { result } = renderHook(() => usePanelConfig(initial));
+
+    act(() => {
+      result.current.removePath('navigation.position');
+    });
+
+    const remaining = result.current.options.paths.map((p) => p.path);
+    expect(remaining).not.toContain('navigation.position');
+    expect(remaining).toContain('environment.depth.belowKeel');
+  });
 });

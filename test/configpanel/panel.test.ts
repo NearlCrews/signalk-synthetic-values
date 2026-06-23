@@ -113,13 +113,11 @@ describe('PluginConfigurationPanel', () => {
       expect(screen.getByText(availablePath)).toBeInTheDocument();
     });
 
-    // Find the enabled Combine button. The combined row has a Remove button;
-    // the available row has the enabled Combine button.
-    const combineBtns = screen.getAllByRole('button', { name: /combine/i });
-    // Pick the enabled one (the combined row has no Combine button, only Remove).
-    const enabledCombine = combineBtns.find(
-      (btn) => !(btn as HTMLButtonElement).disabled && !btn.textContent?.toLowerCase().includes('all')
-    );
+    // Find the per-row Combine button by its exact accessible name (distinct from "Combine all").
+    // The available row is not combined yet, so its Combine button is enabled.
+    const combineBtns = screen.getAllByRole('button', { name: /^combine$/i });
+    expect(combineBtns.length).toBeGreaterThanOrEqual(1);
+    const enabledCombine = combineBtns.find((btn) => !(btn as HTMLButtonElement).disabled);
     expect(enabledCombine).toBeDefined();
     fireEvent.click(enabledCombine as HTMLElement);
 

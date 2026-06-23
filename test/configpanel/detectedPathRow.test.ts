@@ -154,13 +154,14 @@ describe('DetectedPathRow: opted-in row', () => {
         onUpdate: vi.fn(),
       })
     );
-    // The AddedPill renders a <span> with exact text "added" and the success
-    // palette. Target it specifically to avoid matching the visually-hidden sr span.
-    const pill = Array.from(container.querySelectorAll('span')).find(
-      (el) => el.textContent === 'added',
-    ) as HTMLElement | undefined;
-    expect(pill).toBeDefined();
-    const style = pill?.getAttribute('style') ?? '';
+    // The AddedPill renders a <span> with exact text "added" and the success palette.
+    // getAllByText returns all matches; we expect exactly one visible pill.
+    const pills = screen.getAllByText('added', { exact: true });
+    expect(pills).toHaveLength(1);
+    const pill = pills[0] as HTMLElement;
+    // Confirm the pill itself (or its containing span in the container) carries success tokens.
+    // Fall back to checking the container for the style if the node is a text fragment.
+    const style = pill.getAttribute('style') ?? (container.querySelector('[style*="--skn-success"]') as HTMLElement | null)?.getAttribute('style') ?? '';
     expect(style).toMatch(/--skn-success/);
   });
 
@@ -188,11 +189,10 @@ describe('DetectedPathRow: opted-in row', () => {
       })
     );
     // The source-count badge renders a visually-hidden label with the count.
-    // The row's sr span also includes "3 sources", so we accept multiple matches.
-    expect(screen.getAllByText(/3 sources/i).length).toBeGreaterThan(0);
-    // The kind badge text should appear in the row (the sr span also contains
-    // "angular", so we accept one or more matches).
-    expect(screen.getAllByText(/angular/i).length).toBeGreaterThan(0);
+    // The row's sr span also includes "3 sources", so we expect exactly two matches.
+    expect(screen.getAllByText(/3 sources/i)).toHaveLength(2);
+    // The kind badge text appears in the visible badge and two sr spans: exactly three.
+    expect(screen.getAllByText(/angular/i)).toHaveLength(3);
     // A visually-hidden span should carry all parts of the accessible name.
     const srText = document.querySelector('.skn-vh');
     expect(srText?.textContent).toMatch(/navigation\.headingTrue/);
