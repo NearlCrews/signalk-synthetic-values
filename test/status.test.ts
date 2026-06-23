@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { CombineResult } from '../src/combine';
-import { pathStatus, summaryStatus } from '../src/status';
+import type { CombineResult, Outcome } from '../src/combine';
+import { aggregateStatus, pathStatus } from '../src/status';
 
 const res = (outcome: any, n = 3, spread?: number): CombineResult => ({
   outcome,
@@ -48,13 +48,53 @@ describe('pathStatus', () => {
   });
 });
 
-describe('summaryStatus', () => {
-  it('reports nothing detected', () => {
-    expect(summaryStatus(0, 0, [])).toContain('No multi-source paths detected');
+describe('aggregateStatus', () => {
+  const outcomes = (...os: Outcome[]): Map<string, Outcome> =>
+    new Map(os.map((o, i) => [`p${i}`, o]));
+
+  it('reports nothing detected when no paths are configured or detected', () => {
+    expect(aggregateStatus(0, new Map(), 0, [])).toContain('No multi-source paths detected');
   });
+
+  it('prompts to add detected paths when none are configured', () => {
+    const s = aggregateStatus(0, new Map(), 3, []);
+    expect(s).toContain('3 multi-source paths detected');
+    expect(s).toContain('config panel');
+  });
+
+  it('counts how many of the configured paths are combining', () => {
+    const s = aggregateStatus(3, outcomes('ok', 'ok', 'belowMin'), 0, []);
+    expect(s).toContain('Combining 2 of 3 paths.');
+    expect(s).toContain('1 waiting for sources');
+  });
+
+  it('surfaces divergence and disagreement as stable counts', () => {
+    const s = aggregateStatus(2, outcomes('diverged', 'disagree'), 0, []);
+    expect(s).toContain('Combining 1 of 2 paths.');
+    expect(s).toContain('1 diverging');
+    expect(s).toContain('1 disagreeing');
+  });
+
+  it('uses the Oxford comma when listing three or more notes', () => {
+    const s = aggregateStatus(
+      4,
+      outcomes('belowMin', 'diverged', 'disagree', 'singleSource'),
+      0,
+      []
+    );
+    expect(s).toContain(
+      '1 waiting for sources, 1 diverging, 1 disagreeing, and 1 on a single source'
+    );
+  });
+
   it('lists skipped paths', () => {
-    expect(summaryStatus(1, 2, [{ path: 'x', reason: 'non-numeric' }])).toContain(
+    expect(aggregateStatus(1, outcomes('ok'), 0, [{ path: 'x', reason: 'non-numeric' }])).toContain(
       'skipped: x (non-numeric)'
     );
+  });
+
+  it('contains no em dash or ampersand', () => {
+    const s = aggregateStatus(2, outcomes('ok', 'diverged'), 0, [{ path: 'x', reason: 'bad' }]);
+    expect(s).not.toMatch(/[—&]/);
   });
 });

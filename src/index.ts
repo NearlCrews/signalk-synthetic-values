@@ -1,6 +1,6 @@
 import type { DeltaInputHandler, Plugin, ServerAPI } from '@signalk/server-api';
 import { systemClock } from './clock';
-import type { CombineOptions, Sample } from './combine';
+import type { CombineOptions, Outcome, Sample } from './combine';
 import { combine } from './combine';
 import type { PathConfig, PluginOptions } from './config';
 import { DEFAULT_MAX_SOURCES_PER_PATH, validateConfig } from './config';
@@ -9,11 +9,11 @@ import { applyJump, applySlew } from './damping';
 import { Discovery } from './discovery';
 import { Emitter } from './emitter';
 import type { Kind, SampleValue } from './metrics';
-import type { MetadataLookup } from './pathClassifier';
+import type { MetadataLookup, ValueCategory } from './pathClassifier';
 import { classify, valueCategory } from './pathClassifier';
 import { Registry } from './registry';
 import { buildSchema } from './schema';
-import { pathStatus, summaryStatus } from './status';
+import { aggregateStatus, pathStatus } from './status';
 
 const PLUGIN_ID = 'signalk-synthetic-values';
 
@@ -59,7 +59,25 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   // the default 'auto' mode. Kept separate from `classification`, which is the
   // combine kind for configured paths and honors a per-path angular override.
   const detectedKind = new Map<string, Kind>();
+  // Last combine outcome per configured path, used to build the aggregate
+  // status line. Updated on each emit; never read on a hot non-emit path.
+  const pathOutcome = new Map<string, Outcome>();
+  // Last status string pushed to the admin UI. The aggregate is recomputed
+  // often but only published when it actually changes, so the status bar does
+  // not flash through per-path messages on every emit cycle.
+  let lastStatus = '';
   const skipped: { path: string; reason: string }[] = [];
+
+  function refreshStatus(): void {
+    // detectedCount only feeds the no-configured-paths message; skip building
+    // the discovery snapshot once any path is configured.
+    const detectedCount = byPath.size === 0 ? discovery.detected().length : 0;
+    const next = aggregateStatus(byPath.size, pathOutcome, detectedCount, skipped);
+    if (next !== lastStatus) {
+      lastStatus = next;
+      app.setPluginStatus(next);
+    }
+  }
 
   const getUnits: MetadataLookup = (p) => {
     try {
@@ -141,7 +159,16 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       trimFraction: cfg.trimFraction,
     };
     const result = combine(samples, opts);
-    app.setPluginStatus(pathStatus(path, result, PLUGIN_ID, cfg.minSources, cfg.method));
+    const prevOutcome = pathOutcome.get(path);
+    pathOutcome.set(path, result.outcome);
+    // Per-path detail goes to the debug log, not the status bar, so the bar
+    // shows a single stable summary instead of flashing one line per path. Log
+    // only outcome transitions worth attention, so a steady stream of healthy
+    // 'ok' emits allocates no detail string on the hot path.
+    if (result.outcome !== prevOutcome && result.outcome !== 'ok') {
+      app.debug(pathStatus(path, result, PLUGIN_ID, cfg.minSources, cfg.method));
+    }
+    refreshStatus();
     if (result.value === undefined) return;
 
     let value = result.value;
@@ -153,20 +180,29 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     emitter.emit(path, value, PLUGIN_ID);
   }
 
+  // Record discovery for every fresh combinable value seen from any self-context
+  // source, regardless of whether this path is configured. The isOwnSource guard
+  // in observe() ensures the synthetic source is never recorded here.
+  function recordDiscovery(
+    pv: { path: string; value: unknown },
+    src: string,
+    cat: ValueCategory
+  ): void {
+    if (cat !== 'number' && cat !== 'latlon') return;
+    discovery.observe(pv.path, src);
+    if (detectedKind.has(pv.path)) return;
+    detectedKind.set(
+      pv.path,
+      classify(pv.path, pv.value as SampleValue, 'auto', getUnits, selfContext)
+    );
+    // A newly discovered path changes the "N detected" count shown while no
+    // paths are configured; refresh (deduped) so that message stays current.
+    if (byPath.size === 0) refreshStatus();
+  }
+
   function observeValue(pv: { path: string; value: unknown }, src: string): void {
     const cat = valueCategory(pv.value);
-    // Record discovery for every fresh combinable value seen from any self-context
-    // source, regardless of whether this path is configured. The isOwnSource guard
-    // in observe() ensures the synthetic source is never recorded here.
-    if (cat === 'number' || cat === 'latlon') {
-      discovery.observe(pv.path, src);
-      if (!detectedKind.has(pv.path)) {
-        detectedKind.set(
-          pv.path,
-          classify(pv.path, pv.value as SampleValue, 'auto', getUnits, selfContext)
-        );
-      }
-    }
+    recordDiscovery(pv, src, cat);
     const cfg = byPath.get(pv.path);
     if (!cfg) return;
     if (cat === 'invalid') return;
@@ -209,6 +245,8 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       slewState.clear();
       classification.clear();
       detectedKind.clear();
+      pathOutcome.clear();
+      lastStatus = '';
       skipped.length = 0;
       for (const e of [...errors, ...advisories]) {
         skipped.push({ path: e.path, reason: e.message });
@@ -227,7 +265,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
         }
         next(delta);
       });
-      app.setPluginStatus(summaryStatus(byPath.size, discovery.detected().length, skipped));
+      refreshStatus();
     },
 
     stop() {
@@ -242,6 +280,8 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       slewState.clear();
       classification.clear();
       detectedKind.clear();
+      pathOutcome.clear();
+      lastStatus = '';
     },
 
     registerWithRouter(router) {
