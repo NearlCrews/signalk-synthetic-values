@@ -1,0 +1,45 @@
+// test/registry.test.ts
+import { describe, it, expect } from 'vitest'
+import { Registry } from '../src/registry'
+import { Clock } from '../src/clock'
+
+function fakeClock(start = 0): Clock & { set: (t: number) => void } {
+  let t = start
+  return { now: () => t, set: (n: number) => (t = n) }
+}
+
+describe('Registry', () => {
+  it('returns fresh samples within the staleness window', () => {
+    const c = fakeClock(0)
+    const r = new Registry(c, 16)
+    r.update('p', 'a', 1, 0)
+    r.update('p', 'b', 2, 0)
+    c.set(500)
+    expect(r.fresh('p', 1000).map((s) => s.sourceRef).sort()).toEqual(['a', 'b'])
+  })
+  it('drops a stale source', () => {
+    const c = fakeClock(0)
+    const r = new Registry(c, 16)
+    r.update('p', 'a', 1, 0)
+    r.update('p', 'b', 2, 900)
+    c.set(1000)
+    expect(r.fresh('p', 1000).map((s) => s.sourceRef)).toEqual(['b'])
+  })
+  it('caps tracked sources, evicting the oldest', () => {
+    const c = fakeClock(0)
+    const r = new Registry(c, 2)
+    r.update('p', 'a', 1, 0)
+    r.update('p', 'b', 2, 1)
+    r.update('p', 'c', 3, 2)
+    c.set(2)
+    const refs = r.fresh('p', 1000).map((s) => s.sourceRef).sort()
+    expect(refs).toEqual(['b', 'c'])
+  })
+  it('reset clears everything', () => {
+    const c = fakeClock(0)
+    const r = new Registry(c, 16)
+    r.update('p', 'a', 1, 0)
+    r.reset()
+    expect(r.fresh('p', 1000)).toEqual([])
+  })
+})
