@@ -10,6 +10,12 @@ export interface DetectedRow {
   sources: string[];
   kind: string;
   optedIn: boolean;
+  /** Whether the value can be averaged at all (false for text/objects). Defaults true when absent. */
+  combinable?: boolean;
+  /** Whether averaging is meaningful (false for GNSS fix metadata). Defaults true when absent. */
+  recommended?: boolean;
+  /** Reason shown in the panel when the path is not combinable or not recommended. */
+  advisory?: string;
 }
 
 interface DetectedResponse {

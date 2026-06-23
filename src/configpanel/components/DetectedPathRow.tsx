@@ -1,17 +1,12 @@
 import type * as React from 'react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { NON_NUMERIC_ADVISORY } from '../../combinability.js';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
 import { KindBadge } from './KindBadge.js';
 import { PerPathSettings } from './PerPathSettings.js';
 import { SourceChips } from './SourceChips.js';
-
-// ---------------------------------------------------------------------------
-// Non-combinable reason text (shared between the visible hint and the
-// aria-describedby target so both the sighted and AT user get the same copy).
-// ---------------------------------------------------------------------------
-const OTHER_REASON = 'This value is text, not a number or position, so it cannot be averaged.';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -167,7 +162,13 @@ export function DetectedPathRow({
   onUpdate,
 }: DetectedPathRowProps): React.ReactElement {
   const { path, sources, kind, optedIn } = row;
-  const isOther = kind === 'other';
+  // canCombine drives the disabled state of the Combine button: false only for
+  // text and objects, which cannot be averaged at all. GNSS fix metadata stays
+  // combinable but carries an advisory and is excluded from "Combine all".
+  const canCombine = row.combinable !== false && kind !== 'other';
+  // Reason to show: the server advisory if present, else the default
+  // not-a-number message for an un-classified text/object value.
+  const advisory = row.advisory ?? (kind === 'other' ? NON_NUMERIC_ADVISORY : undefined);
   const [tuneOpen, setTuneOpen] = useState(false);
   const tuneToggleRef = useRef<HTMLButtonElement>(null);
   const wasTuneOpen = useRef(false);
@@ -181,8 +182,8 @@ export function DetectedPathRow({
   const tuneBodyId = `${uid}-tune-body`;
 
   const handleAdd = useCallback(() => {
-    if (!isOther) onAdd(path);
-  }, [isOther, onAdd, path]);
+    if (canCombine) onAdd(path);
+  }, [canCombine, onAdd, path]);
 
   const handleRemove = useCallback(() => {
     onRemove(path);
@@ -251,8 +252,8 @@ export function DetectedPathRow({
           <button
             type="button"
             style={S.btnPrimaryRow}
-            disabled={isOther}
-            aria-describedby={isOther ? reasonId : undefined}
+            disabled={!canCombine}
+            aria-describedby={advisory ? reasonId : undefined}
             onClick={handleAdd}
           >
             Combine
@@ -268,7 +269,7 @@ export function DetectedPathRow({
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
             fontSize: 'var(--skn-font-body)',
-            color: isOther ? 'var(--skn-text-faint)' : 'var(--skn-text)',
+            color: canCombine ? 'var(--skn-text)' : 'var(--skn-text-faint)',
             fontFamily: 'var(--skn-font-mono)',
           }}
           title={path}
@@ -282,8 +283,8 @@ export function DetectedPathRow({
         {optedIn && <AddedPill />}
       </div>
 
-      {/* Non-combinable reason (visible below header; referenced by aria-describedby) */}
-      {isOther && (
+      {/* Advisory reason (visible below header; referenced by aria-describedby) */}
+      {advisory && (
         <div
           style={{
             paddingLeft: 'calc(var(--skn-space-2) + 3px)',
@@ -300,7 +301,7 @@ export function DetectedPathRow({
               marginTop: 2,
             }}
           >
-            {OTHER_REASON}
+            {advisory}
           </span>
         </div>
       )}

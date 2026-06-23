@@ -270,8 +270,36 @@ describe('plugin integration', () => {
     expect(posRow.optedIn).toBe(false);
     // The detected kind is reported even for an un-configured path, not 'unknown'.
     expect(posRow.kind).toBe('position');
+    // A real measurement is both combinable and recommended, with no advisory.
+    expect(posRow.combinable).toBe(true);
+    expect(posRow.recommended).toBe(true);
+    expect(posRow.advisory).toBeUndefined();
     // Path is only discovered, not opted in, so no synthetic value should have been emitted.
     expect(h.emitted).toHaveLength(0);
+  });
+
+  it('flags GNSS fix metadata as combinable but not recommended', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [],
+    });
+    h.fire(delta(h.app.selfContext, 'gps1', 'navigation.gnss.satellites', 9));
+    h.fire(delta(h.app.selfContext, 'gps2', 'navigation.gnss.satellites', 11));
+    const router = h.captureRouter(plugin);
+    const res = h.routerGet(router, '/api/detected');
+    const satRow = res.paths.find((p: any) => p.path === 'navigation.gnss.satellites');
+    expect(satRow).toBeDefined();
+    // It is a number (combinable), but averaging it across receivers is not
+    // meaningful, so it is not recommended and carries an advisory.
+    expect(satRow.kind).toBe('scalar');
+    expect(satRow.combinable).toBe(true);
+    expect(satRow.recommended).toBe(false);
+    expect(satRow.advisory).toMatch(/GNSS fix metadata/i);
   });
 
   it('excludeSources: the excluded source is ignored even when fresh', () => {

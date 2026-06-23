@@ -1,5 +1,10 @@
 import type { DeltaInputHandler, Plugin, ServerAPI } from '@signalk/server-api';
 import { systemClock } from './clock';
+import {
+  isMeaningfulToCombine,
+  NON_MEANINGFUL_ADVISORY,
+  NON_NUMERIC_ADVISORY,
+} from './combinability';
 import type { CombineOptions, Outcome, Sample } from './combine';
 import { combine } from './combine';
 import type { PathConfig, PluginOptions } from './config';
@@ -236,6 +241,38 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     }
   }
 
+  // Build the /api/detected row for a path. `combinable` is whether the value
+  // can be averaged at all (false for text and objects); `recommended` is
+  // whether averaging is meaningful (false for GNSS fix metadata). `advisory`
+  // explains either negative case for the panel.
+  function detectedRow(
+    path: string,
+    sources: string[]
+  ): {
+    path: string;
+    sources: string[];
+    kind: string;
+    optedIn: boolean;
+    combinable: boolean;
+    recommended: boolean;
+    advisory?: string;
+  } {
+    const kind = detectedKind.get(path) ?? classification.get(path) ?? 'unknown';
+    const combinable = kind !== 'other';
+    const meaningful = isMeaningfulToCombine(path);
+    const row = {
+      path,
+      sources,
+      kind,
+      optedIn: byPath.has(path),
+      combinable,
+      recommended: combinable && meaningful,
+    };
+    if (!combinable) return { ...row, advisory: NON_NUMERIC_ADVISORY };
+    if (!meaningful) return { ...row, advisory: NON_MEANINGFUL_ADVISORY };
+    return row;
+  }
+
   return {
     id: PLUGIN_ID,
     name: 'Synthetic Values',
@@ -294,15 +331,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
 
     registerWithRouter(router) {
       router.get('/api/detected', (_req: unknown, res: RouterResponse) => {
-        const detected = discovery.detected();
-        res.json({
-          paths: detected.map((d) => ({
-            path: d.path,
-            sources: d.sources,
-            kind: detectedKind.get(d.path) ?? classification.get(d.path) ?? 'unknown',
-            optedIn: byPath.has(d.path),
-          })),
-        });
+        res.json({ paths: discovery.detected().map((d) => detectedRow(d.path, d.sources)) });
       });
     },
   };

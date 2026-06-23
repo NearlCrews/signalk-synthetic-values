@@ -1,7 +1,6 @@
 import type * as React from 'react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
-import { isCombinableKind } from '../constants.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
 import { DetectedPathRow } from './DetectedPathRow.js';
@@ -167,7 +166,7 @@ function NonCombinableGroup({
         }}
       >
         <span aria-hidden="true">{open ? '▾' : '▸'}</span>
-        <span>Detected but not combinable ({rows.length})</span>
+        <span>Detected but not recommended ({rows.length})</span>
       </button>
       {open ? (
         <div id={bodyId}>
@@ -289,9 +288,10 @@ export interface DetectedPathListProps {
  * live-region announcement.
  *
  * Sort order (per spec 5.3):
- *   1. Not-yet-combined combinable rows, by source count descending.
+ *   1. Not-yet-combined recommended rows, by source count descending.
  *   2. Combined rows (path is in configByPath).
- *   3. Non-combinable rows (kind === 'other'), collapsed under a disclosure.
+ *   3. Not-recommended rows (text values and GNSS fix metadata), collapsed
+ *      under a disclosure.
  *
  * optedIn consistency rule: a row is opted-in when its path is in configByPath,
  * regardless of the server-side `row.optedIn` field, to avoid post-save flicker.
@@ -325,7 +325,7 @@ export function DetectedPathList({
 
   for (const row of detected) {
     const optedIn = configByPath.has(row.path);
-    if (!isCombinableKind(row.kind)) {
+    if (row.recommended === false || row.kind === 'other') {
       nonCombinableRows.push(row);
     } else if (optedIn) {
       combinedRows.push(row);

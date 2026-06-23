@@ -75,10 +75,26 @@ describe('applyAddAllCombinable', () => {
       optedIn: false,
     },
     { path: 'some.unknown.path', sources: ['s1', 's2'], kind: 'unknown', optedIn: false },
-    { path: 'vessel.name', sources: ['ais', 'manual'], kind: 'other', optedIn: false },
+    // Not combinable at all (text), and not meaningful to average (GNSS fix
+    // metadata): the server flags both with recommended: false.
+    {
+      path: 'vessel.name',
+      sources: ['ais', 'manual'],
+      kind: 'other',
+      optedIn: false,
+      combinable: false,
+      recommended: false,
+    },
+    {
+      path: 'navigation.gnss.satellites',
+      sources: ['gps1', 'gps2'],
+      kind: 'scalar',
+      optedIn: false,
+      recommended: false,
+    },
   ];
 
-  it('adds position, angular, scalar, and unknown rows but not other', () => {
+  it('adds the recommended rows but skips not-recommended rows', () => {
     const next = applyAddAllCombinable(baseOptions, rows);
 
     const addedPaths = next.paths.map((p) => p.path);
@@ -87,6 +103,7 @@ describe('applyAddAllCombinable', () => {
     expect(addedPaths).toContain('environment.depth.belowKeel');
     expect(addedPaths).toContain('some.unknown.path');
     expect(addedPaths).not.toContain('vessel.name');
+    expect(addedPaths).not.toContain('navigation.gnss.satellites');
     expect(next.paths).toHaveLength(4);
   });
 
@@ -246,7 +263,13 @@ describe('usePanelConfig hook', () => {
     const rows: DetectedRow[] = [
       { path: 'navigation.speedOverGround', sources: ['a', 'b'], kind: 'scalar', optedIn: false },
       { path: 'navigation.headingTrue', sources: ['a', 'b'], kind: 'angular', optedIn: false },
-      { path: 'vessel.name', sources: ['a', 'b'], kind: 'other', optedIn: false },
+      {
+        path: 'vessel.name',
+        sources: ['a', 'b'],
+        kind: 'other',
+        optedIn: false,
+        recommended: false,
+      },
     ];
     const { result } = renderHook(() => usePanelConfig(baseOptions));
 

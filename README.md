@@ -71,9 +71,11 @@ In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic V
 Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, kind badge (scalar, angular, or position), and the source names as chips.
 
 - **Combine** opts a single path in immediately with default settings.
-- **Combine all** opts in every combinable path at once, with a confirmation step before writing.
+- **Combine all** opts in every recommended path at once, with a confirmation step before writing. It skips paths that are detected but not meaningful to average (see below).
 - **Remove** takes a path back out of combining.
 - **Tune** (per opted-in path) opens a settings panel with: the combining method (median, trimmed mean, or mean), minimum sources, and a per-source include/exclude checklist. An **Advanced** sub-section exposes MAD threshold, reject threshold, disagree threshold, angular spread threshold, trim fraction, angular override, jump rejection max rate, slew limit, staleness timeout, and emit interval.
+
+Paths that are detected but not meaningful to average are grouped under **Detected but not recommended**. This covers two cases: values that are not numbers or positions (text and objects, which cannot be averaged at all), and GNSS fix metadata that describes a single receiver's solution rather than a measured quantity (the satellite count, dilution of precision, and differential-correction age and reference). A plotter shows those so you can judge the fix it is using, but averaging them across receivers is not meaningful, so they are kept out of "Combine all". You can still combine one by hand if you have a reason to.
 
 After you opt in a path the panel shows a priority reminder: you must still set Signal K source priority to prefer `signalk-synthetic-values` for the combined value to win (see "Make the synthetic source win" below). The panel shows this instruction but does not set priority for you.
 

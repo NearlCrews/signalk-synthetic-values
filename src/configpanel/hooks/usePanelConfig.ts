@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import { DEFAULT_MAX_SOURCES_PER_PATH } from '../../config.js';
-import { isCombinableKind } from '../constants.js';
 import type { DetectedRow } from './useDetected.js';
 
 /**
@@ -35,16 +34,18 @@ export function applyAddPath(options: PluginOptions, path: string): PluginOption
 }
 
 /**
- * Append a minimal `{ path }` entry for every row whose `kind` is combinable
- * and whose path is not already present. Returns the same object reference
- * when there is nothing to add.
+ * Append a minimal `{ path }` entry for every recommended row whose path is
+ * not already present. Rows the server flags as not recommended (text values
+ * and GNSS fix metadata) are skipped, so "Combine all" never opts in a path
+ * that is not meaningful to average. Returns the same object reference when
+ * there is nothing to add.
  */
 export function applyAddAllCombinable(
   options: PluginOptions,
   rows: ReadonlyArray<DetectedRow>
 ): PluginOptions {
   const existing = new Set(options.paths.map((p) => p.path));
-  const toAdd = rows.filter((r) => isCombinableKind(r.kind) && !existing.has(r.path));
+  const toAdd = rows.filter((r) => r.recommended !== false && !existing.has(r.path));
   if (toAdd.length === 0) return options;
   const added: RawPathConfig[] = toAdd.map((r) => ({ path: r.path }));
   return { ...options, paths: [...options.paths, ...added] };

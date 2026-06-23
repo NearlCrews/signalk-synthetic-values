@@ -231,7 +231,7 @@ describe('DetectedPathList: sort order', () => {
     expect(pathLabels.indexOf(scalRow.path)).toBeLessThan(pathLabels.indexOf(angRow.path));
   });
 
-  it('places non-combinable rows under a collapsed disclosure group', () => {
+  it('places not-recommended rows under a collapsed disclosure group', () => {
     const rows = [scalRow, otherRow];
     render(
       createElement(DetectedPathList, {
@@ -248,7 +248,7 @@ describe('DetectedPathList: sort order', () => {
       })
     );
     // The group toggle should exist and be collapsed by default.
-    const toggle = screen.getByRole('button', { name: /detected but not combinable/i });
+    const toggle = screen.getByRole('button', { name: /detected but not recommended/i });
     expect(toggle).toBeInTheDocument();
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
