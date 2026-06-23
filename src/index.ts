@@ -55,6 +55,10 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   const jumpState = new Map<string, Map<string, JumpState>>();
   const slewState = new Map<string, SlewState>();
   const classification = new Map<string, Kind>();
+  // Display kind for detected (possibly un-configured) paths, classified with
+  // the default 'auto' mode. Kept separate from `classification`, which is the
+  // combine kind for configured paths and honors a per-path angular override.
+  const detectedKind = new Map<string, Kind>();
   const skipped: { path: string; reason: string }[] = [];
 
   const getUnits: MetadataLookup = (p) => {
@@ -156,6 +160,12 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     // in observe() ensures the synthetic source is never recorded here.
     if (cat === 'number' || cat === 'latlon') {
       discovery.observe(pv.path, src);
+      if (!detectedKind.has(pv.path)) {
+        detectedKind.set(
+          pv.path,
+          classify(pv.path, pv.value as SampleValue, 'auto', getUnits, selfContext)
+        );
+      }
     }
     const cfg = byPath.get(pv.path);
     if (!cfg) return;
@@ -198,6 +208,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       jumpState.clear();
       slewState.clear();
       classification.clear();
+      detectedKind.clear();
       skipped.length = 0;
       for (const e of [...errors, ...advisories]) {
         skipped.push({ path: e.path, reason: e.message });
@@ -230,6 +241,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       jumpState.clear();
       slewState.clear();
       classification.clear();
+      detectedKind.clear();
     },
 
     registerWithRouter(router) {
@@ -239,7 +251,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
           paths: detected.map((d) => ({
             path: d.path,
             sources: d.sources,
-            kind: classification.get(d.path) ?? 'unknown',
+            kind: detectedKind.get(d.path) ?? classification.get(d.path) ?? 'unknown',
             optedIn: byPath.has(d.path),
           })),
         });

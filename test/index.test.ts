@@ -266,7 +266,10 @@ describe('plugin integration', () => {
     const router = h.captureRouter(plugin);
     const res = h.routerGet(router, '/api/detected');
     expect(res.paths.map((p: any) => p.path)).toContain('navigation.position');
-    expect(res.paths.find((p: any) => p.path === 'navigation.position').optedIn).toBe(false);
+    const posRow = res.paths.find((p: any) => p.path === 'navigation.position');
+    expect(posRow.optedIn).toBe(false);
+    // The detected kind is reported even for an un-configured path, not 'unknown'.
+    expect(posRow.kind).toBe('position');
     // Path is only discovered, not opted in, so no synthetic value should have been emitted.
     expect(h.emitted).toHaveLength(0);
   });
