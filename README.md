@@ -8,7 +8,7 @@ Install from the Signal K App Store: search for **Synthetic Values** and click I
 
 ## What it does
 
-When two or more sources feed the same Signal K path (multiple GPS receivers on `navigation.position`, duplicate depth sounders, redundant wind or heading sensors), the Signal K server picks one source at a time. This plugin watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path. One flaky or biased sensor cannot drag the result.
+When two or more sources feed the same Signal K path (multiple GPS receivers on `navigation.position`, duplicate depth sounders, and redundant wind or heading sensors), the Signal K server picks one source at a time. This plugin watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path. One flaky or biased sensor cannot drag the result.
 
 The synthetic value does not automatically win. You must set source priority once per path (see "Make the synthetic source win" below). Until you do, the top-level value flickers across all sources.
 
@@ -32,7 +32,7 @@ The synthetic value does not automatically win. You must set source priority onc
 | `trimFraction` | `0.25` | Fraction trimmed from each end when using `trimmedMean`. Falls back to median or mean at small N. |
 | `outlierRejection` | `true` | Reject whole-source outliers before combining. |
 | `madThreshold` | `3` | Sigma-equivalent multiplier for scaled-MAD outlier rejection when N is 4 or more. |
-| `rejectThreshold` | unset | Absolute rejection distance in kind units (meters for position, radians for angular, value units for scalar). Used at small N or when the robust scale is degenerate. |
+| `rejectThreshold` | unset | Absolute rejection distance in kind units (meters for position, radians for angular, and value units for scalar). Used at small N or when the robust scale is degenerate. |
 | `disagreeThreshold` | unset | Absolute distance in kind units above which sources are flagged as disagreeing in the plugin status. |
 | `angularSpreadThreshold` | `pi/2` | Angular paths only: maximum circular pairwise spread in radians. Sources beyond this threshold cause the synthetic value to be suppressed. |
 | `angular` | `auto` | Override angular detection: `auto`, `yes`, or `no`. `auto` uses the known-circular path list and metadata units. |
