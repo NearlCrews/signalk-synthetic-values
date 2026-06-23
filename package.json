@@ -14,7 +14,7 @@
   "signalk-plugin-enabled-by-default": false,
   "signalk": {
     "displayName": "Synthetic Values",
-    "appIcon": "assets/appicon.png",
+    "appIcon": "./assets/icons/icon-192.png",
     "screenshots": []
   },
   "main": "dist/index.js",
