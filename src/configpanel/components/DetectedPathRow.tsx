@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
@@ -35,16 +35,13 @@ function SourceCountBadge({ count }: { count: number }): React.ReactElement {
   return (
     <span
       style={{
-        display: 'inline-flex',
-        alignItems: 'center',
+        ...S.pill,
         justifyContent: 'center',
-        fontSize: 'var(--skn-font-small)',
         fontWeight: 700,
         padding: '1px 8px',
-        borderRadius: 'var(--skn-radius-pill)',
         background: 'var(--skn-info-bg)',
         color: 'var(--skn-info-fg)',
-        border: '1px solid var(--skn-info-border)',
+        borderColor: 'var(--skn-info-border)',
         whiteSpace: 'nowrap',
       }}
     >
@@ -61,15 +58,12 @@ function AddedPill(): React.ReactElement {
   return (
     <span
       style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        fontSize: 'var(--skn-font-small)',
+        ...S.pill,
         fontWeight: 600,
         padding: '1px 8px',
-        borderRadius: 'var(--skn-radius-pill)',
         background: 'var(--skn-success-bg)',
         color: 'var(--skn-success-fg)',
-        border: '1px solid var(--skn-success-border)',
+        borderColor: 'var(--skn-success-border)',
       }}
     >
       added
@@ -178,11 +172,13 @@ export function DetectedPathRow({
   const tuneToggleRef = useRef<HTMLButtonElement>(null);
   const wasTuneOpen = useRef(false);
 
-  // Stable IDs for aria- relationships.
-  // Paths contain dots and slashes; replace non-alphanumeric with dashes.
-  const safeId = path.replace(/[^a-zA-Z0-9]/g, '-');
-  const reasonId = `skn-row-reason-${safeId}`;
-  const tuneBodyId = `skn-tune-body-${safeId}`;
+  // Collision-safe ids: useId() guarantees uniqueness across concurrent rows,
+  // even when two paths produce the same slug (e.g. "a.b" and "a/b" both
+  // become "a-b"). All aria- linkages (reasonId, tuneBodyId) and the idPrefix
+  // passed to PerPathSettings and SourceChecklist use this uid as their base.
+  const uid = useId();
+  const reasonId = `${uid}-reason`;
+  const tuneBodyId = `${uid}-tune-body`;
 
   const handleAdd = useCallback(() => {
     if (!isOther) onAdd(path);
@@ -248,17 +244,13 @@ export function DetectedPathRow({
 
         {/* Opt-in control */}
         {optedIn ? (
-          <button
-            type="button"
-            style={{ ...S.btnSecondary, minHeight: 40, padding: '8px 14px' }}
-            onClick={handleRemove}
-          >
+          <button type="button" style={S.btnSecondaryRow} onClick={handleRemove}>
             Remove
           </button>
         ) : (
           <button
             type="button"
-            style={{ ...S.btnPrimary, minHeight: 40, padding: '8px 14px' }}
+            style={S.btnPrimaryRow}
             disabled={isOther}
             aria-describedby={isOther ? reasonId : undefined}
             onClick={handleAdd}
@@ -277,7 +269,7 @@ export function DetectedPathRow({
             whiteSpace: 'nowrap',
             fontSize: 'var(--skn-font-body)',
             color: isOther ? 'var(--skn-text-faint)' : 'var(--skn-text)',
-            fontFamily: 'monospace',
+            fontFamily: 'var(--skn-font-mono)',
           }}
           title={path}
         >
@@ -324,7 +316,7 @@ export function DetectedPathRow({
           tuneToggleRef={tuneToggleRef}
           onToggle={handleTuneToggle}
           onUpdate={handleUpdate}
-          idPrefix={safeId}
+          idPrefix={uid}
         />
       )}
     </div>

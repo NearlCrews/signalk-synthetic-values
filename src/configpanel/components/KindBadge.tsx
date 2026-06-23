@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type * as React from 'react';
 import { kindMeta } from '../kindMeta';
 import { S } from '../styles';
 
@@ -21,25 +21,19 @@ interface KindBadgeProps {
 export function KindBadge({ kind }: KindBadgeProps): React.ReactElement {
   const meta = kindMeta(kind);
 
-  const pillStyle: CSSProperties =
+  const pillStyle =
     meta.token === 'warn'
       ? {
-          display: 'inline-block',
-          fontSize: 'var(--skn-font-small)',
-          padding: '1px 6px',
-          borderRadius: 'var(--skn-radius-sm)',
+          ...S.pill,
           background: 'var(--skn-warn-bg)',
           color: 'var(--skn-warn-fg)',
-          border: '1px solid var(--skn-warn-border)',
+          borderColor: 'var(--skn-warn-border)',
         }
       : {
-          display: 'inline-block',
-          fontSize: 'var(--skn-font-small)',
-          padding: '1px 6px',
-          borderRadius: 'var(--skn-radius-sm)',
+          ...S.pill,
           background: 'var(--skn-surface-muted)',
           color: 'var(--skn-text-muted)',
-          border: '1px solid var(--skn-border)',
+          borderColor: 'var(--skn-border)',
         };
 
   return (

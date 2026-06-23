@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type * as React from 'react';
 import { S } from '../styles';
 
 interface SourceChipsProps {
@@ -6,6 +6,29 @@ interface SourceChipsProps {
 }
 
 const VISIBLE_MAX = 3;
+
+// Module-level style constants: these have no reactive dependencies and are
+// identical across every render, so they live outside the component function.
+const chipStyle: React.CSSProperties = {
+  ...S.pill,
+  background: 'var(--skn-surface-raised)',
+  color: 'var(--skn-text-muted)',
+  borderColor: 'var(--skn-border)',
+  whiteSpace: 'nowrap',
+};
+
+const moreStyle: React.CSSProperties = {
+  ...chipStyle,
+  color: 'var(--skn-text-faint)',
+  background: 'var(--skn-surface-muted)',
+};
+
+const wrapStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  gap: 4,
+  flexWrap: 'wrap',
+  alignItems: 'center',
+};
 
 // Renders up to 3 source chips, collapsing extras to "+N more".
 //
@@ -21,31 +44,6 @@ export function SourceChips({ sources }: SourceChipsProps): React.ReactElement {
   const visible = sources.slice(0, VISIBLE_MAX);
   const overflow = sources.length - VISIBLE_MAX;
   const fullList = sources.join(', ');
-
-  const chipStyle: CSSProperties = {
-    display: 'inline-block',
-    fontSize: 'var(--skn-font-small)',
-    padding: '1px 6px',
-    borderRadius: 'var(--skn-radius-pill)',
-    background: 'var(--skn-surface-raised)',
-    color: 'var(--skn-text-muted)',
-    border: '1px solid var(--skn-border)',
-    whiteSpace: 'nowrap',
-  };
-
-  const moreStyle: CSSProperties = {
-    ...chipStyle,
-    color: 'var(--skn-text-faint)',
-    border: '1px solid var(--skn-border)',
-    background: 'var(--skn-surface-muted)',
-  };
-
-  const wrapStyle: CSSProperties = {
-    display: 'inline-flex',
-    gap: 4,
-    flexWrap: 'wrap',
-    alignItems: 'center',
-  };
 
   return (
     <span style={wrapStyle} title={fullList}>

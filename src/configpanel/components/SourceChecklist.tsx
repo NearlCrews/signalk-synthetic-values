@@ -2,6 +2,20 @@ import type * as React from 'react';
 import type { RawPathConfigPatch } from '../../config.js';
 import { S } from '../styles.js';
 
+// Module-level style constants: no reactive dependencies; stable across renders.
+const rowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 'var(--skn-space-1)',
+  marginBottom: 4,
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 'var(--skn-font-body)',
+  color: 'var(--skn-text)',
+  cursor: 'pointer',
+};
+
 interface Props {
   sources: string[];
   includeSources: string[] | undefined;
@@ -48,19 +62,6 @@ export function SourceChecklist({
       onChange({ excludeSources: next });
     }
   }
-
-  const rowStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--skn-space-1)',
-    marginBottom: 4,
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: 'var(--skn-font-body)',
-    color: 'var(--skn-text)',
-    cursor: 'pointer',
-  };
 
   return (
     <div>

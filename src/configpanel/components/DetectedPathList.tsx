@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { useCallback, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import { isCombinableKind } from '../constants.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
@@ -77,11 +77,7 @@ function ListHeader({ lastChecked, loading, onRefresh }: HeaderProps): React.Rea
       >
         Detected multi-source paths
       </h2>
-      {loading && (
-        <span style={S.textSmallMuted} aria-live="polite">
-          checking...
-        </span>
-      )}
+      {loading && <span style={S.textSmallMuted}>checking...</span>}
       <LastCheckedStamp lastChecked={lastChecked} />
       <button
         type="button"
@@ -155,6 +151,10 @@ function NonCombinableGroup({
 }: NonCombinableGroupProps): React.ReactElement | null {
   const [open, setOpen] = useState(false);
   if (rows.length === 0) return null;
+  // Focus-return on collapse: this top-level group disclosure does not need
+  // focus-return logic because the toggle button remains visible and focused
+  // throughout; it is never unmounted or moved when the group collapses, so
+  // the browser naturally leaves focus on the button.
   return (
     <div style={{ marginTop: 'var(--skn-space-2)' }}>
       <button
@@ -312,8 +312,9 @@ export function DetectedPathList({
   const noncombinableBodyId = useId();
   const statusRegionId = useId();
 
-  // Track the live-region announcement separately from render to allow the
-  // browser time to process the DOM change before we update the live region.
+  // Live-region announcement: update after commit (not during render) to avoid
+  // a render-phase setState. prevCountRef tracks the last announced count so we
+  // skip the first paint and only announce when the count actually changes.
   const prevCountRef = useRef<number | null>(null);
   const [announcement, setAnnouncement] = useState('');
 
@@ -338,10 +339,15 @@ export function DetectedPathList({
 
   // Total count for the live-region announcement.
   const totalCount = detected.length;
-  if (prevCountRef.current !== null && prevCountRef.current !== totalCount) {
-    setAnnouncement(`${totalCount} path${totalCount !== 1 ? 's' : ''} detected.`);
-  }
-  prevCountRef.current = totalCount;
+
+  // Announce count changes after commit so the live region update lands after the
+  // DOM is stable (safe setState from useEffect, not from the render body).
+  useEffect(() => {
+    if (prevCountRef.current !== null && prevCountRef.current !== totalCount) {
+      setAnnouncement(`${totalCount} path${totalCount !== 1 ? 's' : ''} detected.`);
+    }
+    prevCountRef.current = totalCount;
+  }, [totalCount]);
 
   return (
     <div>

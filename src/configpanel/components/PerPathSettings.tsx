@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
@@ -61,8 +61,7 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
     <div>
       {/* Tier 1: method */}
       <div style={S.fieldRow}>
-        {/* Narrower flex-basis than S.label (180px vs 280px) so short labels stay compact in this panel. */}
-        <label htmlFor={methodId} style={{ ...S.label, flex: '0 1 180px' }}>
+        <label htmlFor={methodId} style={S.labelNarrow}>
           Method
         </label>
         <select
@@ -84,7 +83,7 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
 
       {/* Tier 1: minSources */}
       <div style={S.fieldRow}>
-        <label htmlFor={minSourcesId} style={{ ...S.label, flex: '0 1 180px' }}>
+        <label htmlFor={minSourcesId} style={S.labelNarrow}>
           Minimum sources
         </label>
         <input
@@ -158,6 +157,69 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
 }
 
 // ---------------------------------------------------------------------------
+// Memoized NumberField: encapsulates the parse-or-clear pattern shared by all
+// numeric inputs. Emits { [key]: undefined } when the field is cleared and
+// { [key]: n } when a finite number is entered; ignores non-finite strings.
+// ---------------------------------------------------------------------------
+
+type NumericKey = keyof Pick<
+  RawPathConfig,
+  | 'madThreshold'
+  | 'rejectThreshold'
+  | 'disagreeThreshold'
+  | 'angularSpreadThreshold'
+  | 'trimFraction'
+  | 'stalenessTimeoutMs'
+  | 'emitMinIntervalMs'
+  | 'slewLimit'
+>;
+
+interface NumberFieldProps {
+  id: string;
+  label: string;
+  ariaLabel: string;
+  value: number | undefined;
+  placeholder: string;
+  fieldKey: NumericKey;
+  onChange: (patch: RawPathConfigPatch) => void;
+}
+
+const NumberField = memo(function NumberField({
+  id,
+  label,
+  ariaLabel,
+  value,
+  placeholder,
+  fieldKey,
+  onChange,
+}: NumberFieldProps): React.ReactElement {
+  return (
+    <div style={S.fieldRow}>
+      <label htmlFor={id} style={S.labelWide}>
+        {label}
+      </label>
+      <input
+        id={id}
+        type="number"
+        min={0}
+        aria-label={ariaLabel}
+        style={S.input}
+        value={value ?? ''}
+        placeholder={placeholder}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (e.target.value.trim() === '') {
+            onChange({ [fieldKey]: undefined });
+          } else if (Number.isFinite(n)) {
+            onChange({ [fieldKey]: n });
+          }
+        }}
+      />
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Advanced tier: threshold and timing overrides
 // ---------------------------------------------------------------------------
 
@@ -168,103 +230,60 @@ interface AdvancedFieldsProps {
 }
 
 function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): React.ReactElement {
-  // Narrower flex-basis than S.label (220px vs 280px) to match the longer Advanced labels.
-  const advLabelStyle: React.CSSProperties = { ...S.label, flex: '0 1 220px' };
-
-  function numberField(
-    label: string,
-    idSuffix: string,
-    ariaLabel: string,
-    value: number | undefined,
-    placeholder: string,
-    key: keyof Pick<
-      RawPathConfig,
-      | 'madThreshold'
-      | 'rejectThreshold'
-      | 'disagreeThreshold'
-      | 'angularSpreadThreshold'
-      | 'trimFraction'
-      | 'stalenessTimeoutMs'
-      | 'emitMinIntervalMs'
-      | 'slewLimit'
-    >
-  ): React.ReactElement {
-    const id = `${idPrefix}-${idSuffix}`;
-    return (
-      <div style={S.fieldRow}>
-        <label htmlFor={id} style={advLabelStyle}>
-          {label}
-        </label>
-        <input
-          id={id}
-          type="number"
-          min={0}
-          aria-label={ariaLabel}
-          style={S.input}
-          value={value ?? ''}
-          placeholder={placeholder}
-          onChange={(e) => {
-            const n = Number(e.target.value);
-            if (e.target.value.trim() === '') {
-              onChange({ [key]: undefined });
-            } else if (Number.isFinite(n)) {
-              onChange({ [key]: n });
-            }
-          }}
-        />
-      </div>
-    );
-  }
-
   const angularId = `${idPrefix}-angular`;
   const jumpMaxRateId = `${idPrefix}-jump-max-rate`;
 
   return (
     <div>
-      {numberField(
-        'Outlier threshold (MAD multiplier)',
-        'mad',
-        'MAD threshold',
-        config.madThreshold,
-        'default: 3',
-        'madThreshold'
-      )}
-      {numberField(
-        'Reject threshold (absolute distance)',
-        'reject',
-        'Reject threshold',
-        config.rejectThreshold,
-        'not set',
-        'rejectThreshold'
-      )}
-      {numberField(
-        'Disagree threshold (max spread)',
-        'disagree',
-        'Disagree threshold',
-        config.disagreeThreshold,
-        'not set',
-        'disagreeThreshold'
-      )}
-      {numberField(
-        'Angular spread threshold (radians)',
-        'angular-spread',
-        'Angular spread threshold',
-        config.angularSpreadThreshold,
-        'default: π/2',
-        'angularSpreadThreshold'
-      )}
-      {numberField(
-        'Trim fraction (0 to 0.5)',
-        'trim',
-        'Trim fraction',
-        config.trimFraction,
-        'default: 0.25',
-        'trimFraction'
-      )}
+      <NumberField
+        id={`${idPrefix}-mad`}
+        label="Outlier threshold (MAD multiplier)"
+        ariaLabel="MAD threshold"
+        value={config.madThreshold}
+        placeholder="default: 3"
+        fieldKey="madThreshold"
+        onChange={onChange}
+      />
+      <NumberField
+        id={`${idPrefix}-reject`}
+        label="Reject threshold (absolute distance)"
+        ariaLabel="Reject threshold"
+        value={config.rejectThreshold}
+        placeholder="not set"
+        fieldKey="rejectThreshold"
+        onChange={onChange}
+      />
+      <NumberField
+        id={`${idPrefix}-disagree`}
+        label="Disagree threshold (max spread)"
+        ariaLabel="Disagree threshold"
+        value={config.disagreeThreshold}
+        placeholder="not set"
+        fieldKey="disagreeThreshold"
+        onChange={onChange}
+      />
+      <NumberField
+        id={`${idPrefix}-angular-spread`}
+        label="Angular spread threshold (radians)"
+        ariaLabel="Angular spread threshold"
+        value={config.angularSpreadThreshold}
+        placeholder="default: π/2"
+        fieldKey="angularSpreadThreshold"
+        onChange={onChange}
+      />
+      <NumberField
+        id={`${idPrefix}-trim`}
+        label="Trim fraction (0 to 0.5)"
+        ariaLabel="Trim fraction"
+        value={config.trimFraction}
+        placeholder="default: 0.25"
+        fieldKey="trimFraction"
+        onChange={onChange}
+      />
 
       {/* Angular override */}
       <div style={S.fieldRow}>
-        <label htmlFor={angularId} style={advLabelStyle}>
+        <label htmlFor={angularId} style={S.labelWide}>
           Angular (circular averaging)
         </label>
         <select
@@ -284,7 +303,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
 
       {/* Jump rejection: just maxRate for now */}
       <div style={S.fieldRow}>
-        <label htmlFor={jumpMaxRateId} style={advLabelStyle}>
+        <label htmlFor={jumpMaxRateId} style={S.labelWide}>
           Jump rejection max rate
         </label>
         <input
@@ -312,30 +331,33 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         />
       </div>
 
-      {numberField(
-        'Slew limit (units/sec)',
-        'slew',
-        'Slew limit',
-        config.slewLimit,
-        'disabled',
-        'slewLimit'
-      )}
-      {numberField(
-        'Staleness timeout (ms)',
-        'staleness',
-        'Staleness timeout ms',
-        config.stalenessTimeoutMs,
-        'default: 5000',
-        'stalenessTimeoutMs'
-      )}
-      {numberField(
-        'Emit min interval (ms)',
-        'emit-interval',
-        'Emit min interval ms',
-        config.emitMinIntervalMs,
-        'default: 500',
-        'emitMinIntervalMs'
-      )}
+      <NumberField
+        id={`${idPrefix}-slew`}
+        label="Slew limit (units/sec)"
+        ariaLabel="Slew limit"
+        value={config.slewLimit}
+        placeholder="disabled"
+        fieldKey="slewLimit"
+        onChange={onChange}
+      />
+      <NumberField
+        id={`${idPrefix}-staleness`}
+        label="Staleness timeout (ms)"
+        ariaLabel="Staleness timeout ms"
+        value={config.stalenessTimeoutMs}
+        placeholder="default: 5000"
+        fieldKey="stalenessTimeoutMs"
+        onChange={onChange}
+      />
+      <NumberField
+        id={`${idPrefix}-emit-interval`}
+        label="Emit min interval (ms)"
+        ariaLabel="Emit min interval ms"
+        value={config.emitMinIntervalMs}
+        placeholder="default: 500"
+        fieldKey="emitMinIntervalMs"
+        onChange={onChange}
+      />
     </div>
   );
 }
