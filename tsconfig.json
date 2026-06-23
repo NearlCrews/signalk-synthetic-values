@@ -30,5 +30,8 @@
     "skipLibCheck": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "test", "**/*.test.ts"]
+  // src/configpanel is browser TSX type-checked by tsconfig.panel.json; the
+  // runtime build (esbuild bundle plus this config's declarations) must not
+  // compile it.
+  "exclude": ["node_modules", "dist", "test", "**/*.test.ts", "src/configpanel"]
 }
