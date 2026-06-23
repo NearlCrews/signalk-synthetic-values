@@ -11,8 +11,8 @@ describe('Emitter', () => {
   it('emits a scalar delta with $source set as a bare string', () => {
     const app: EmitApp = { handleMessage: vi.fn() }
     const e = new Emitter(app, 'signalk-synthetic-values', fakeClock(0))
-    const ok = e.maybeEmit('environment.depth.belowTransducer', 4.2, 'signalk-synthetic-values', 1000)
-    expect(ok).toBe(true)
+    expect(e.due('environment.depth.belowTransducer', 1000)).toBe(true)
+    e.emit('environment.depth.belowTransducer', 4.2, 'signalk-synthetic-values')
     const delta: any = (app.handleMessage as any).mock.calls[0][1]
     expect(delta.updates[0].$source).toBe('signalk-synthetic-values')
     expect(delta.updates[0].timestamp).toBeUndefined()
@@ -23,11 +23,13 @@ describe('Emitter', () => {
     const app: EmitApp = { handleMessage: vi.fn() }
     const c = fakeClock(0)
     const e = new Emitter(app, 'sv', c)
-    expect(e.maybeEmit('p', 1, 'sv', 1000)).toBe(true)
+    expect(e.due('p', 1000)).toBe(true)
+    e.emit('p', 1, 'sv')
     c.set(500)
-    expect(e.maybeEmit('p', 2, 'sv', 1000)).toBe(false)
+    expect(e.due('p', 1000)).toBe(false)
     c.set(1000)
-    expect(e.maybeEmit('p', 3, 'sv', 1000)).toBe(true)
+    expect(e.due('p', 1000)).toBe(true)
+    e.emit('p', 3, 'sv')
     const calls = (app.handleMessage as any).mock.calls
     expect(calls).toHaveLength(2)
     expect(calls[1][1].updates[0].values[0].value).toBe(3)
@@ -35,7 +37,7 @@ describe('Emitter', () => {
   it('emits a position value object', () => {
     const app: EmitApp = { handleMessage: vi.fn() }
     const e = new Emitter(app, 'sv', fakeClock(0))
-    e.maybeEmit('navigation.position', { latitude: 1, longitude: 2 }, 'sv', 1000)
+    e.emit('navigation.position', { latitude: 1, longitude: 2 }, 'sv')
     const delta: any = (app.handleMessage as any).mock.calls[0][1]
     expect(delta.updates[0].values[0].value).toEqual({ latitude: 1, longitude: 2 })
     expect(delta.updates[0].$source).toBe('sv')

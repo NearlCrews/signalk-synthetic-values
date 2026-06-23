@@ -56,7 +56,6 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   const slewState = new Map<string, SlewState>();
   const classification = new Map<string, Kind>();
   const skipped: { path: string; reason: string }[] = [];
-  const prioritySet = new Set<string>(); // best-effort; populated only if we ever learn priority. Stays empty in v1.
 
   const getUnits: MetadataLookup = (p) => {
     try {
@@ -77,6 +76,11 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   function classifyPath(path: string, value: SampleValue, cfg: PathConfig): Kind {
     const cached = classification.get(path);
     if (cached) return cached;
+    // First-sample-wins: the kind is determined from the first observed value and
+    // cached for the lifetime of the plugin run. Well-typed paths carry stable value
+    // categories, so this is correct in practice. A path that legitimately carries
+    // both a number and a position object would lock to whichever sample arrived
+    // first; that is an unusual case and does not require redesign here.
     const kind = classify(path, value, cfg.angular, getUnits, selfContext);
     classification.set(path, kind);
     if (kind === 'other') skipped.push({ path, reason: 'non-combinable value' });
@@ -133,9 +137,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       trimFraction: cfg.trimFraction,
     };
     const result = combine(samples, opts);
-    app.setPluginStatus(
-      pathStatus(path, result, PLUGIN_ID, cfg.minSources, prioritySet.has(path), cfg.method)
-    );
+    app.setPluginStatus(pathStatus(path, result, PLUGIN_ID, cfg.minSources, cfg.method));
     if (result.value === undefined) return;
 
     let value = result.value;
@@ -205,8 +207,12 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
         try {
           observe(delta as unknown as ObservedDelta);
         } catch (err) {
-          app.setPluginError(err instanceof Error ? err.message : String(err));
-          app.error(err instanceof Error ? err.message : String(err));
+          // Per-delta errors are transient: log but do not promote to a sticky
+          // plugin fault via setPluginError, which would flap the status bar on
+          // every misbehaving source delta.
+          const msg = err instanceof Error ? err.message : String(err);
+          app.error(msg);
+          app.debug?.(`observe error: ${msg}`);
         }
         next(delta);
       });

@@ -32,12 +32,6 @@ export class Emitter {
     });
   }
 
-  maybeEmit(path: string, value: SampleValue, sourceRef: string, minIntervalMs: number): boolean {
-    if (!this.due(path, minIntervalMs)) return false;
-    this.emit(path, value, sourceRef);
-    return true;
-  }
-
   reset(): void {
     this.lastEmit.clear();
   }

@@ -16,6 +16,6 @@ describe('buildSchema', () => {
   })
   it('description names the discovery route', () => {
     const schema: any = buildSchema(() => [])
-    expect(JSON.stringify(schema)).toContain('/plugins/signalk-synthetic-values/detected')
+    expect(JSON.stringify(schema)).toContain('/plugins/signalk-synthetic-values/api/detected')
   })
 })

@@ -5,7 +5,6 @@ export function pathStatus(
   result: CombineResult,
   sourceLabel: string,
   effectiveMin: number,
-  prioritySet: boolean,
   method: CombineMethod
 ): string {
   switch (result.outcome) {
@@ -21,10 +20,7 @@ export function pathStatus(
       return `${path}: sources disagree (max spread ${spreadStr}), emitting ${method}.`;
     }
     default:
-      if (!prioritySet) {
-        return `Combining ${result.usedSources.length} sources on ${path}. Set this path's source priority to prefer ${sourceLabel} in Server, Data, Sources.`;
-      }
-      return `Combining ${result.usedSources.length} sources on ${path}.`;
+      return `Combining ${result.usedSources.length} sources on ${path}. Set this path's source priority to prefer ${sourceLabel} in Server, Data, Sources.`;
   }
 }
 
