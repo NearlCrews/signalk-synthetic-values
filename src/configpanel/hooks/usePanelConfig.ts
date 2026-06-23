@@ -1,7 +1,25 @@
 import { useCallback, useState } from 'react';
 import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../../config.js';
+import { DEFAULT_MAX_SOURCES_PER_PATH } from '../../config.js';
 import { isCombinableKind } from '../constants.js';
 import type { DetectedRow } from './useDetected.js';
+
+/**
+ * Normalize the host-supplied configuration into a complete PluginOptions.
+ * The Signal K admin UI passes whatever is currently saved, which on a fresh
+ * install is undefined or an empty object with no `paths`. Every field is
+ * defaulted here to the same values the schema and validateConfig use, so the
+ * panel never reads `paths` off undefined.
+ */
+export function normalizeOptions(configuration?: Partial<PluginOptions> | null): PluginOptions {
+  return {
+    defaultStalenessTimeoutMs: configuration?.defaultStalenessTimeoutMs ?? 1000,
+    defaultEmitMinIntervalMs: configuration?.defaultEmitMinIntervalMs ?? 1000,
+    defaultMinSources: configuration?.defaultMinSources ?? 2,
+    maxSourcesPerPath: configuration?.maxSourcesPerPath ?? DEFAULT_MAX_SOURCES_PER_PATH,
+    paths: configuration?.paths ?? [],
+  };
+}
 
 // -- Pure state transitions ---------------------------------------------------
 // Exported so tests can drive them directly without a DOM renderer.
@@ -95,14 +113,16 @@ export interface UsePanelConfigResult {
  * preserved on every save. The pure transitions (`applyAddPath`, etc.) are
  * exported separately for unit testing without a DOM renderer.
  */
-export function usePanelConfig(configuration: PluginOptions): UsePanelConfigResult {
-  const [options, setOptions] = useState<PluginOptions>(configuration);
+export function usePanelConfig(
+  configuration?: Partial<PluginOptions> | null
+): UsePanelConfigResult {
+  const [options, setOptions] = useState<PluginOptions>(() => normalizeOptions(configuration));
 
   // Resync when the host supplies a new configuration object after a restart.
   const [prevConfiguration, setPrevConfiguration] = useState(configuration);
   if (prevConfiguration !== configuration) {
     setPrevConfiguration(configuration);
-    setOptions(configuration);
+    setOptions(normalizeOptions(configuration));
   }
 
   const addPath = useCallback((path: string): void => {

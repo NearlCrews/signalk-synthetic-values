@@ -11,12 +11,15 @@ import {
   applyAddPath,
   applyRemovePath,
   applyUpdatePath,
+  normalizeOptions,
   usePanelConfig,
 } from './hooks/usePanelConfig.js';
 import { injectStyles } from './styles.js';
 
 interface Props {
-  configuration: PluginOptions;
+  // The Signal K admin UI passes whatever is saved, which on a fresh install is
+  // undefined or an empty object, so this is treated as a partial.
+  configuration?: Partial<PluginOptions> | null;
   save: (config: PluginOptions) => unknown;
 }
 
@@ -77,8 +80,9 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
   }, []);
 
   // Ref that always holds the last successfully saved options so the no-op
-  // guard can compare without a stale closure.
-  const savedOptionsRef = useRef<PluginOptions>(configuration);
+  // guard can compare without a stale closure. Normalized so a fresh install
+  // (undefined or empty configuration) starts from a complete options object.
+  const savedOptionsRef = useRef<PluginOptions>(normalizeOptions(configuration));
 
   // Write actions: mutate form state then immediately persist.
   // React state updates are asynchronous, so next-state is computed

@@ -69,6 +69,24 @@ describe('PluginConfigurationPanel', () => {
     vi.restoreAllMocks();
   });
 
+  it('renders without crashing when the host passes no saved configuration', async () => {
+    // A fresh install: the Signal K admin UI mounts the panel with an undefined
+    // configuration (nothing saved yet). The panel must not read paths off undefined.
+    const mockSave = vi.fn().mockResolvedValue(undefined);
+    render(createElement(PluginConfigurationPanel, { configuration: undefined, save: mockSave }));
+    expect(screen.getByText('Synthetic Values')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(availablePath)).toBeInTheDocument();
+    });
+  });
+
+  it('renders without crashing when configuration is an empty object', () => {
+    // Some server versions pass an empty object rather than undefined.
+    const mockSave = vi.fn().mockResolvedValue(undefined);
+    render(createElement(PluginConfigurationPanel, { configuration: {}, save: mockSave }));
+    expect(screen.getByText('Synthetic Values')).toBeInTheDocument();
+  });
+
   it('renders the theme toggle', async () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
