@@ -38,7 +38,7 @@ Synthetic Values subscribes to every source on the opted-in paths, applies a com
 The plugin handles three value kinds:
 
 - **Scalar:** standard numeric combining. Median is robust; trimmed mean and mean are available. Whole-source outlier rejection uses scaled MAD at four or more sources, and a configured `rejectThreshold` at smaller N.
-- **Angular:** headings, bearings, and any path with radian units. Uses circular mean to avoid the 0/360-degree wrap artifact. Suppresses the synthetic value when the circular pairwise spread exceeds `angularSpreadThreshold`, so a sensor pointing 180 degrees from the rest does not produce a meaningless average.
+- **Angular:** headings, bearings, and any path with radian units. Combines without the 0/360-degree wrap artifact, honoring the `method` setting: `median` (the default) uses the circular medoid, the reading closest to the others, so one off compass cannot drag the result; `mean` uses the circular mean. Suppresses the synthetic value when the circular pairwise spread exceeds `angularSpreadThreshold`, so a sensor pointing 180 degrees from the rest does not produce a meaningless average.
 - **Position:** latitude/longitude pairs. Combines to the geodesic centroid and applies per-source distance-based outlier rejection so a phantom GPS fix does not drag the result.
 
 A staleness timeout excludes sources that have not sent a fresh reading within the configured window, so a sensor that goes quiet does not silently anchor the average.
@@ -95,7 +95,7 @@ Add one entry to **Paths to combine** for each path you want to opt in. The drop
 | Option | Default | Description |
 |--------|---------|-------------|
 | `path` | required | The Signal K path to combine. |
-| `method` | `median` | Combining method: `median`, `trimmedMean`, or `mean`. Ignored for angular paths, which always use circular mean. |
+| `method` | `median` | Combining method: `median`, `trimmedMean`, or `mean`. For angular paths, `mean` uses the circular mean; `median` and `trimmedMean` use the circular medoid (the reading closest to the others). |
 | `trimFraction` | `0.25` | Fraction trimmed from each end when using `trimmedMean`. Falls back to median or mean at small N. |
 | `outlierRejection` | `true` | Reject whole-source outliers before combining. |
 | `madThreshold` | `3` | Sigma-equivalent multiplier for scaled-MAD outlier rejection when N is 4 or more. |

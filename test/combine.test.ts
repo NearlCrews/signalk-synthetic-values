@@ -1,6 +1,6 @@
 // test/combine.test.ts
 import { describe, expect, it } from 'vitest';
-import { type CombineOptions, combine, type Sample } from '../src/combine';
+import { type CombineOptions, circularMedoid, combine, type Sample } from '../src/combine';
 import type { LatLon } from '../src/metrics';
 
 const base: Omit<CombineOptions, 'kind'> = {
@@ -65,9 +65,25 @@ describe('combine scalar', () => {
   });
 });
 
+describe('circularMedoid', () => {
+  const d = (x: number) => (x * Math.PI) / 180;
+  it('returns the reading with the least total angular distance', () => {
+    expect((circularMedoid([d(4.2), d(9.4), d(9.4)]) * 180) / Math.PI).toBeCloseTo(9.4, 6);
+  });
+  it('handles the wrap boundary (readings near north)', () => {
+    // 359 deg, 1 deg, 1 deg cluster near north; medoid is one of the 1 deg readings.
+    const m = (circularMedoid([d(359), d(1), d(1)]) * 180) / Math.PI;
+    expect(m).toBeCloseTo(1, 6);
+  });
+  it('returns the sole reading for a single angle', () => {
+    expect(circularMedoid([d(42)])).toBeCloseTo(d(42), 9);
+  });
+});
+
 describe('combine angular', () => {
-  it('uses the circular mean and ignores method', () => {
-    const d = (x: number) => (x * Math.PI) / 180;
+  const d = (x: number) => (x * Math.PI) / 180;
+
+  it('uses the circular mean for method=mean', () => {
     const r = combine([s('a', d(0)), s('b', d(10)), s('c', d(350))], {
       ...base,
       kind: 'angular',
@@ -76,6 +92,18 @@ describe('combine angular', () => {
     const deg = ((r.value as number) * 180) / Math.PI;
     expect(Math.min(deg, 360 - deg)).toBeLessThan(1);
     expect(r.outcome).toBe('ok');
+  });
+
+  it('uses the circular medoid for method=median, tracking the consensus not the mean', () => {
+    // Two compasses agree at 9.4 deg, one reads 4.2 deg. The circular mean is
+    // ~7.6 deg (dragged by the outlier); the medoid is the consensus 9.4 deg.
+    const r = combine([s('a', d(4.2)), s('b', d(9.4)), s('c', d(9.4))], {
+      ...base,
+      kind: 'angular',
+      method: 'median',
+    });
+    expect(r.outcome).toBe('ok');
+    expect(((r.value as number) * 180) / Math.PI).toBeCloseTo(9.4, 4);
   });
   it('suppresses an antipodal pair', () => {
     const r = combine([s('a', 0), s('b', Math.PI)], { ...base, kind: 'angular' });

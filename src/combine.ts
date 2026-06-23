@@ -1,5 +1,5 @@
 import type { Kind, LatLon, SampleValue } from './metrics';
-import { distance, maxPairwiseDistance } from './metrics';
+import { angularDistance, distance, maxPairwiseDistance } from './metrics';
 
 const TWO_PI = 2 * Math.PI;
 
@@ -40,6 +40,24 @@ export function circularMeanRad(angles: number[]): { mean: number; R: number } {
 
 export function maxCircularSpread(angles: number[]): number {
   return maxPairwiseDistance('angular', angles);
+}
+
+// Circular medoid: the observed angle with the least total angular distance to
+// the others. It is the circular analogue of the median and returns an actual
+// reading, so a single off sensor cannot drag it the way the circular mean is
+// dragged. With a tie (for example two clustered readings) the first wins.
+export function circularMedoid(angles: number[]): number {
+  let best = angles[0] as number;
+  let bestCost = Number.POSITIVE_INFINITY;
+  for (const a of angles) {
+    let cost = 0;
+    for (const b of angles) cost += angularDistance(a, b);
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = a;
+    }
+  }
+  return best;
 }
 
 function lonsToRadians(lons: number[]): number[] {
@@ -156,7 +174,11 @@ function computeValue(
     if (R < R_MIN || maxCircularSpread(angles) > opts.angularSpreadThreshold) {
       return { usedSources, freshCount, outcome: 'diverged' };
     }
-    return { value: cm, outcome: 'ok' };
+    // Honor the method: 'mean' averages (splits the difference), while the
+    // robust methods use the circular medoid so a lone off compass does not
+    // drag the result. Default 'median' therefore tracks the consensus angle.
+    const value = opts.method === 'mean' ? cm : circularMedoid(angles);
+    return { value, outcome: 'ok' };
   }
   if (opts.kind === 'position') {
     const lats = used.map((s) => (s.value as LatLon).latitude);

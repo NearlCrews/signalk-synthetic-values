@@ -131,6 +131,17 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     });
   }
 
+  // Apply the per-path include/exclude source filters. Returns the input
+  // unchanged when neither list is set.
+  function selectSources(samples: Sample[], cfg: PathConfig): Sample[] {
+    let result = samples;
+    const include = cfg.includeSources;
+    if (include?.length) result = result.filter((s) => include.includes(s.sourceRef));
+    const exclude = cfg.excludeSources;
+    if (exclude?.length) result = result.filter((s) => !exclude.includes(s.sourceRef));
+    return result;
+  }
+
   function maybeEmit(path: string, cfg: PathConfig): void {
     if (!emitter.due(path, cfg.emitMinIntervalMs)) return;
 
@@ -141,10 +152,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     if (kind === 'other') return;
 
     const now = systemClock.now();
-    const include = cfg.includeSources;
-    if (include?.length) samples = samples.filter((s) => include.includes(s.sourceRef));
-    const exclude = cfg.excludeSources;
-    if (exclude?.length) samples = samples.filter((s) => !exclude.includes(s.sourceRef));
+    samples = selectSources(samples, cfg);
     samples = damped(path, cfg, kind, samples, now);
 
     const opts: CombineOptions = {
