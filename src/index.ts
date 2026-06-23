@@ -50,7 +50,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   let selfContext = 'vessels.self';
   let byPath = new Map<string, PathConfig>();
   const registry = new Registry(systemClock, DEFAULT_MAX_SOURCES_PER_PATH);
-  const discovery = new Discovery();
+  const discovery = new Discovery(systemClock);
   const emitter = new Emitter(app, PLUGIN_ID, systemClock);
   const jumpState = new Map<string, Map<string, JumpState>>();
   const slewState = new Map<string, SlewState>();
