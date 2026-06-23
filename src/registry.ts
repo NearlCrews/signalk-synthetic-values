@@ -9,8 +9,15 @@ interface Entry {
 
 export class Registry {
   private store = new Map<string, Map<string, Entry>>()
+  private _maxSourcesPerPath: number
 
-  constructor(private clock: Clock, private maxSourcesPerPath: number) {}
+  constructor(private clock: Clock, maxSourcesPerPath: number) {
+    this._maxSourcesPerPath = maxSourcesPerPath
+  }
+
+  setMaxSourcesPerPath(n: number): void {
+    this._maxSourcesPerPath = n
+  }
 
   update(path: string, sourceRef: string, value: SampleValue, ts: number): void {
     let bySource = this.store.get(path)
@@ -18,7 +25,7 @@ export class Registry {
       bySource = new Map()
       this.store.set(path, bySource)
     }
-    if (!bySource.has(sourceRef) && bySource.size >= this.maxSourcesPerPath) {
+    if (!bySource.has(sourceRef) && bySource.size >= this._maxSourcesPerPath) {
       let oldestRef: string | undefined
       let oldestTs = Infinity
       for (const [ref, e] of bySource) {

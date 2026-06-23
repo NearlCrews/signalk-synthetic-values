@@ -16,8 +16,7 @@ export = function (app: any) {
   let unregister: (() => void) | null = null
   let selfContext = 'vessels.self'
   let byPath = new Map<string, PathConfig>()
-  let maxSourcesPerPath = 16
-  const registry = new Registry(systemClock, maxSourcesPerPath)
+  const registry = new Registry(systemClock, 16)
   const discovery = new Discovery()
   const emitter = new Emitter(app, PLUGIN_ID, systemClock)
   const jumpState = new Map<string, Map<string, JumpState>>()
@@ -66,13 +65,13 @@ export = function (app: any) {
   }
 
   function maybeEmit(path: string, cfg: PathConfig): void {
-    const value0 = registry.fresh(path, cfg.stalenessTimeoutMs)[0]?.value
+    let samples = registry.fresh(path, cfg.stalenessTimeoutMs)
+    const value0 = samples[0]?.value
     if (value0 === undefined) return
     const kind = classifyPath(path, value0, cfg)
     if (kind === 'other') return
 
     const now = systemClock.now()
-    let samples = registry.fresh(path, cfg.stalenessTimeoutMs)
     if (cfg.includeSources?.length) samples = samples.filter((s) => cfg.includeSources!.includes(s.sourceRef))
     if (cfg.excludeSources?.length) samples = samples.filter((s) => !cfg.excludeSources!.includes(s.sourceRef))
     samples = damped(path, cfg, kind, samples, now)
@@ -123,7 +122,7 @@ export = function (app: any) {
 
     start(options: PluginOptions) {
       const { config, errors, advisories } = validateConfig(options)
-      maxSourcesPerPath = config.maxSourcesPerPath
+      registry.setMaxSourcesPerPath(config.maxSourcesPerPath)
       byPath = new Map(config.paths.map((p) => [p.path, p]))
       selfContext = app.selfContext ?? 'vessels.self'
       registry.reset()
