@@ -16,7 +16,10 @@
   "signalk": {
     "displayName": "Synthetic Values",
     "appIcon": "./assets/icons/icon-192.png",
-    "screenshots": []
+    "screenshots": [],
+    "recommends": [
+      "signalk-nmea2000-emitter-cannon"
+    ]
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

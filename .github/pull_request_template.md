@@ -23,7 +23,7 @@
 
 ## Signal K paths affected
 
-<!-- Optional. List affected emitted paths, e.g. environment.depth.belowKeel or vessels.self.navigation.speedOverGround. For spec-touching changes, see the compliance checklist in ../docs/DEVELOPMENT.md#signal-k-standards-compliance. Remove section if not applicable. -->
+<!-- Optional. List the Signal K paths this change reads or emits, for example navigation.position or environment.depth.belowTransducer. Remove section if not applicable. -->
 
 ## Breaking changes / migration
 
