@@ -294,6 +294,7 @@ describe('DetectedPathRow: non-combinable row', () => {
     expect(describedById).toBeTruthy();
     const reason = document.getElementById(describedById as string);
     expect(reason).toBeInTheDocument();
+    expect(reason).toBeVisible();
     expect(reason?.textContent).toMatch(/text.*number|number.*text|cannot be averaged/i);
   });
 

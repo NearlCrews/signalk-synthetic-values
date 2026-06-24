@@ -36,9 +36,9 @@ describe('Discovery duplicate detection', () => {
     // Three sources: a and b re-broadcast the same changing value; c differs.
     for (let i = 0; i < 4; i++) {
       c.set(i * 1000);
-      d.observe('navigation.position', 'a', i);
-      d.observe('navigation.position', 'b', i);
-      d.observe('navigation.position', 'c', i + 0.5);
+      d.observe('navigation.speedOverGround', 'a', i);
+      d.observe('navigation.speedOverGround', 'b', i);
+      d.observe('navigation.speedOverGround', 'c', i + 0.5);
     }
     const row = d.detected()[0];
     expect(row?.duplicateGroups).toHaveLength(1);
@@ -49,8 +49,8 @@ describe('Discovery duplicate detection', () => {
     const d = new Discovery(c);
     for (let i = 0; i < 4; i++) {
       c.set(i * 1000);
-      d.observe('navigation.position', 'a', 5);
-      d.observe('navigation.position', 'b', 5);
+      d.observe('navigation.speedOverGround', 'a', 5);
+      d.observe('navigation.speedOverGround', 'b', 5);
     }
     expect(d.detected()[0]?.duplicateGroups).toEqual([]);
   });
@@ -59,8 +59,8 @@ describe('Discovery duplicate detection', () => {
     const d = new Discovery(c);
     for (let i = 0; i < 4; i++) {
       c.set(i * 1000);
-      d.observe('navigation.position', 'a', i);
-      d.observe('navigation.position', 'b', i + 0.01);
+      d.observe('navigation.speedOverGround', 'a', i);
+      d.observe('navigation.speedOverGround', 'b', i + 0.01);
     }
     expect(d.detected()[0]?.duplicateGroups).toEqual([]);
   });

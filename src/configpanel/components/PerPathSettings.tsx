@@ -1,6 +1,7 @@
 import type * as React from 'react';
 import { memo, useEffect, useState } from 'react';
-import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
+import type { CombineMethod } from '../../combine.js';
+import type { AngularMode, RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
 import { SourceChecklist } from './SourceChecklist.js';
@@ -66,12 +67,9 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
         </label>
         <select
           id={methodId}
-          aria-label="Method"
           style={S.select}
           value={config.method ?? 'median'}
-          onChange={(e) =>
-            onChange({ method: e.target.value as 'median' | 'trimmedMean' | 'mean' })
-          }
+          onChange={(e) => onChange({ method: e.target.value as CombineMethod })}
         >
           {METHOD_CHOICES.map((c) => (
             <option key={c.value} value={c.value}>
@@ -90,9 +88,8 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
           id={minSourcesId}
           type="number"
           min={1}
-          aria-label="Minimum sources"
           style={S.input}
-          value={draftMinSources ?? config.minSources ?? ''}
+          value={draftMinSources ?? ''}
           placeholder="default"
           onChange={(e) => {
             const n = Number(e.target.value);
@@ -110,7 +107,7 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
 
       {/* Inline warning when minSources exceeds live source count */}
       {showMinSourcesWarning && (
-        <div role="alert" style={{ ...S.note, marginTop: 4 }}>
+        <div role="alert" style={{ ...S.note, marginTop: 'var(--skn-space-1)' }}>
           This path has {sourceCount} source{sourceCount !== 1 ? 's' : ''}. Requiring{' '}
           {effectiveMinSources} means it will not combine until more sources come online.
         </div>
@@ -210,7 +207,9 @@ const NumberField = memo(function NumberField({
           const n = Number(e.target.value);
           if (e.target.value.trim() === '') {
             onChange({ [fieldKey]: undefined });
-          } else if (Number.isFinite(n)) {
+          } else if (Number.isFinite(n) && n >= 0) {
+            // Negatives are rejected by validateConfig (positive/nonNegative);
+            // do not send them so the panel and plugin agree.
             onChange({ [fieldKey]: n });
           }
         }}
@@ -291,7 +290,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
           aria-label="Angular mode"
           style={S.select}
           value={config.angular ?? 'auto'}
-          onChange={(e) => onChange({ angular: e.target.value as 'auto' | 'yes' | 'no' })}
+          onChange={(e) => onChange({ angular: e.target.value as AngularMode })}
         >
           {ANGULAR_CHOICES.map((c) => (
             <option key={c.value} value={c.value}>

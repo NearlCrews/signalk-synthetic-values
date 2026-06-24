@@ -89,7 +89,7 @@ describe('nextDetectedState', () => {
     expect(typeof next.lastChecked).toBe('number');
   });
 
-  it('returns an error state when the incoming text is not valid JSON', async () => {
+  it('returns an error state when the incoming payload is null (network error)', async () => {
     const { nextDetectedState } = await import('../../src/configpanel/hooks/useDetected.js');
 
     const prev = {

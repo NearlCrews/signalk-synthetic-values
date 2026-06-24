@@ -57,21 +57,27 @@ export function nextDetectedState(prev: DetectedState, incoming: string | null):
     return errorState(prev);
   }
 
-  // Changed-payload gate: return the same object when nothing changed.
-  const prevSerialized = JSON.stringify({ paths: prev.paths });
-  if (incoming === prevSerialized && !prev.loading && prev.error === null) {
-    return prev;
-  }
-
   let parsed: DetectedResponse;
   try {
     parsed = JSON.parse(incoming) as DetectedResponse;
   } catch {
     return errorState(prev);
   }
+  const paths = parsed.paths ?? [];
+
+  // Changed-payload gate: return the same object when the paths are unchanged.
+  // Comparing the parsed paths (not the raw string) means an added top-level
+  // response field cannot defeat the gate and cause needless re-renders.
+  if (
+    !prev.loading &&
+    prev.error === null &&
+    JSON.stringify(paths) === JSON.stringify(prev.paths)
+  ) {
+    return prev;
+  }
 
   return {
-    paths: parsed.paths ?? [],
+    paths,
     lastChecked: Date.now(),
     loading: false,
     error: null,

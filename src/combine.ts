@@ -60,17 +60,24 @@ export function circularMedoid(angles: number[]): number {
   return best;
 }
 
-function lonsToRadians(lons: number[]): number[] {
-  return lons.map((d) => (d * Math.PI) / 180);
-}
-
 function radiansToLonDegrees(rad: number): number {
   const deg = (rad * 180) / Math.PI;
   return ((((deg + 180) % 360) + 360) % 360) - 180;
 }
 
+// Circular mean of longitudes (antimeridian-safe). Single pass: convert each
+// degree to radians inside the sin/cos accumulation instead of allocating an
+// intermediate radians array, and skip the mean resultant length, which the
+// longitude path does not use.
 function lonCircularMean(lons: number[]): number {
-  return radiansToLonDegrees(circularMeanRad(lonsToRadians(lons)).mean);
+  let sumSin = 0;
+  let sumCos = 0;
+  for (const d of lons) {
+    const r = (d * Math.PI) / 180;
+    sumSin += Math.sin(r);
+    sumCos += Math.cos(r);
+  }
+  return radiansToLonDegrees(Math.atan2(sumSin, sumCos));
 }
 
 export function robustCenter(kind: Kind, values: SampleValue[]): SampleValue {
@@ -92,7 +99,7 @@ export function rejectMask(
   rejectThreshold?: number
 ): boolean[] {
   const n = values.length;
-  if (n < 2) return values.map(() => true);
+  if (n < 2) return new Array(n).fill(true);
 
   const center = robustCenter(kind, values);
   const distances = values.map((v) => distance(kind, v, center));
@@ -111,10 +118,13 @@ export function rejectMask(
   if (rejectThreshold != null) {
     return distances.map((d) => d <= rejectThreshold);
   }
-  return values.map(() => true);
+  return new Array(n).fill(true);
 }
 
-export type CombineMethod = 'median' | 'trimmedMean' | 'mean';
+// Single source of truth for the combine methods: the schema enum and the
+// config validator both derive from this tuple.
+export const COMBINE_METHODS = ['median', 'trimmedMean', 'mean'] as const;
+export type CombineMethod = (typeof COMBINE_METHODS)[number];
 export type Outcome =
   | 'ok'
   | 'singleSource'
@@ -158,21 +168,20 @@ function linear(method: CombineMethod, xs: number[], trimFraction: number): numb
   return median(xs);
 }
 
-// Returns { value, outcome } where value is undefined when the output is diverged/skipped.
-// The union is intentional: angular and position paths may decline to produce a value.
+// Returns { value, outcome } where value is undefined when the output diverged.
+// The union is intentional: angular and position paths may decline to produce a
+// value. The caller owns usedSources and freshCount.
 function computeValue(
-  used: Sample[],
-  opts: CombineOptions,
-  usedSources: string[],
-  freshCount: number
-): { value?: SampleValue; outcome: Outcome; usedSources?: string[]; freshCount?: number } {
+  values: SampleValue[],
+  opts: CombineOptions
+): { value?: SampleValue; outcome: Outcome } {
   if (opts.kind === 'angular') {
-    const angles = used.map((s) => s.value as number);
+    const angles = values as number[];
     const { mean: cm, R } = circularMeanRad(angles);
     // Diverged when R < R_MIN (too scattered) OR spread exceeds threshold.
     // Skip the O(n^2) spread loop when R already gates the output.
     if (R < R_MIN || maxCircularSpread(angles) > opts.angularSpreadThreshold) {
-      return { usedSources, freshCount, outcome: 'diverged' };
+      return { outcome: 'diverged' };
     }
     // Honor the method: 'mean' averages (splits the difference), while the
     // robust methods use the circular medoid so a lone off compass does not
@@ -181,24 +190,20 @@ function computeValue(
     return { value, outcome: 'ok' };
   }
   if (opts.kind === 'position') {
-    const lats = used.map((s) => (s.value as LatLon).latitude);
-    const lons = used.map((s) => (s.value as LatLon).longitude);
+    const lats = (values as LatLon[]).map((v) => v.latitude);
+    const lons = (values as LatLon[]).map((v) => v.longitude);
     return {
       value: {
         latitude: linear(opts.method, lats, opts.trimFraction),
+        // Longitude always uses the circular mean: it is antimeridian-safe and
+        // has no wrap-correct median/trimmedMean analogue, so `method` applies
+        // only to latitude. Whole-source outlier rejection already ran upstream.
         longitude: lonCircularMean(lons),
       },
       outcome: 'ok',
     };
   }
-  return {
-    value: linear(
-      opts.method,
-      used.map((s) => s.value as number),
-      opts.trimFraction
-    ),
-    outcome: 'ok',
-  };
+  return { value: linear(opts.method, values as number[], opts.trimFraction), outcome: 'ok' };
 }
 
 export function combine(samples: Sample[], opts: CombineOptions): CombineResult {
@@ -231,22 +236,17 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
     return { usedSources, freshCount, outcome: 'diverged' };
   }
 
-  const computed = computeValue(used, opts, usedSources, freshCount);
+  // One values array, reused by computeValue and the disagree-spread check.
+  const usedValues = used.map((s) => s.value);
+  const computed = computeValue(usedValues, opts);
   if (computed.value === undefined) {
-    return {
-      usedSources: computed.usedSources ?? usedSources,
-      freshCount,
-      outcome: computed.outcome,
-    };
+    return { usedSources, freshCount, outcome: computed.outcome };
   }
 
   let outcome: Outcome = computed.outcome;
   let spread: number | undefined;
   if (opts.disagreeThreshold != null) {
-    spread = maxPairwiseDistance(
-      opts.kind,
-      used.map((s) => s.value)
-    );
+    spread = maxPairwiseDistance(opts.kind, usedValues);
     if (spread > opts.disagreeThreshold) outcome = 'disagree';
   }
   const result: CombineResult = { value: computed.value, usedSources, freshCount, outcome };

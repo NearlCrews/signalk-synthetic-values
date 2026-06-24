@@ -52,6 +52,30 @@ describe('applyJump', () => {
     const r = applyJump('position', st, far, 1000, posCfg);
     expect(r.accepted).toEqual(here);
   });
+  it('persistMs re-acceptance branch accepts a persisted level even with count 1', () => {
+    // cfg2 has persistSamples=5 so count alone won't trigger acceptance,
+    // but persistMs=1000 means a 2-second wait should trigger acceptance.
+    const cfg2: JumpConfig = { maxRate: 5, persistSamples: 5, persistMs: 1000 };
+    const st = applyJump('scalar', undefined, 0, 0, cfg2).state;
+    // Spike at t=1000: rejected, pending starts at count=1 and ts=1000
+    let r = applyJump('scalar', st, 800, 1000, cfg2);
+    expect(r.accepted).toBe(0); // rejected
+    // Same level at t=3000: ts - pending.ts = 2000 >= persistMs=1000, so accepted
+    r = applyJump('scalar', r.state, 800, 3000, cfg2);
+    expect(r.accepted).toBe(800);
+  });
+  it('a non-near second spike resets the pending cluster count', () => {
+    // First spike: count becomes 1
+    const st = applyJump('scalar', undefined, 0, 0, cfg).state;
+    let r = applyJump('scalar', st, 800, 1000, cfg);
+    expect(r.accepted).toBe(0);
+    // A very different spike: not near 800, so count resets to 1 (not accepted yet)
+    r = applyJump('scalar', r.state, 9000, 1500, cfg);
+    expect(r.accepted).toBe(0); // still rejected, count reset to 1
+    // One more near the same spike value: count becomes 2, now accepted
+    r = applyJump('scalar', r.state, 9001, 2000, cfg);
+    expect(r.accepted).toBe(9001);
+  });
 });
 
 describe('applySlew', () => {
@@ -100,29 +124,5 @@ describe('applySlew', () => {
     expect(result.longitude).toBeLessThan(10);
     // Latitude should be very close to 0 (the path is due east)
     expect(result.latitude).toBeCloseTo(0, 4);
-  });
-  it('persistMs re-acceptance branch accepts a persisted level even with count 1', () => {
-    // cfg2 has persistSamples=5 so count alone won't trigger acceptance,
-    // but persistMs=1000 means a 2-second wait should trigger acceptance.
-    const cfg2: JumpConfig = { maxRate: 5, persistSamples: 5, persistMs: 1000 };
-    const st = applyJump('scalar', undefined, 0, 0, cfg2).state;
-    // Spike at t=1000: rejected, pending starts at count=1 and ts=1000
-    let r = applyJump('scalar', st, 800, 1000, cfg2);
-    expect(r.accepted).toBe(0); // rejected
-    // Same level at t=3000: ts - pending.ts = 2000 >= persistMs=1000, so accepted
-    r = applyJump('scalar', r.state, 800, 3000, cfg2);
-    expect(r.accepted).toBe(800);
-  });
-  it('a non-near second spike resets the pending cluster count', () => {
-    // First spike: count becomes 1
-    const st = applyJump('scalar', undefined, 0, 0, cfg).state;
-    let r = applyJump('scalar', st, 800, 1000, cfg);
-    expect(r.accepted).toBe(0);
-    // A very different spike: not near 800, so count resets to 1 (not accepted yet)
-    r = applyJump('scalar', r.state, 9000, 1500, cfg);
-    expect(r.accepted).toBe(0); // still rejected, count reset to 1
-    // One more near the same spike value: count becomes 2, now accepted
-    r = applyJump('scalar', r.state, 9001, 2000, cfg);
-    expect(r.accepted).toBe(9001);
   });
 });

@@ -1,7 +1,7 @@
 // test/combine.test.ts
 import { describe, expect, it } from 'vitest';
 import { type CombineOptions, circularMedoid, combine, type Sample } from '../src/combine';
-import type { LatLon } from '../src/metrics';
+import type { LatLon, SampleValue } from '../src/metrics';
 
 const base: Omit<CombineOptions, 'kind'> = {
   method: 'median',
@@ -12,7 +12,7 @@ const base: Omit<CombineOptions, 'kind'> = {
   trimFraction: 0.25,
 };
 
-const s = (sourceRef: string, value: any): Sample => ({ sourceRef, value });
+const s = (sourceRef: string, value: SampleValue): Sample => ({ sourceRef, value });
 
 describe('combine source-count outcomes', () => {
   it('no samples is allStale', () => {

@@ -22,6 +22,9 @@ import { buildSchema } from './schema';
 import { aggregateStatus, pathStatus } from './status';
 
 const PLUGIN_ID = 'signalk-synthetic-values';
+// Built once: isOwnSource runs for every source on every delta, so the prefix
+// must not be re-templated per call.
+const OWN_SOURCE_PREFIX = `${PLUGIN_ID}.`;
 
 // A delta as observed off the wire. The Signal K Delta type uses branded path
 // and source strings; the combiner works on plain values, so this loose shape
@@ -98,7 +101,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   }
 
   function isOwnSource(src: string): boolean {
-    return src === PLUGIN_ID || src.startsWith(`${PLUGIN_ID}.`);
+    return src === PLUGIN_ID || src.startsWith(OWN_SOURCE_PREFIX);
   }
 
   function classifyPath(path: string, value: SampleValue, cfg: PathConfig): Kind {
@@ -130,11 +133,14 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       jumpState.set(path, perSource);
     }
     const state = perSource;
-    return samples.map((s) => {
+    // samples come fresh from registry.fresh() on every call, so mutating each
+    // value in place is safe and avoids allocating a new array of new objects.
+    for (const s of samples) {
       const r = applyJump(kind, state.get(s.sourceRef), s.value, now, jumpConfig);
       state.set(s.sourceRef, r.state);
-      return { sourceRef: s.sourceRef, value: r.accepted };
-    });
+      s.value = r.accepted;
+    }
+    return samples;
   }
 
   // Apply the per-path include/exclude source filters. Returns the input
@@ -260,7 +266,10 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     const kind = detectedKind.get(d.path) ?? classification.get(d.path) ?? 'unknown';
     const combinable = kind !== 'other';
     const meaningful = isMeaningfulToCombine(d.path);
-    const row = {
+    let advisory: string | undefined;
+    if (!combinable) advisory = NON_NUMERIC_ADVISORY;
+    else if (!meaningful) advisory = NON_MEANINGFUL_ADVISORY;
+    return {
       path: d.path,
       sources: d.sources,
       kind,
@@ -268,10 +277,8 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       combinable,
       recommended: combinable && meaningful,
       duplicateGroups: d.duplicateGroups,
+      ...(advisory ? { advisory } : {}),
     };
-    if (!combinable) return { ...row, advisory: NON_NUMERIC_ADVISORY };
-    if (!meaningful) return { ...row, advisory: NON_MEANINGFUL_ADVISORY };
-    return row;
   }
 
   return {
@@ -280,6 +287,12 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     schema: () => buildSchema(() => discovery.detected()),
 
     start(options) {
+      // Detach a prior handler if start() is ever called without an intervening
+      // stop() (error-recovery reboot), so the old handler cannot run in parallel.
+      if (unregister) {
+        unregister();
+        unregister = null;
+      }
       const { config, errors, advisories } = validateConfig(options as PluginOptions);
       registry.setMaxSourcesPerPath(config.maxSourcesPerPath);
       byPath = new Map(config.paths.map((p) => [p.path, p]));
@@ -294,7 +307,11 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       pathOutcome.clear();
       lastStatus = '';
       skipped.length = 0;
-      for (const e of [...errors, ...advisories]) {
+      for (const e of errors) {
+        skipped.push({ path: e.path, reason: e.message });
+        app.debug(`config ${e.path}: ${e.message}`);
+      }
+      for (const e of advisories) {
         skipped.push({ path: e.path, reason: e.message });
         app.debug(`config ${e.path}: ${e.message}`);
       }

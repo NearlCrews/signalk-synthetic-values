@@ -26,6 +26,13 @@ describe('validateConfig', () => {
     const r = validateConfig(opts([{ path: 'a', outlierRejection: false, madThreshold: 3 }]));
     expect(r.config.paths).toHaveLength(1);
     expect(r.advisories[0].path).toBe('a');
+    expect(r.advisories[0].message).toContain('madThreshold');
+  });
+  it('rejects a non-positive slewLimit', () => {
+    const r = validateConfig(opts([{ path: 'a', slewLimit: 0 }]));
+    expect(r.config.paths).toHaveLength(0);
+    expect(r.errors[0].path).toBe('a');
+    expect(r.errors[0].message).toContain('slewLimit');
   });
   it('drops duplicate paths, keeping the first', () => {
     const r = validateConfig(opts([{ path: 'a' }, { path: 'a' }]));

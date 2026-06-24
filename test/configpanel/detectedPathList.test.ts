@@ -40,6 +40,18 @@ const otherRow: DetectedRow = {
   optedIn: false,
 };
 
+// Combinable by type (scalar) but flagged not recommended by the server: GNSS
+// fix metadata. It belongs in the not-recommended group, not "Combine all".
+const gnssRow: DetectedRow = {
+  path: 'navigation.gnss.satellites',
+  sources: ['gps.1', 'gps.2'],
+  kind: 'scalar',
+  optedIn: false,
+  combinable: true,
+  recommended: false,
+  advisory: 'GNSS fix metadata. Averaging it across receivers is not meaningful.',
+};
+
 function emptyMap(): Map<string, RawPathConfig> {
   return new Map();
 }
@@ -251,6 +263,30 @@ describe('DetectedPathList: sort order', () => {
     const toggle = screen.getByRole('button', { name: /detected but not recommended/i });
     expect(toggle).toBeInTheDocument();
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('groups a recommended:false GNSS path under not-recommended and out of Combine all', () => {
+    const onAddAll = vi.fn();
+    render(
+      createElement(DetectedPathList, {
+        detected: [scalRow, gnssRow],
+        configByPath: emptyMap(),
+        onAdd: vi.fn(),
+        onAddAll,
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+        lastChecked: null,
+        loading: false,
+        error: null,
+        onRefresh: vi.fn(),
+      })
+    );
+    // Only the one recommended row counts toward "Combine all".
+    expect(screen.getByRole('button', { name: /combine all \(1\)/i })).toBeInTheDocument();
+    // The GNSS metadata row is under the not-recommended disclosure.
+    expect(
+      screen.getByRole('button', { name: /detected but not recommended \(1\)/i })
+    ).toBeInTheDocument();
   });
 
   it('combined rows appear after not-yet-combined combinable rows', () => {

@@ -1,5 +1,19 @@
-import type { CombineMethod } from './combine';
+import { COMBINE_METHODS, type CombineMethod } from './combine';
 import type { JumpConfig } from './damping';
+
+// Single source of truth for the angular-mode options, shared by the schema
+// enum and the validator.
+export const ANGULAR_MODES_LIST = ['auto', 'yes', 'no'] as const;
+export type AngularMode = (typeof ANGULAR_MODES_LIST)[number];
+
+// Default values shared between the schema, the validator, and the panel so
+// each default lives in exactly one place.
+export const DEFAULT_STALENESS_MS = 1000;
+export const DEFAULT_EMIT_INTERVAL_MS = 1000;
+export const DEFAULT_MIN_SOURCES = 2;
+export const DEFAULT_MAD_THRESHOLD = 3;
+export const DEFAULT_TRIM_FRACTION = 0.25;
+export const DEFAULT_ANGULAR_SPREAD_THRESHOLD = Math.PI / 2;
 
 export interface RawPathConfig {
   path: string;
@@ -10,7 +24,7 @@ export interface RawPathConfig {
   rejectThreshold?: number;
   disagreeThreshold?: number;
   angularSpreadThreshold?: number;
-  angular?: 'auto' | 'yes' | 'no';
+  angular?: AngularMode;
   includeSources?: string[];
   excludeSources?: string[];
   minSources?: number;
@@ -29,7 +43,7 @@ export interface PathConfig {
   rejectThreshold?: number | undefined;
   disagreeThreshold?: number | undefined;
   angularSpreadThreshold: number;
-  angular: 'auto' | 'yes' | 'no';
+  angular: AngularMode;
   includeSources?: string[] | undefined;
   excludeSources?: string[] | undefined;
   minSources: number;
@@ -72,8 +86,8 @@ export interface ValidationResult {
 
 export const DEFAULT_MAX_SOURCES_PER_PATH = 16;
 
-const METHODS: ReadonlySet<string> = new Set(['median', 'trimmedMean', 'mean']);
-const ANGULAR_MODES: ReadonlySet<string> = new Set(['auto', 'yes', 'no']);
+const METHODS: ReadonlySet<string> = new Set(COMBINE_METHODS);
+const ANGULAR_MODES: ReadonlySet<string> = new Set(ANGULAR_MODES_LIST);
 
 function positive(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n) && n > 0;
@@ -91,7 +105,7 @@ interface PathValidation {
 
 interface ResolvedScalars {
   method: CombineMethod;
-  angular: 'auto' | 'yes' | 'no';
+  angular: AngularMode;
   trimFraction: number;
   staleness: number;
   emitInterval: number;
@@ -116,7 +130,7 @@ function validateScalars(
   if (!ANGULAR_MODES.has(angular)) {
     return { error: { path: id, message: `unknown angular mode ${angular}` } };
   }
-  const trimFraction = raw.trimFraction ?? 0.25;
+  const trimFraction = raw.trimFraction ?? DEFAULT_TRIM_FRACTION;
   if (!(trimFraction >= 0 && trimFraction < 0.5)) {
     return { error: { path: id, message: 'trimFraction must be in [0, 0.5)' } };
   }
@@ -151,6 +165,7 @@ function validatePathEntry(raw: RawPathConfig, options: PluginOptions): PathVali
     ['rejectThreshold', raw.rejectThreshold],
     ['disagreeThreshold', raw.disagreeThreshold],
     ['angularSpreadThreshold', raw.angularSpreadThreshold],
+    ['slewLimit', raw.slewLimit],
   ] as const) {
     if (v != null && !positive(v)) {
       errors.push({ path: id, message: `${k} must be positive when set` });
@@ -173,10 +188,10 @@ function validatePathEntry(raw: RawPathConfig, options: PluginOptions): PathVali
       method,
       trimFraction,
       outlierRejection,
-      madThreshold: raw.madThreshold ?? 3,
+      madThreshold: raw.madThreshold ?? DEFAULT_MAD_THRESHOLD,
       rejectThreshold: raw.rejectThreshold,
       disagreeThreshold: raw.disagreeThreshold,
-      angularSpreadThreshold: raw.angularSpreadThreshold ?? Math.PI / 2,
+      angularSpreadThreshold: raw.angularSpreadThreshold ?? DEFAULT_ANGULAR_SPREAD_THRESHOLD,
       angular,
       includeSources: raw.includeSources,
       excludeSources: raw.excludeSources,

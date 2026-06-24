@@ -33,23 +33,9 @@ export interface DetectedPathRowProps {
 function DuplicateSourcesHint({ groups }: { groups: string[][] }): React.ReactElement | null {
   if (groups.length === 0) return null;
   return (
-    <div
-      style={{
-        paddingLeft: 'calc(var(--skn-space-2) + 3px)',
-        paddingRight: 'var(--skn-space-2)',
-        paddingBottom: 'var(--skn-space-1)',
-      }}
-    >
+    <div style={S.insetSubRow}>
       {groups.map((group) => (
-        <span
-          key={group.join('|')}
-          style={{
-            display: 'block',
-            fontSize: 'var(--skn-font-small)',
-            color: 'var(--skn-text-muted)',
-            marginTop: 2,
-          }}
-        >
+        <span key={group.join('|')} style={S.insetSubRowTextMuted}>
           {oxfordJoin(group)} report identical values and may be the same feed re-broadcast.
           Consider combining only one of them so it does not outvote your independent sensors.
         </span>
@@ -318,22 +304,8 @@ export function DetectedPathRow({
 
       {/* Advisory reason (visible below header; referenced by aria-describedby) */}
       {advisory && (
-        <div
-          style={{
-            paddingLeft: 'calc(var(--skn-space-2) + 3px)',
-            paddingRight: 'var(--skn-space-2)',
-            paddingBottom: 'var(--skn-space-1)',
-          }}
-        >
-          <span
-            id={reasonId}
-            style={{
-              display: 'block',
-              fontSize: 'var(--skn-font-small)',
-              color: 'var(--skn-text-faint)',
-              marginTop: 2,
-            }}
-          >
+        <div style={S.insetSubRow}>
+          <span id={reasonId} style={S.insetSubRowText}>
             {advisory}
           </span>
         </div>

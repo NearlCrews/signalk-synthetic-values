@@ -1,6 +1,11 @@
 import { useCallback, useState } from 'react';
 import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../../config.js';
-import { DEFAULT_MAX_SOURCES_PER_PATH } from '../../config.js';
+import {
+  DEFAULT_EMIT_INTERVAL_MS,
+  DEFAULT_MAX_SOURCES_PER_PATH,
+  DEFAULT_MIN_SOURCES,
+  DEFAULT_STALENESS_MS,
+} from '../../config.js';
 import type { DetectedRow } from './useDetected.js';
 
 /**
@@ -12,9 +17,9 @@ import type { DetectedRow } from './useDetected.js';
  */
 export function normalizeOptions(configuration?: Partial<PluginOptions> | null): PluginOptions {
   return {
-    defaultStalenessTimeoutMs: configuration?.defaultStalenessTimeoutMs ?? 1000,
-    defaultEmitMinIntervalMs: configuration?.defaultEmitMinIntervalMs ?? 1000,
-    defaultMinSources: configuration?.defaultMinSources ?? 2,
+    defaultStalenessTimeoutMs: configuration?.defaultStalenessTimeoutMs ?? DEFAULT_STALENESS_MS,
+    defaultEmitMinIntervalMs: configuration?.defaultEmitMinIntervalMs ?? DEFAULT_EMIT_INTERVAL_MS,
+    defaultMinSources: configuration?.defaultMinSources ?? DEFAULT_MIN_SOURCES,
     maxSourcesPerPath: configuration?.maxSourcesPerPath ?? DEFAULT_MAX_SOURCES_PER_PATH,
     paths: configuration?.paths ?? [],
   };
@@ -45,7 +50,9 @@ export function applyAddAllCombinable(
   rows: ReadonlyArray<DetectedRow>
 ): PluginOptions {
   const existing = new Set(options.paths.map((p) => p.path));
-  const toAdd = rows.filter((r) => r.recommended !== false && !existing.has(r.path));
+  const toAdd = rows.filter(
+    (r) => r.recommended !== false && r.combinable !== false && !existing.has(r.path)
+  );
   if (toAdd.length === 0) return options;
   const added: RawPathConfig[] = toAdd.map((r) => ({ path: r.path }));
   return { ...options, paths: [...options.paths, ...added] };

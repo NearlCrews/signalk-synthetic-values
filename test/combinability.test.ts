@@ -13,6 +13,10 @@ describe('isMeaningfulToCombine', () => {
     expect(isMeaningfulToCombine('navigation.gnss.differentialReference')).toBe(false);
     expect(isMeaningfulToCombine('navigation.gnss.differentialAge')).toBe(false);
     expect(isMeaningfulToCombine('navigation.gnss.methodQuality')).toBe(false);
+    expect(isMeaningfulToCombine('navigation.gnss.verticalDilution')).toBe(false);
+    expect(isMeaningfulToCombine('navigation.gnss.satellitesInView')).toBe(false);
+    expect(isMeaningfulToCombine('navigation.gnss.integrity')).toBe(false);
+    expect(isMeaningfulToCombine('navigation.gnss.type')).toBe(false);
   });
 
   it('treats real measurements as meaningful, including GNSS altitude and geoidal separation', () => {

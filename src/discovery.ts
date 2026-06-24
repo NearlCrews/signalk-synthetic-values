@@ -46,7 +46,10 @@ function duplicateGroups(entry: Entry): string[][] {
     const group = byValue.get(last);
     if (group) group.push(src);
     else byValue.set(last, [src]);
-    if (new Set(hist.ring).size > 1) varying.add(src);
+    // Varying if any sample differs from the first: an allocation-free scan
+    // instead of building a Set just to count distinct values.
+    const first = hist.ring[0];
+    if (hist.ring.some((v) => v !== first)) varying.add(src);
   }
   const groups: string[][] = [];
   for (const srcs of byValue.values()) {

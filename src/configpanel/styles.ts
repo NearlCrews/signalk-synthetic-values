@@ -335,7 +335,7 @@ S.note = {
   color: 'var(--skn-warn-fg)',
   fontSize: 'var(--skn-font-small)',
   lineHeight: 1.45,
-  margin: '8px 0 6px',
+  margin: '8px 0',
   padding: '6px 8px',
 };
 S.errorBanner = {
@@ -349,7 +349,61 @@ S.errorBanner = {
   display: 'flex',
   alignItems: 'center',
   flexWrap: 'wrap',
-  gap: 12,
+  gap: 'var(--skn-space-2)',
+};
+// Info banner: same box model as the error banner on the info token family.
+// Used by the source-priority reminder.
+S.infoBanner = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  flexWrap: 'wrap',
+  gap: 'var(--skn-space-2)',
+  padding: 'var(--skn-space-2) var(--skn-space-3)',
+  marginBottom: 'var(--skn-space-2)',
+  background: 'var(--skn-info-bg)',
+  border: '1px solid var(--skn-info-border)',
+  borderRadius: 'var(--skn-radius)',
+  color: 'var(--skn-info-fg)',
+  fontSize: 'var(--skn-font-body)',
+};
+S.btnInfoDismiss = {
+  flexShrink: 0,
+  padding: '6px 12px',
+  minHeight: 36,
+  background: 'transparent',
+  color: 'var(--skn-info-fg)',
+  border: '1px solid var(--skn-info-border)',
+  borderRadius: 'var(--skn-radius-sm)',
+  cursor: 'pointer',
+  fontSize: 'var(--skn-font-small)',
+};
+// Inset sub-row beneath a detected-path header: the advisory line and the
+// duplicate-sources hint share this container and small-text shape.
+S.insetSubRow = {
+  paddingLeft: 'calc(var(--skn-space-2) + 3px)',
+  paddingRight: 'var(--skn-space-2)',
+  paddingBottom: 'var(--skn-space-1)',
+};
+S.insetSubRowText = {
+  display: 'block',
+  fontSize: 'var(--skn-font-small)',
+  color: 'var(--skn-text-faint)',
+  marginTop: 2,
+};
+// Same shape, one step less faint: used for the duplicate-sources hint, which
+// is advisory rather than a hard reason.
+S.insetSubRowTextMuted = {
+  display: 'block',
+  fontSize: 'var(--skn-font-small)',
+  color: 'var(--skn-text-muted)',
+  marginTop: 2,
+};
+// Source-checklist row: a tighter field row for the include/exclude list.
+S.checklistRow = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 'var(--skn-space-1)',
+  marginBottom: 'var(--skn-space-1)',
 };
 S.btnRetry = {
   padding: '6px 12px',
@@ -418,7 +472,7 @@ S.disclosureToggle = {
   cursor: 'pointer',
   textAlign: 'left',
 };
-S.disclosureBody = { marginTop: 10 };
+S.disclosureBody = { marginTop: 'var(--skn-space-1)' };
 
 // Shared pill shape for kind badges, source-count badges, added pills, and
 // source chips. Variant colors are applied per call; this entry is the box

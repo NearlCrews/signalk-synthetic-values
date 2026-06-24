@@ -42,6 +42,9 @@ describe('pathStatus', () => {
       'waiting for 2 sources'
     );
   });
+  it('reports all sources stale distinctly from below-min', () => {
+    expect(pathStatus('p', res('allStale', 0), 'sv', 2, 'median')).toContain('all sources stale');
+  });
   it('contains no em dash or ampersand', () => {
     const s = pathStatus('p', res('ok'), 'sv', 2, 'median');
     expect(s).not.toMatch(/[—&]/);

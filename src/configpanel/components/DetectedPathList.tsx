@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
@@ -80,7 +80,7 @@ function ListHeader({ lastChecked, loading, onRefresh }: HeaderProps): React.Rea
       <LastCheckedStamp lastChecked={lastChecked} />
       <button
         type="button"
-        style={{ ...S.btnSecondarySm }}
+        style={S.btnSecondarySm}
         onClick={onRefresh}
         aria-label="Refresh detected paths"
       >
@@ -196,12 +196,12 @@ function NonCombinableGroup({
 // Combine-all confirmation state
 // ---------------------------------------------------------------------------
 interface CombineAllBarProps {
-  count: number;
   rows: DetectedRow[];
   onAddAll: (rows: DetectedRow[]) => void;
 }
 
-function CombineAllBar({ count, rows, onAddAll }: CombineAllBarProps): React.ReactElement | null {
+function CombineAllBar({ rows, onAddAll }: CombineAllBarProps): React.ReactElement | null {
+  const count = rows.length;
   const [confirming, setConfirming] = useState(false);
 
   const handleRequest = useCallback(() => {
@@ -308,9 +308,8 @@ export function DetectedPathList({
   error,
   onRefresh,
 }: DetectedPathListProps): React.ReactElement {
-  // Stable IDs for aria- relationships.
+  // Stable ID for the non-combinable disclosure body.
   const noncombinableBodyId = useId();
-  const statusRegionId = useId();
 
   // Live-region announcement: update after commit (not during render) to avoid
   // a render-phase setState. prevCountRef tracks the last announced count so we
@@ -318,24 +317,25 @@ export function DetectedPathList({
   const prevCountRef = useRef<number | null>(null);
   const [announcement, setAnnouncement] = useState('');
 
-  // Partition and sort rows.
-  const combinableNotYetConfigured: DetectedRow[] = [];
-  const combinedRows: DetectedRow[] = [];
-  const nonCombinableRows: DetectedRow[] = [];
-
-  for (const row of detected) {
-    const optedIn = configByPath.has(row.path);
-    if (row.recommended === false || row.kind === 'other') {
-      nonCombinableRows.push(row);
-    } else if (optedIn) {
-      combinedRows.push(row);
-    } else {
-      combinableNotYetConfigured.push(row);
+  // Partition and sort rows. Memoized so unrelated re-renders (an announcement
+  // tick) do not re-bucket the whole list.
+  const { combinableNotYetConfigured, combinedRows, nonCombinableRows } = useMemo(() => {
+    const notYet: DetectedRow[] = [];
+    const combined: DetectedRow[] = [];
+    const notRecommended: DetectedRow[] = [];
+    for (const row of detected) {
+      if (row.recommended === false || row.kind === 'other') notRecommended.push(row);
+      else if (configByPath.has(row.path)) combined.push(row);
+      else notYet.push(row);
     }
-  }
-
-  // Sort not-yet-combined combinable rows by source count descending.
-  combinableNotYetConfigured.sort((a, b) => b.sources.length - a.sources.length);
+    // Not-yet-combined recommended rows sort by source count descending.
+    notYet.sort((a, b) => b.sources.length - a.sources.length);
+    return {
+      combinableNotYetConfigured: notYet,
+      combinedRows: combined,
+      nonCombinableRows: notRecommended,
+    };
+  }, [detected, configByPath]);
 
   // Total count for the live-region announcement.
   const totalCount = detected.length;
@@ -352,13 +352,7 @@ export function DetectedPathList({
   return (
     <div>
       {/* Polite live region for screen-reader announcements after refresh and add/remove. */}
-      <span
-        id={statusRegionId}
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        style={S.visuallyHidden}
-      >
+      <span role="status" aria-live="polite" aria-atomic="true" style={S.visuallyHidden}>
         {announcement}
       </span>
 
@@ -370,12 +364,8 @@ export function DetectedPathList({
         <EmptyState />
       ) : (
         <>
-          {/* Combine all bar: only counts combinable, not-yet-configured rows. */}
-          <CombineAllBar
-            count={combinableNotYetConfigured.length}
-            rows={combinableNotYetConfigured}
-            onAddAll={onAddAll}
-          />
+          {/* Combine all bar: only the recommended, not-yet-configured rows. */}
+          <CombineAllBar rows={combinableNotYetConfigured} onAddAll={onAddAll} />
 
           {/* Not-yet-combined combinable rows first, most sources at top. */}
           {combinableNotYetConfigured.map((row) => (

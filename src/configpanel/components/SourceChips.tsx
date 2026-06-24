@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { S } from '../styles';
+import { S } from '../styles.js';
 
 interface SourceChipsProps {
   sources: string[];
@@ -25,6 +25,8 @@ const moreStyle: React.CSSProperties = {
 
 const wrapStyle: React.CSSProperties = {
   display: 'inline-flex',
+  // 4px: a deliberately tighter gap than the 8px base token so chips read as a
+  // single cluster rather than separate controls.
   gap: 4,
   flexWrap: 'wrap',
   alignItems: 'center',

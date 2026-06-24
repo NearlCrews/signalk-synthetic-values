@@ -2,14 +2,10 @@ import type * as React from 'react';
 import type { RawPathConfigPatch } from '../../config.js';
 import { S } from '../styles.js';
 
-// Module-level style constants: no reactive dependencies; stable across renders.
-const rowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 'var(--skn-space-1)',
-  marginBottom: 4,
-};
+// Compiled once, not per source per render.
+const SAFE_ID_CHARS = /[^a-z0-9]/gi;
 
+// Module-level style constant: no reactive dependencies; stable across renders.
 const labelStyle: React.CSSProperties = {
   fontSize: 'var(--skn-font-body)',
   color: 'var(--skn-text)',
@@ -65,11 +61,11 @@ export function SourceChecklist({
 
   return (
     <div>
-      <div style={{ ...S.textSmallMuted, marginBottom: 4 }}>Sources</div>
+      <div style={{ ...S.textSmallMuted, marginBottom: 'var(--skn-space-1)' }}>Sources</div>
       {sources.map((src) => {
-        const id = `${idPrefix}-src-${src.replace(/[^a-z0-9]/gi, '-')}`;
+        const id = `${idPrefix}-src-${src.replace(SAFE_ID_CHARS, '-')}`;
         return (
-          <div key={src} style={rowStyle}>
+          <div key={src} style={S.checklistRow}>
             <input
               id={id}
               type="checkbox"

@@ -21,6 +21,7 @@ describe('kindMeta', () => {
     const meta = kindMeta('angular');
     expect(meta.label).toBe('angular');
     expect(meta.token).toBe('muted');
+    expect(meta.srLabel).toContain('angular');
   });
 
   it('returns scalar label and muted token', () => {

@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { S } from '../styles';
+import { S } from '../styles.js';
 
 interface Props<V extends string> {
   // Visually hidden <legend> naming the control for screen readers.

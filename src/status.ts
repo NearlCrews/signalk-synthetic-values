@@ -12,15 +12,20 @@ export function pathStatus(
     case 'singleSource':
       return `${path}: running on 1 source, redundancy lost.`;
     case 'belowMin':
-    case 'allStale':
       return `${path}: waiting for ${effectiveMin} sources (have ${result.freshCount}).`;
+    case 'allStale':
+      return `${path}: all sources stale, waiting for fresh data.`;
     case 'diverged':
       return `${path}: sources diverge, synthetic value suppressed.`;
     case 'disagree': {
       const spreadStr = result.spread !== undefined ? result.spread.toPrecision(4) : '?';
       return `${path}: sources disagree (max spread ${spreadStr}), emitting ${method}.`;
     }
+    case 'skipped':
+      return `${path}: skipped, value is not combinable.`;
     default:
+      // 'ok': combining normally. The priority reminder lives here because this
+      // is the only outcome where the synthetic value is actually being emitted.
       return `Combining ${result.usedSources.length} sources on ${path}. Set this path's source priority to prefer ${sourceLabel} in Server, Data, Sources.`;
   }
 }
@@ -99,6 +104,9 @@ function tallyOutcomes(outcomes: Map<string, Outcome>): OutcomeTally {
       case 'diverged':
         t.diverging++;
         break;
+      case 'skipped':
+        // Not combinable: not counted in any bucket, but listed in `skipped`.
+        break;
     }
   }
   return t;
@@ -106,5 +114,5 @@ function tallyOutcomes(outcomes: Map<string, Outcome>): OutcomeTally {
 
 function appendSkipped(base: string, skipped: { path: string; reason: string }[]): string {
   if (skipped.length === 0) return base;
-  return `${base} ${skipped.map((s) => `skipped: ${s.path} (${s.reason})`).join(', ')}`;
+  return `${base} ${skipped.map((s) => `skipped: ${s.path} (${s.reason})`).join(', ')}.`;
 }

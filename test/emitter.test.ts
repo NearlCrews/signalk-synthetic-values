@@ -77,4 +77,12 @@ describe('Emitter due() and emit()', () => {
     expect(delta.context).toBeUndefined();
     expect(delta.updates[0].values[0]).toEqual({ path: 'q', value: 42 });
   });
+  it('reset() clears rate-limit state so the next due() is true again', () => {
+    const { c, e } = makeEmitter();
+    e.emit('p', 1, 'sv');
+    c.set(500);
+    expect(e.due('p', 1000)).toBe(false);
+    e.reset();
+    expect(e.due('p', 1000)).toBe(true);
+  });
 });

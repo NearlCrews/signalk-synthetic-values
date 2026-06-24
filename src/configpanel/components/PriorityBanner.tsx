@@ -1,4 +1,5 @@
 import type * as React from 'react';
+import { S } from '../styles.js';
 
 export interface PriorityBannerProps {
   show: boolean;
@@ -23,22 +24,7 @@ export function PriorityBanner({
   if (!show) return null;
 
   return (
-    <section
-      aria-label="Source priority reminder"
-      style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        flexWrap: 'wrap',
-        gap: 'var(--skn-space-2)',
-        padding: 'var(--skn-space-2) var(--skn-space-3)',
-        marginBottom: 'var(--skn-space-2)',
-        background: 'var(--skn-info-bg)',
-        border: '1px solid var(--skn-info-border)',
-        borderRadius: 'var(--skn-radius)',
-        color: 'var(--skn-info-fg)',
-        fontSize: 'var(--skn-font-body)',
-      }}
-    >
+    <section aria-label="Source priority reminder" style={S.infoBanner}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <strong>Set source priority to use combined values.</strong> The plugin publishes combined
         values as the source <strong>{sourceLabel}</strong>. For each combined path, you must set{' '}
@@ -49,17 +35,7 @@ export function PriorityBanner({
         type="button"
         aria-label="Dismiss priority reminder"
         onClick={onDismiss}
-        style={{
-          flexShrink: 0,
-          padding: '4px 10px',
-          minHeight: 32,
-          background: 'transparent',
-          color: 'var(--skn-info-fg)',
-          border: '1px solid var(--skn-info-border)',
-          borderRadius: 'var(--skn-radius-sm)',
-          cursor: 'pointer',
-          fontSize: 'var(--skn-font-small)',
-        }}
+        style={S.btnInfoDismiss}
       >
         Dismiss
       </button>

@@ -1,6 +1,6 @@
 import type * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
-import SegmentedControl from './SegmentedControl';
+import SegmentedControl from './SegmentedControl.js';
 
 // "auto" follows the host admin UI theme; the explicit choices pin a theme
 // by setting `data-skn-theme` on the `.skn-panel` root, which the TOKENS_CSS

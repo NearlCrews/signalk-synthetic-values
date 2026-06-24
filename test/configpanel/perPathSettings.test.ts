@@ -5,6 +5,7 @@ import { fireEvent, render } from '@testing-library/react';
 import { createElement } from 'react';
 import type { RawPathConfig, RawPathConfigPatch } from '../../src/config.js';
 import { PerPathSettings } from '../../src/configpanel/components/PerPathSettings.js';
+import SegmentedControl from '../../src/configpanel/components/SegmentedControl.js';
 import { SourceChecklist } from '../../src/configpanel/components/SourceChecklist.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
 
@@ -195,5 +196,46 @@ describe('PerPathSettings', () => {
 
     // After expanding, advanced fields should be visible
     expect(getByText(/staleness/i)).toBeInTheDocument();
+  });
+
+  it('a NumberField rejects a negative value but accepts a non-negative one', () => {
+    const onChange = vi.fn();
+    const { getByText, getByLabelText } = render(
+      createElement(PerPathSettings, { row, config, onChange, idPrefix })
+    );
+    fireEvent.click(getByText(/advanced/i));
+    const madInput = getByLabelText(/mad threshold/i) as HTMLInputElement;
+    onChange.mockClear();
+    // Negative: the validator rejects it, so the field emits no patch.
+    fireEvent.change(madInput, { target: { value: '-5' } });
+    expect(onChange).not.toHaveBeenCalled();
+    // Non-negative: accepted and emitted.
+    fireEvent.change(madInput, { target: { value: '2.5' } });
+    expect(onChange).toHaveBeenCalledWith({ madThreshold: 2.5 });
+  });
+});
+
+describe('SegmentedControl', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('marks the active choice with aria-pressed and fires onChange on the other', () => {
+    const onChange = vi.fn();
+    const { getByRole } = render(
+      createElement(SegmentedControl<'a' | 'b'>, {
+        legend: 'Pick one',
+        choices: [
+          { value: 'a', label: 'Alpha' },
+          { value: 'b', label: 'Beta' },
+        ],
+        value: 'a',
+        onChange,
+      })
+    );
+    expect(getByRole('button', { name: 'Alpha' })).toHaveAttribute('aria-pressed', 'true');
+    expect(getByRole('button', { name: 'Beta' })).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(getByRole('button', { name: 'Beta' }));
+    expect(onChange).toHaveBeenCalledWith('b');
   });
 });
