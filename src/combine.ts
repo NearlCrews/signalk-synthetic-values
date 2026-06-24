@@ -1,5 +1,11 @@
 import type { Attitude, Kind, LatLon, SampleValue } from './metrics';
-import { angularDistance, distance, maxPairwiseDistance } from './metrics';
+import {
+  ATTITUDE_COMPONENTS,
+  angularDistance,
+  distance,
+  mapAttitudeComponents,
+  maxPairwiseDistance,
+} from './metrics';
 
 const TWO_PI = 2 * Math.PI;
 
@@ -91,11 +97,9 @@ export function robustCenter(kind: Kind, values: SampleValue[]): SampleValue {
   }
   if (kind === 'attitude') {
     const atts = values as Attitude[];
-    return {
-      roll: circularMeanRad(atts.map((a) => a.roll)).mean,
-      pitch: circularMeanRad(atts.map((a) => a.pitch)).mean,
-      yaw: circularMeanRad(atts.map((a) => a.yaw)).mean,
-    };
+    // The rejection center uses the circular mean per axis (method-independent),
+    // mirroring how position uses the median latitude for its center.
+    return mapAttitudeComponents((c) => circularMeanRad(atts.map((a) => a[c])).mean);
   }
   return median(values as number[]);
 }
@@ -201,23 +205,17 @@ function computeValue(
   }
   if (opts.kind === 'attitude') {
     const atts = values as Attitude[];
-    const roll = combineAngular(
-      atts.map((a) => a.roll),
-      opts
-    );
-    const pitch = combineAngular(
-      atts.map((a) => a.pitch),
-      opts
-    );
-    const yaw = combineAngular(
-      atts.map((a) => a.yaw),
-      opts
-    );
-    // Suppress the whole attitude if any single axis is too scattered.
-    if (roll === undefined || pitch === undefined || yaw === undefined) {
-      return { outcome: 'diverged' };
+    const out = {} as Attitude;
+    for (const c of ATTITUDE_COMPONENTS) {
+      const combined = combineAngular(
+        atts.map((a) => a[c]),
+        opts
+      );
+      // Suppress the whole attitude if any single axis is too scattered.
+      if (combined === undefined) return { outcome: 'diverged' };
+      out[c] = combined;
     }
-    return { value: { roll, pitch, yaw }, outcome: 'ok' };
+    return { value: out, outcome: 'ok' };
   }
   if (opts.kind === 'position') {
     const lats = (values as LatLon[]).map((v) => v.latitude);

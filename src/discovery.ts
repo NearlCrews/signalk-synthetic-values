@@ -1,5 +1,5 @@
 import type { Clock } from './clock';
-import type { SampleValue } from './metrics';
+import { ATTITUDE_COMPONENTS, type SampleValue } from './metrics';
 
 export interface DetectedPath {
   path: string;
@@ -32,7 +32,7 @@ interface Entry {
 function keyOf(value: SampleValue): string {
   if (typeof value === 'number') return `${value}`;
   if ('latitude' in value) return `${value.latitude},${value.longitude}`;
-  return `${value.roll},${value.pitch},${value.yaw}`;
+  return ATTITUDE_COMPONENTS.map((c) => value[c]).join(',');
 }
 
 // Group sources that currently report the same value where that value has been

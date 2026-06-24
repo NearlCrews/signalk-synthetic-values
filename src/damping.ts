@@ -1,5 +1,5 @@
 import type { Attitude, Kind, LatLon, SampleValue } from './metrics';
-import { distance } from './metrics';
+import { distance, mapAttitudeComponents } from './metrics';
 
 function signedAngularDelta(a: number, b: number): number {
   return Math.atan2(Math.sin(b - a), Math.cos(b - a));
@@ -97,11 +97,7 @@ export function applySlew(
   } else if (kind === 'attitude') {
     const a = state.value as Attitude;
     const b = value as Attitude;
-    limited = {
-      roll: stepAngle(a.roll, b.roll, maxStep),
-      pitch: stepAngle(a.pitch, b.pitch, maxStep),
-      yaw: stepAngle(a.yaw, b.yaw, maxStep),
-    };
+    limited = mapAttitudeComponents((c) => stepAngle(a[c], b[c], maxStep));
   } else {
     limited = clampScalar(state.value as number, value as number, maxStep);
   }

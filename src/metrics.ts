@@ -39,14 +39,18 @@ export function geoDistance(a: LatLon, b: LatLon): number {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-// Distance between two attitudes: the largest of the three per-component angular
+// Build an Attitude by computing each component, so the component list lives in
+// one place (ATTITUDE_COMPONENTS) rather than being spelled out at every site.
+export function mapAttitudeComponents(fn: (component: keyof Attitude) => number): Attitude {
+  const out = {} as Attitude;
+  for (const c of ATTITUDE_COMPONENTS) out[c] = fn(c);
+  return out;
+}
+
+// Distance between two attitudes: the largest of the per-component angular
 // separations, so a source that is off on any axis is rejected.
 export function attitudeDistance(a: Attitude, b: Attitude): number {
-  return Math.max(
-    angularDistance(a.roll, b.roll),
-    angularDistance(a.pitch, b.pitch),
-    angularDistance(a.yaw, b.yaw)
-  );
+  return Math.max(...ATTITUDE_COMPONENTS.map((c) => angularDistance(a[c], b[c])));
 }
 
 export function distance(kind: Kind, a: SampleValue, b: SampleValue): number {
