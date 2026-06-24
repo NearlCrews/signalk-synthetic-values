@@ -14,7 +14,7 @@ import {
   normalizeOptions,
   usePanelConfig,
 } from './hooks/usePanelConfig.js';
-import { injectStyles } from './styles.js';
+import { injectStyles, S } from './styles.js';
 
 interface Props {
   // The Signal K admin UI passes whatever is saved, which on a fresh install is
@@ -150,6 +150,25 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
     [save, updatePath]
   );
 
+  // A plugin with no saved configuration is "Unconfigured" and disabled. Since
+  // this custom configurator replaces the Signal K admin form (including its
+  // enable and submit chrome), the only way to enable the plugin is to save a
+  // configuration from here. With no detected paths to opt in, there would be
+  // nothing to click, so an explicit "Enable plugin" action saves a default
+  // empty config, which enables the plugin and starts detection. `enabledHere`
+  // hides the prompt immediately after the click, before the host re-supplies
+  // the configuration prop.
+  const [enabledHere, setEnabledHere] = useState(false);
+  const handleEnable = useCallback((): void => {
+    setEnabledHere(true);
+    const next = optionsRef.current;
+    savedOptionsRef.current = next;
+    void Promise.resolve(save(next)).then(() => {
+      refresh();
+    });
+  }, [save, refresh]);
+  const unconfigured = configuration == null && !enabledHere;
+
   const showBanner = options.paths.length > 0 && !bannerDismissed;
 
   return (
@@ -177,6 +196,23 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
         </h1>
         <ThemeToggle />
       </div>
+
+      {/* Enable prompt: the only save trigger when the plugin is unconfigured */}
+      {unconfigured && (
+        <section
+          aria-label="Enable plugin"
+          style={{ ...S.infoBanner, marginBottom: 'var(--skn-space-3)' }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <strong>This plugin is not enabled yet.</strong> Enabling it saves a default
+            configuration and starts watching your data for paths reported by two or more sources.
+            Nothing is combined until you opt a path in.
+          </div>
+          <button type="button" style={S.btnPrimary} onClick={handleEnable}>
+            Enable plugin
+          </button>
+        </section>
+      )}
 
       {/* Priority banner: shown once any path is combined, dismissible */}
       <PriorityBanner

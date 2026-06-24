@@ -87,6 +87,28 @@ describe('PluginConfigurationPanel', () => {
     expect(screen.getByText('Synthetic Values')).toBeInTheDocument();
   });
 
+  it('shows an Enable button when unconfigured and saves a config on click to enable', async () => {
+    // Unconfigured (no saved config) is the only state where the user cannot
+    // reach a save trigger via detected paths, so the panel must offer one.
+    const mockSave = vi.fn().mockResolvedValue(undefined);
+    render(createElement(PluginConfigurationPanel, { configuration: undefined, save: mockSave }));
+    const enableBtn = screen.getByRole('button', { name: /enable plugin/i });
+    expect(enableBtn).toBeInTheDocument();
+    fireEvent.click(enableBtn);
+    await waitFor(() => {
+      expect(mockSave).toHaveBeenCalled();
+    });
+    // Saving a configuration is what enables the plugin server-side.
+    const saved = mockSave.mock.calls[0][0] as PluginOptions;
+    expect(Array.isArray(saved.paths)).toBe(true);
+  });
+
+  it('does not show the Enable button when a configuration is already present', () => {
+    const mockSave = vi.fn().mockResolvedValue(undefined);
+    render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
+    expect(screen.queryByRole('button', { name: /enable plugin/i })).not.toBeInTheDocument();
+  });
+
   it('renders the theme toggle', async () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));

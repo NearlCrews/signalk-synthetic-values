@@ -147,7 +147,10 @@ const NIGHT_TOKENS = `
 // an explicit user choice outranks the host theme at equal specificity.
 export const TOKENS_CSS = `
 .skn-panel {
-${SCALE_TOKENS}${LIGHT_TOKENS}}
+${SCALE_TOKENS}${LIGHT_TOKENS}
+	background: var(--skn-bg);
+	color: var(--skn-text);
+}
 [data-bs-theme="dark"] .skn-panel,
 .dark-mode .skn-panel {
 ${DARK_TOKENS}}
