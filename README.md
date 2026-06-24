@@ -13,7 +13,7 @@ When two or more sources feed the same Signal K path (multiple GPS receivers, du
 
 Initial release: combine multiple sources of one Signal K path into a robust synthetic value.
 
-- **Median, trimmed mean, and mean combining, with kind-aware outlier rejection.** Choose the method per path; median is the default and requires no tuning. Scaled-MAD whole-source rejection handles scalars and angular paths, and geodesic-distance rejection handles position. Optional per-source jump rejection and a per-path slew limit hold back sudden spikes that survive rejection.
+- **Median, trimmed mean, and mean combining, with kind-aware outlier rejection.** Choose the method per path; median is the default and requires no tuning. Scaled-MAD whole-source rejection handles scalars, angular, and attitude paths, and geodesic-distance rejection handles position. Optional per-source jump rejection and a per-path slew limit hold back sudden spikes that survive rejection.
 - **Robust angular combining.** Headings and bearings combine without the 0/360-degree wrap artifact. The default uses the circular medoid, the reading closest to the others, so one off compass cannot drag the result, and a spread guard suppresses the synthetic value when sensors point in opposite directions. Position uses the geodesic centroid.
 - **Auto-detection with a purpose-built panel.** The plugin watches all incoming deltas and surfaces every path it has seen with two or more distinct sources, so you opt in from a list rather than typing paths by hand. "Combine all" opts in every recommended path at once.
 - **Guardrails against meaningless or non-independent combining.** GNSS fix metadata (satellite count, dilution of precision, and differential-correction age and reference) describes a single receiver, so it is kept out of "Combine all". Sources reporting identical values while the value changes are flagged as a likely re-broadcast of one feed, so a forwarded GPS does not outvote your independent sensors.
@@ -69,7 +69,7 @@ In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic V
 
 ### Configuration panel
 
-Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, kind badge (scalar, angular, or position), and the source names as chips.
+Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, kind badge (scalar, angular, attitude, or position), and the source names as chips.
 
 - **Combine** opts a single path in immediately with default settings.
 - **Combine all** opts in every recommended path at once, with a confirmation step before writing. It skips paths that are detected but not meaningful to average (see below).
