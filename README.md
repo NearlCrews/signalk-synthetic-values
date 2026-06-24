@@ -19,7 +19,7 @@ Initial release: combine multiple sources of one Signal K path into a robust syn
 - **Guardrails against meaningless or non-independent combining.** GNSS fix metadata (satellite count, dilution of precision, and differential-correction age and reference) describes a single receiver, so it is kept out of "Combine all". Sources reporting identical values while the value changes are flagged as a likely re-broadcast of one feed, so a forwarded GPS does not outvote your independent sensors.
 - **One stable status line.** The admin UI shows a single summary of the whole plugin (how many paths are combining, plus counts of any waiting, diverging, disagreeing, or single-source paths) instead of flickering through one message per path. Per-path detail goes to the debug log.
 
-See the [v0.1.0 changelog entry](CHANGELOG.md#v010), or the [full changelog](CHANGELOG.md).
+See the [v0.1.0 changelog entry](CHANGELOG.md#010---2026-06-23), or the [full changelog](CHANGELOG.md).
 
 ## Why you'd want this
 
