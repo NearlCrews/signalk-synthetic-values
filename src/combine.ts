@@ -1,4 +1,4 @@
-import type { Kind, LatLon, SampleValue } from './metrics';
+import type { Attitude, Kind, LatLon, SampleValue } from './metrics';
 import { angularDistance, distance, maxPairwiseDistance } from './metrics';
 
 const TWO_PI = 2 * Math.PI;
@@ -89,6 +89,14 @@ export function robustCenter(kind: Kind, values: SampleValue[]): SampleValue {
   if (kind === 'angular') {
     return circularMeanRad(values as number[]).mean;
   }
+  if (kind === 'attitude') {
+    const atts = values as Attitude[];
+    return {
+      roll: circularMeanRad(atts.map((a) => a.roll)).mean,
+      pitch: circularMeanRad(atts.map((a) => a.pitch)).mean,
+      yaw: circularMeanRad(atts.map((a) => a.yaw)).mean,
+    };
+  }
   return median(values as number[]);
 }
 
@@ -168,26 +176,48 @@ function linear(method: CombineMethod, xs: number[], trimFraction: number): numb
   return median(xs);
 }
 
+// Combine one set of angles, honoring the method, or return undefined when the
+// set is too scattered to trust (mean resultant length below R_MIN, or spread
+// beyond the threshold). Shared by the angular and attitude paths.
+function combineAngular(angles: number[], opts: CombineOptions): number | undefined {
+  const { mean: cm, R } = circularMeanRad(angles);
+  // Skip the O(n^2) spread loop when R already gates the output.
+  if (R < R_MIN || maxCircularSpread(angles) > opts.angularSpreadThreshold) return undefined;
+  // 'mean' averages (splits the difference); the robust methods use the circular
+  // medoid so a lone off reading does not drag the result.
+  return opts.method === 'mean' ? cm : circularMedoid(angles);
+}
+
 // Returns { value, outcome } where value is undefined when the output diverged.
-// The union is intentional: angular and position paths may decline to produce a
-// value. The caller owns usedSources and freshCount.
+// The union is intentional: angular, attitude, and position paths may decline to
+// produce a value. The caller owns usedSources and freshCount.
 function computeValue(
   values: SampleValue[],
   opts: CombineOptions
 ): { value?: SampleValue; outcome: Outcome } {
   if (opts.kind === 'angular') {
-    const angles = values as number[];
-    const { mean: cm, R } = circularMeanRad(angles);
-    // Diverged when R < R_MIN (too scattered) OR spread exceeds threshold.
-    // Skip the O(n^2) spread loop when R already gates the output.
-    if (R < R_MIN || maxCircularSpread(angles) > opts.angularSpreadThreshold) {
+    const value = combineAngular(values as number[], opts);
+    return value === undefined ? { outcome: 'diverged' } : { value, outcome: 'ok' };
+  }
+  if (opts.kind === 'attitude') {
+    const atts = values as Attitude[];
+    const roll = combineAngular(
+      atts.map((a) => a.roll),
+      opts
+    );
+    const pitch = combineAngular(
+      atts.map((a) => a.pitch),
+      opts
+    );
+    const yaw = combineAngular(
+      atts.map((a) => a.yaw),
+      opts
+    );
+    // Suppress the whole attitude if any single axis is too scattered.
+    if (roll === undefined || pitch === undefined || yaw === undefined) {
       return { outcome: 'diverged' };
     }
-    // Honor the method: 'mean' averages (splits the difference), while the
-    // robust methods use the circular medoid so a lone off compass does not
-    // drag the result. Default 'median' therefore tracks the consensus angle.
-    const value = opts.method === 'mean' ? cm : circularMedoid(angles);
-    return { value, outcome: 'ok' };
+    return { value: { roll, pitch, yaw }, outcome: 'ok' };
   }
   if (opts.kind === 'position') {
     const lats = (values as LatLon[]).map((v) => v.latitude);

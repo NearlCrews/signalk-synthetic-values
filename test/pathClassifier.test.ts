@@ -29,16 +29,15 @@ describe('classify', () => {
       'scalar'
     );
   });
-  it('non-position object is other', () => {
+  it('attitude object is attitude', () => {
     expect(
-      classify(
-        'navigation.attitude',
-        { roll: 0, pitch: 0, yaw: 0 } as any,
-        'auto',
-        none,
-        'vessels.self'
-      )
-    ).toBe('other');
+      classify('navigation.attitude', { roll: 0, pitch: 0, yaw: 0 }, 'auto', none, 'vessels.self')
+    ).toBe('attitude');
+  });
+  it('a non-position non-attitude object is other', () => {
+    expect(classify('navigation.foo', { foo: 1 } as any, 'auto', none, 'vessels.self')).toBe(
+      'other'
+    );
   });
   it('string value is other', () => {
     expect(classify('navigation.state', 'sailing' as any, 'auto', none, 'vessels.self')).toBe(
@@ -75,8 +74,11 @@ describe('valueCategory', () => {
   it('partial position with NaN longitude is invalid', () => {
     expect(valueCategory({ latitude: 51.5, longitude: NaN })).toBe('invalid');
   });
-  it('attitude-like object is nonCombinable', () => {
-    expect(valueCategory({ roll: 0, pitch: 0, yaw: 0 })).toBe('nonCombinable');
+  it('attitude-like object is attitude', () => {
+    expect(valueCategory({ roll: 0, pitch: 0, yaw: 0 })).toBe('attitude');
+  });
+  it('a partial attitude (missing a component) is nonCombinable', () => {
+    expect(valueCategory({ roll: 0, pitch: 0 })).toBe('nonCombinable');
   });
   it('string is nonCombinable', () => {
     expect(valueCategory('sailing')).toBe('nonCombinable');

@@ -16,6 +16,7 @@ export interface KindMeta {
 const META: Record<string, KindMeta> = {
   position: { label: 'position', token: 'muted', srLabel: 'kind: position' },
   angular: { label: 'angular', token: 'muted', srLabel: 'kind: angular' },
+  attitude: { label: 'attitude', token: 'muted', srLabel: 'kind: attitude' },
   scalar: { label: 'scalar', token: 'muted', srLabel: 'kind: scalar' },
   other: { label: 'other', token: 'warn', srLabel: 'kind: other (not combinable)' },
   unknown: { label: 'unknown', token: 'muted', srLabel: 'kind: unknown' },

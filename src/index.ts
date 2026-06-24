@@ -208,7 +208,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     src: string,
     cat: ValueCategory
   ): void {
-    if (cat !== 'number' && cat !== 'latlon') return;
+    if (cat !== 'number' && cat !== 'latlon' && cat !== 'attitude') return;
     discovery.observe(pv.path, src, pv.value as SampleValue);
     if (detectedKind.has(pv.path)) return;
     detectedKind.set(

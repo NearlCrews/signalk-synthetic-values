@@ -228,7 +228,7 @@ describe('plugin integration', () => {
     }
   });
 
-  it('attitude-like object path classifies as other and is skipped without emitting', () => {
+  it('combines a multi-source attitude path and emits a blended roll/pitch/yaw', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     plugin.start({
@@ -244,8 +244,10 @@ describe('plugin integration', () => {
     h.fire(
       delta(h.app.selfContext, 'src2', 'navigation.attitude', { roll: 0.1, pitch: 0.2, yaw: 1.5 })
     );
-    // should not emit anything (non-combinable)
-    expect(h.emitted).toHaveLength(0);
+    const last = h.emitted[h.emitted.length - 1];
+    expect(last.updates[0].$source).toBe('signalk-synthetic-values');
+    // Both sources agree, so each component combines to its shared value.
+    expect(last.updates[0].values[0].value).toEqual({ roll: 0.1, pitch: 0.2, yaw: 1.5 });
   });
 
   it('records discovery for an un-configured multi-source path', () => {

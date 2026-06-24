@@ -1,8 +1,14 @@
-import type { Kind, LatLon, SampleValue } from './metrics';
+import type { Attitude, Kind, LatLon, SampleValue } from './metrics';
 import { distance } from './metrics';
 
 function signedAngularDelta(a: number, b: number): number {
   return Math.atan2(Math.sin(b - a), Math.cos(b - a));
+}
+
+// Step one angle from a toward b by at most maxStep, the short way around.
+function stepAngle(a: number, b: number, maxStep: number): number {
+  const diff = signedAngularDelta(a, b);
+  return a + Math.sign(diff) * Math.min(Math.abs(diff), maxStep);
 }
 
 export interface JumpConfig {
@@ -87,11 +93,15 @@ export function applySlew(
       longitude: a.longitude + f * (b.longitude - a.longitude),
     };
   } else if (kind === 'angular') {
-    const a = state.value as number;
-    const b = value as number;
-    const diff = signedAngularDelta(a, b);
-    const step = Math.sign(diff) * Math.min(Math.abs(diff), maxStep);
-    limited = a + step;
+    limited = stepAngle(state.value as number, value as number, maxStep);
+  } else if (kind === 'attitude') {
+    const a = state.value as Attitude;
+    const b = value as Attitude;
+    limited = {
+      roll: stepAngle(a.roll, b.roll, maxStep),
+      pitch: stepAngle(a.pitch, b.pitch, maxStep),
+      yaw: stepAngle(a.yaw, b.yaw, maxStep),
+    };
   } else {
     limited = clampScalar(state.value as number, value as number, maxStep);
   }

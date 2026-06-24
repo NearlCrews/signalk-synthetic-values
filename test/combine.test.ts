@@ -119,6 +119,38 @@ describe('combine angular', () => {
   });
 });
 
+describe('combine attitude', () => {
+  const d = (x: number) => (x * Math.PI) / 180;
+  const att = (roll: number, pitch: number, yaw: number) => ({ roll, pitch, yaw });
+
+  it('combines each component, tracking the consensus per axis', () => {
+    // Two sources agree on roll/pitch/yaw, one is off on yaw only.
+    const r = combine(
+      [
+        s('a', att(d(2), d(-5), d(90))),
+        s('b', att(d(2), d(-5), d(90))),
+        s('c', att(d(2), d(-5), d(80))),
+      ],
+      { ...base, kind: 'attitude' }
+    );
+    expect(r.outcome).toBe('ok');
+    const v = r.value as { roll: number; pitch: number; yaw: number };
+    // medoid per axis lands on the agreeing pair
+    expect((v.yaw * 180) / Math.PI).toBeCloseTo(90, 4);
+    expect((v.roll * 180) / Math.PI).toBeCloseTo(2, 4);
+  });
+
+  it('suppresses the whole attitude when any axis is too scattered', () => {
+    // yaw is antipodal (0 and 180) so that axis diverges, suppressing the value.
+    const r = combine([s('a', att(0, 0, 0)), s('b', att(0, 0, Math.PI))], {
+      ...base,
+      kind: 'attitude',
+    });
+    expect(r.outcome).toBe('diverged');
+    expect(r.value).toBeUndefined();
+  });
+});
+
 describe('combine position', () => {
   it('is antimeridian safe', () => {
     const r = combine(

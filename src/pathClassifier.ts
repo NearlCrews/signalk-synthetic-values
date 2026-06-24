@@ -1,8 +1,8 @@
-import type { Kind, LatLon, SampleValue } from './metrics';
+import type { Attitude, Kind, LatLon, SampleValue } from './metrics';
 
 export type MetadataLookup = (contextPrefixedPath: string) => { units?: string } | undefined;
 
-export type ValueCategory = 'number' | 'latlon' | 'invalid' | 'nonCombinable';
+export type ValueCategory = 'number' | 'latlon' | 'attitude' | 'invalid' | 'nonCombinable';
 
 export function valueCategory(value: unknown): ValueCategory {
   if (value === null || value === undefined) return 'invalid';
@@ -14,6 +14,7 @@ export function valueCategory(value: unknown): ValueCategory {
     if ('latitude' in obj || 'longitude' in obj) {
       return isLatLon(value) ? 'latlon' : 'invalid';
     }
+    if (isAttitude(value)) return 'attitude';
     return 'nonCombinable';
   }
   return 'nonCombinable';
@@ -38,6 +39,18 @@ function isLatLon(v: unknown): v is LatLon {
   );
 }
 
+// A combinable attitude carries all three finite angular components. A partial
+// attitude (some components missing) is left non-combinable.
+export function isAttitude(v: unknown): v is Attitude {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    Number.isFinite((v as Attitude).roll) &&
+    Number.isFinite((v as Attitude).pitch) &&
+    Number.isFinite((v as Attitude).yaw)
+  );
+}
+
 export function classify(
   path: string,
   value: SampleValue,
@@ -46,6 +59,7 @@ export function classify(
   context: string
 ): Kind {
   if (isLatLon(value)) return 'position';
+  if (isAttitude(value)) return 'attitude';
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'other';
   if (angularMode === 'yes') return 'angular';
   if (angularMode === 'no') return 'scalar';

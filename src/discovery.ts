@@ -30,7 +30,9 @@ interface Entry {
 }
 
 function keyOf(value: SampleValue): string {
-  return typeof value === 'number' ? `${value}` : `${value.latitude},${value.longitude}`;
+  if (typeof value === 'number') return `${value}`;
+  if ('latitude' in value) return `${value.latitude},${value.longitude}`;
+  return `${value.roll},${value.pitch},${value.yaw}`;
 }
 
 // Group sources that currently report the same value where that value has been

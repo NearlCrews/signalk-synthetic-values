@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   angularDistance,
+  attitudeDistance,
   distance,
   geoDistance,
   type LatLon,
@@ -41,6 +42,24 @@ describe('geoDistance (meters)', () => {
     const b: LatLon = { latitude: 1, longitude: 0 };
     expect(geoDistance(a, b)).toBeGreaterThan(111000);
     expect(geoDistance(a, b)).toBeLessThan(111400);
+  });
+});
+
+describe('attitudeDistance (radians)', () => {
+  it('is the largest of the per-component angular separations', () => {
+    const a = { roll: 0, pitch: 0, yaw: 0 };
+    const b = { roll: 0.1, pitch: 0.2, yaw: 0.05 };
+    expect(attitudeDistance(a, b)).toBeCloseTo(0.2, 10);
+  });
+  it('uses circular distance per axis (wrap-safe)', () => {
+    const a = { roll: 0, pitch: 0, yaw: 0.05 };
+    const b = { roll: 0, pitch: 0, yaw: 2 * Math.PI - 0.05 };
+    expect(attitudeDistance(a, b)).toBeCloseTo(0.1, 10);
+  });
+  it('distance() dispatches attitude to attitudeDistance', () => {
+    const a = { roll: 0, pitch: 0, yaw: 0 };
+    const b = { roll: 0.3, pitch: 0, yaw: 0 };
+    expect(distance('attitude', a, b)).toBeCloseTo(0.3, 10);
   });
 });
 

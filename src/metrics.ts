@@ -1,11 +1,21 @@
-export type Kind = 'scalar' | 'angular' | 'position' | 'other';
+export type Kind = 'scalar' | 'angular' | 'position' | 'attitude' | 'other';
 
 export interface LatLon {
   latitude: number;
   longitude: number;
 }
 
-export type SampleValue = number | LatLon;
+// navigation.attitude: three angles in radians, each combined as an angular
+// component (roll and pitch near zero, yaw a full-circle heading).
+export interface Attitude {
+  roll: number;
+  pitch: number;
+  yaw: number;
+}
+
+export const ATTITUDE_COMPONENTS = ['roll', 'pitch', 'yaw'] as const;
+
+export type SampleValue = number | LatLon | Attitude;
 
 // Mean radius of the Earth in meters; sufficient for haversine at navigation scales.
 const EARTH_RADIUS_M = 6371000;
@@ -29,9 +39,20 @@ export function geoDistance(a: LatLon, b: LatLon): number {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+// Distance between two attitudes: the largest of the three per-component angular
+// separations, so a source that is off on any axis is rejected.
+export function attitudeDistance(a: Attitude, b: Attitude): number {
+  return Math.max(
+    angularDistance(a.roll, b.roll),
+    angularDistance(a.pitch, b.pitch),
+    angularDistance(a.yaw, b.yaw)
+  );
+}
+
 export function distance(kind: Kind, a: SampleValue, b: SampleValue): number {
   if (kind === 'position') return geoDistance(a as LatLon, b as LatLon);
   if (kind === 'angular') return angularDistance(a as number, b as number);
+  if (kind === 'attitude') return attitudeDistance(a as Attitude, b as Attitude);
   // Intentional fallthrough: both 'scalar' and 'other' use scalar (absolute) distance.
   return scalarDistance(a as number, b as number);
 }
