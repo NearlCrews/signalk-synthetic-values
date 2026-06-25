@@ -5,6 +5,22 @@ All notable changes to the signalk-synthetic-values project are documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+<a id="v011"></a>
+
+## [0.1.1] - 2026-06-25
+
+Maintenance release. Internal code-quality cleanup with no change to combining behavior, configuration, the data model, or the plugin API. Combined values, paths, and settings are identical to 0.1.0.
+
+### Changed
+
+- The config panel shows a clearer message ("could not load detected paths") when the detected-paths request fails.
+- Consolidated duplicated logic into shared helpers without changing behavior: degree and radian conversion, plural suffixing, numeric-input parsing, the expand and collapse disclosure used across the panel, the pill style variants, and the oldest-entry eviction scan.
+- Tightened types so the kind-badge table and the detected-path kind are checked against the combine kinds at compile time.
+
+### Removed
+
+- Dead code: two unused CSS theme tokens, an unused error-formatting helper, and a redundant serialize and parse round-trip on each detected-paths poll.
+
 <a id="v010"></a>
 
 ## [0.1.0] - 2026-06-23

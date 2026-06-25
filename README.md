@@ -9,17 +9,14 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.1.0
+## What's new in 0.1.1
 
-Initial release: combine multiple sources of one Signal K path into a robust synthetic value.
+Maintenance release. No change to combining behavior, configuration, the data model, or the plugin API: the combined values, paths, and settings are identical to 0.1.0.
 
-- **Median, trimmed mean, and mean combining, with kind-aware outlier rejection.** Choose the method per path; median is the default and requires no tuning. Scaled-MAD whole-source rejection handles scalars, angular, and attitude paths, and geodesic-distance rejection handles position. Optional per-source jump rejection and a per-path slew limit hold back sudden spikes that survive rejection.
-- **Robust angular combining.** Headings and bearings combine without the 0/360-degree wrap artifact. The default uses the circular medoid, the reading closest to the others, so one off compass cannot drag the result, and a spread guard suppresses the synthetic value when sensors point in opposite directions. Position uses the geodesic centroid.
-- **Auto-detection with a purpose-built panel.** The plugin watches all incoming deltas and surfaces every path it has seen with two or more distinct sources, so you opt in from a list rather than typing paths by hand. "Combine all" opts in every recommended path at once.
-- **Guardrails against meaningless or non-independent combining.** GNSS fix metadata (satellite count, dilution of precision, and differential-correction age and reference) describes a single receiver, so it is kept out of "Combine all". Sources reporting identical values while the value changes are flagged as a likely re-broadcast of one feed, so a forwarded GPS does not outvote your independent sensors.
-- **One stable status line.** The admin UI shows a single summary of the whole plugin (how many paths are combining, plus counts of any waiting, diverging, disagreeing, or single-source paths) instead of flickering through one message per path. Per-path detail goes to the debug log.
+- **Clearer panel error.** The config panel shows a plainer message when it cannot load the detected-paths list.
+- **Internal cleanup.** Repeated math, text, and panel building blocks now live in shared helpers, dead code is removed, and a few types are checked more strictly at compile time. None of this changes the values you see.
 
-See the [v0.1.0 changelog entry](CHANGELOG.md#v010), or the [full changelog](CHANGELOG.md).
+See the [v0.1.1 changelog entry](CHANGELOG.md#v011), or the [full changelog](CHANGELOG.md).
 
 ## Why you'd want this
 
