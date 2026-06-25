@@ -5,6 +5,16 @@ All notable changes to the signalk-synthetic-values project are documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+<a id="v012"></a>
+
+## [0.1.2] - 2026-06-25
+
+Maintenance release. Refreshes build-time dependencies with no change to runtime behavior, configuration, the data model, or the plugin API. Combined values, paths, and settings are identical to 0.1.1.
+
+### Changed
+
+- Updated development dependencies to their latest patch releases (`@types/node` 26.0.1 and `webpack` 5.108.0). These cover the build and type-check toolchain only; the published runtime is unchanged.
+
 <a id="v011"></a>
 
 ## [0.1.1] - 2026-06-25

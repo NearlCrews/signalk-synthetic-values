@@ -9,14 +9,13 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.1.1
+## What's new in 0.1.2
 
-Maintenance release. No change to combining behavior, configuration, the data model, or the plugin API: the combined values, paths, and settings are identical to 0.1.0.
+Maintenance release. A build-time dependency refresh only, with no change to runtime behavior, configuration, the data model, or the plugin API. The combined values, paths, and settings are unchanged.
 
-- **Clearer panel error.** The config panel shows a plainer message when it cannot load the detected-paths list.
-- **Internal cleanup.** Repeated math, text, and panel building blocks now live in shared helpers, dead code is removed, and a few types are checked more strictly at compile time. None of this changes the values you see.
+- **Toolchain update.** Development dependencies (`@types/node`, `webpack`) are bumped to their latest patch releases. This touches the build and type-check toolchain only; the published runtime is unchanged.
 
-See the [v0.1.1 changelog entry](CHANGELOG.md#v011), or the [full changelog](CHANGELOG.md).
+See the [v0.1.2 changelog entry](CHANGELOG.md#v012), or the [full changelog](CHANGELOG.md).
 
 ## Why you'd want this
 

@@ -64,7 +64,7 @@ body:
     attributes:
       label: Plugin Version
       description: Which version of signalk-synthetic-values are you using?
-      placeholder: "0.1.1"
+      placeholder: "0.1.2"
     validations:
       required: true
 
