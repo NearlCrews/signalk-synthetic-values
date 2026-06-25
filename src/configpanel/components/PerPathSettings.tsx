@@ -1,10 +1,69 @@
 import type * as React from 'react';
 import { memo, useEffect, useState } from 'react';
-import type { CombineMethod } from '../../combine.js';
-import type { AngularMode, RawPathConfig, RawPathConfigPatch } from '../../config.js';
+import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
+import { plural } from '../../textFormat.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
+import { Disclosure } from './Disclosure.js';
 import { SourceChecklist } from './SourceChecklist.js';
+
+// Parse a numeric input string. Returns undefined for blank (clear the key),
+// a number when finite and within the bound, or null to ignore the keystroke
+// (non-finite or out of range). Shared by every numeric input below so the
+// parse-or-clear skeleton lives in one place.
+function parseNumericInput(
+  raw: string,
+  opts: { min: number; integer?: boolean; exclusiveMin?: boolean }
+): number | undefined | null {
+  if (raw.trim() === '') return undefined;
+  const n = Number(raw);
+  const belowBound = opts.exclusiveMin ? n <= opts.min : n < opts.min;
+  if (!Number.isFinite(n) || belowBound) return null;
+  return opts.integer ? Math.trunc(n) : n;
+}
+
+// Labeled <select> over a fixed choice list. Collapses the duplicated
+// label-plus-select markup the Method and Angular fields would otherwise repeat.
+interface SelectFieldProps<V extends string> {
+  id: string;
+  label: string;
+  ariaLabel?: string | undefined;
+  value: V;
+  choices: ReadonlyArray<{ value: V; label: string }>;
+  labelStyle: React.CSSProperties | undefined;
+  onChange: (value: V) => void;
+}
+
+function SelectField<V extends string>({
+  id,
+  label,
+  ariaLabel,
+  value,
+  choices,
+  labelStyle,
+  onChange,
+}: SelectFieldProps<V>): React.ReactElement {
+  return (
+    <div style={S.fieldRow}>
+      <label htmlFor={id} style={labelStyle}>
+        {label}
+      </label>
+      <select
+        id={id}
+        aria-label={ariaLabel}
+        style={S.select}
+        value={value}
+        onChange={(e) => onChange(e.target.value as V)}
+      >
+        {choices.map((c) => (
+          <option key={c.value} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 interface Props {
   row: DetectedRow;
@@ -53,7 +112,6 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
 
   // --- Tier 2 advanced disclosure ---
 
-  const caretChar = advancedOpen ? '▾' : '▸';
   const methodId = `${idPrefix}-method`;
   const minSourcesId = `${idPrefix}-min-sources`;
   const advancedBodyId = `${idPrefix}-advanced-body`;
@@ -61,23 +119,14 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
   return (
     <div>
       {/* Tier 1: method */}
-      <div style={S.fieldRow}>
-        <label htmlFor={methodId} style={S.labelNarrow}>
-          Method
-        </label>
-        <select
-          id={methodId}
-          style={S.select}
-          value={config.method ?? 'median'}
-          onChange={(e) => onChange({ method: e.target.value as CombineMethod })}
-        >
-          {METHOD_CHOICES.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <SelectField
+        id={methodId}
+        label="Method"
+        value={config.method ?? 'median'}
+        choices={METHOD_CHOICES}
+        labelStyle={S.labelNarrow}
+        onChange={(method) => onChange({ method })}
+      />
 
       {/* Tier 1: minSources */}
       <div style={S.fieldRow}>
@@ -92,15 +141,10 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
           value={draftMinSources ?? ''}
           placeholder="default"
           onChange={(e) => {
-            const n = Number(e.target.value);
-            if (e.target.value.trim() === '') {
-              setDraftMinSources(undefined);
-              onChange({ minSources: undefined });
-            } else if (Number.isFinite(n) && n >= 1) {
-              const truncated = Math.trunc(n);
-              setDraftMinSources(truncated);
-              onChange({ minSources: truncated });
-            }
+            const parsed = parseNumericInput(e.target.value, { min: 1, integer: true });
+            if (parsed === null) return;
+            setDraftMinSources(parsed);
+            onChange({ minSources: parsed });
           }}
         />
       </div>
@@ -108,8 +152,8 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
       {/* Inline warning when minSources exceeds live source count */}
       {showMinSourcesWarning && (
         <div role="alert" style={{ ...S.note, marginTop: 'var(--skn-space-1)' }}>
-          This path has {sourceCount} source{sourceCount !== 1 ? 's' : ''}. Requiring{' '}
-          {effectiveMinSources} means it will not combine until more sources come online.
+          This path has {sourceCount} source{plural(sourceCount)}. Requiring {effectiveMinSources}{' '}
+          means it will not combine until more sources come online.
         </div>
       )}
 
@@ -128,26 +172,15 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
 
       {/* Tier 2: Advanced (collapsed by default) */}
       <div style={{ marginTop: 'var(--skn-space-2)' }}>
-        <button
-          type="button"
-          style={S.disclosureToggle}
-          aria-expanded={advancedOpen}
-          aria-controls={advancedBodyId}
-          onClick={() => setAdvancedOpen((o) => !o)}
+        <Disclosure
+          label="Advanced"
+          bodyId={advancedBodyId}
+          open={advancedOpen}
+          onToggle={() => setAdvancedOpen((o) => !o)}
+          bodyStyle={S.disclosureBody}
         >
-          <span aria-hidden="true" style={{ marginRight: 6 }}>
-            {caretChar}
-          </span>
-          Advanced
-        </button>
-
-        {advancedOpen ? (
-          <div id={advancedBodyId} style={S.disclosureBody}>
-            <AdvancedFields config={config} onChange={onChange} idPrefix={idPrefix} />
-          </div>
-        ) : (
-          <div id={advancedBodyId} hidden />
-        )}
+          <AdvancedFields config={config} onChange={onChange} idPrefix={idPrefix} />
+        </Disclosure>
       </div>
     </div>
   );
@@ -204,14 +237,10 @@ const NumberField = memo(function NumberField({
         value={value ?? ''}
         placeholder={placeholder}
         onChange={(e) => {
-          const n = Number(e.target.value);
-          if (e.target.value.trim() === '') {
-            onChange({ [fieldKey]: undefined });
-          } else if (Number.isFinite(n) && n >= 0) {
-            // Negatives are rejected by validateConfig (positive/nonNegative);
-            // do not send them so the panel and plugin agree.
-            onChange({ [fieldKey]: n });
-          }
+          // Negatives are rejected by validateConfig (positive/nonNegative);
+          // do not send them so the panel and plugin agree.
+          const parsed = parseNumericInput(e.target.value, { min: 0 });
+          if (parsed !== null) onChange({ [fieldKey]: parsed });
         }}
       />
     </div>
@@ -281,24 +310,15 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
       />
 
       {/* Angular override */}
-      <div style={S.fieldRow}>
-        <label htmlFor={angularId} style={S.labelWide}>
-          Angular (circular averaging)
-        </label>
-        <select
-          id={angularId}
-          aria-label="Angular mode"
-          style={S.select}
-          value={config.angular ?? 'auto'}
-          onChange={(e) => onChange({ angular: e.target.value as AngularMode })}
-        >
-          {ANGULAR_CHOICES.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <SelectField
+        id={angularId}
+        label="Angular (circular averaging)"
+        ariaLabel="Angular mode"
+        value={config.angular ?? 'auto'}
+        choices={ANGULAR_CHOICES}
+        labelStyle={S.labelWide}
+        onChange={(angular) => onChange({ angular })}
+      />
 
       {/* Jump rejection: just maxRate for now */}
       <div style={S.fieldRow}>
@@ -314,18 +334,18 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
           value={config.jumpRejection?.maxRate ?? ''}
           placeholder="disabled"
           onChange={(e) => {
-            const n = Number(e.target.value);
-            if (e.target.value.trim() === '') {
-              onChange({ jumpRejection: undefined });
-            } else if (Number.isFinite(n) && n > 0) {
-              onChange({
-                jumpRejection: {
-                  maxRate: n,
-                  persistSamples: config.jumpRejection?.persistSamples ?? 3,
-                  persistMs: config.jumpRejection?.persistMs ?? 5000,
-                },
-              });
-            }
+            const parsed = parseNumericInput(e.target.value, { min: 0, exclusiveMin: true });
+            if (parsed === null) return;
+            onChange({
+              jumpRejection:
+                parsed === undefined
+                  ? undefined
+                  : {
+                      maxRate: parsed,
+                      persistSamples: config.jumpRejection?.persistSamples ?? 3,
+                      persistMs: config.jumpRejection?.persistMs ?? 5000,
+                    },
+            });
           }}
         />
       </div>

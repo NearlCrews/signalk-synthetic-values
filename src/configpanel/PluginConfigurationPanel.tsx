@@ -1,6 +1,7 @@
 import type * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../config.js';
+import { jsonEqual, PLUGIN_SOURCE_LABEL } from './api-base.js';
 import { DetectedPathList } from './components/DetectedPathList.js';
 import { PriorityBanner } from './components/PriorityBanner.js';
 import ThemeToggle from './components/ThemeToggle.js';
@@ -88,40 +89,44 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
   // React state updates are asynchronous, so next-state is computed
   // synchronously via the pure transitions to call save immediately.
 
-  const handleAdd = useCallback(
-    (path: string): void => {
-      const next = applyAddPath(optionsRef.current, path);
-      addPath(path);
+  // Commit a new options object: record it as the saved baseline, save it, then
+  // refresh detection once the save settles. Shared by every immediate-write
+  // action so the save-then-refresh sequence lives in one place.
+  const persist = useCallback(
+    (next: PluginOptions): void => {
       savedOptionsRef.current = next;
       void Promise.resolve(save(next)).then(() => {
         refresh();
       });
     },
-    [save, addPath, refresh]
+    [save, refresh]
+  );
+
+  const handleAdd = useCallback(
+    (path: string): void => {
+      const next = applyAddPath(optionsRef.current, path);
+      addPath(path);
+      persist(next);
+    },
+    [persist, addPath]
   );
 
   const handleAddAll = useCallback(
     (rows: DetectedRow[]): void => {
       const next = applyAddAllCombinable(optionsRef.current, rows);
       addAllCombinable(rows);
-      savedOptionsRef.current = next;
-      void Promise.resolve(save(next)).then(() => {
-        refresh();
-      });
+      persist(next);
     },
-    [save, addAllCombinable, refresh]
+    [persist, addAllCombinable]
   );
 
   const handleRemove = useCallback(
     (path: string): void => {
       const next = applyRemovePath(optionsRef.current, path);
       removePath(path);
-      savedOptionsRef.current = next;
-      void Promise.resolve(save(next)).then(() => {
-        refresh();
-      });
+      persist(next);
     },
-    [save, removePath, refresh]
+    [persist, removePath]
   );
 
   // handleUpdate updates local state immediately so the input feels responsive,
@@ -142,7 +147,7 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
         const next = applyUpdatePath(optionsRef.current, path, patch);
         // Skip saving when nothing actually changed to avoid a pointless
         // plugin restart.
-        if (JSON.stringify(next) === JSON.stringify(savedOptionsRef.current)) return;
+        if (jsonEqual(next, savedOptionsRef.current)) return;
         savedOptionsRef.current = next;
         void Promise.resolve(save(next));
       }, 500);
@@ -161,12 +166,8 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
   const [enabledHere, setEnabledHere] = useState(false);
   const handleEnable = useCallback((): void => {
     setEnabledHere(true);
-    const next = optionsRef.current;
-    savedOptionsRef.current = next;
-    void Promise.resolve(save(next)).then(() => {
-      refresh();
-    });
-  }, [save, refresh]);
+    persist(optionsRef.current);
+  }, [persist]);
   const unconfigured = configuration == null && !enabledHere;
 
   const showBanner = options.paths.length > 0 && !bannerDismissed;
@@ -174,26 +175,8 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
   return (
     <div className="skn-panel" style={{ padding: 'var(--skn-space-3)' }}>
       {/* Panel header: title and theme toggle */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 'var(--skn-space-2)',
-          marginBottom: 'var(--skn-space-3)',
-        }}
-      >
-        <h1
-          style={{
-            margin: 0,
-            fontSize: 'var(--skn-font-display)',
-            fontWeight: 700,
-            color: 'var(--skn-text)',
-          }}
-        >
-          Synthetic Values
-        </h1>
+      <div style={S.panelHeader}>
+        <h1 style={S.panelTitle}>Synthetic Values</h1>
         <ThemeToggle />
       </div>
 
@@ -217,7 +200,7 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
       {/* Priority banner: shown once any path is combined, dismissible */}
       <PriorityBanner
         show={showBanner}
-        sourceLabel="signalk-synthetic-values"
+        sourceLabel={PLUGIN_SOURCE_LABEL}
         onDismiss={handleDismiss}
       />
 

@@ -1,4 +1,5 @@
 import type { Clock } from './clock';
+import { oldestKey } from './mapUtil';
 import { ATTITUDE_COMPONENTS, type SampleValue } from './metrics';
 
 export interface DetectedPath {
@@ -92,14 +93,7 @@ export class Discovery {
   }
 
   private evictOldest(): void {
-    let oldestPath: string | undefined;
-    let oldest = Number.POSITIVE_INFINITY;
-    for (const [path, entry] of this.store) {
-      if (entry.lastSeen < oldest) {
-        oldest = entry.lastSeen;
-        oldestPath = path;
-      }
-    }
+    const oldestPath = oldestKey(this.store, (entry) => entry.lastSeen);
     if (oldestPath !== undefined) this.store.delete(oldestPath);
   }
 

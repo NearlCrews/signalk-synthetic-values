@@ -1,6 +1,7 @@
 // Tests for api-base fetchJson and the useDetected pure reducer.
 // No DOM rendering; we test the pure core directly.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
 
 // -- fetchJson tests ----------------------------------------------------------
 // We must import the module under test after stubbing global.fetch.
@@ -42,7 +43,7 @@ describe('nextDetectedState', () => {
   it('returns the same state object when the incoming payload is unchanged', async () => {
     const { nextDetectedState } = await import('../../src/configpanel/hooks/useDetected.js');
 
-    const rows = [
+    const rows: DetectedRow[] = [
       { path: 'navigation.position', sources: ['gps1', 'gps2'], kind: 'position', optedIn: false },
     ];
     const prev = {
@@ -51,9 +52,8 @@ describe('nextDetectedState', () => {
       loading: false,
       error: null,
     };
-    const incoming = JSON.stringify({ paths: rows });
 
-    const next = nextDetectedState(prev, incoming);
+    const next = nextDetectedState(prev, { paths: rows });
     // Same payload: no state change, returns exact same object reference.
     expect(next).toBe(prev);
   });
@@ -61,7 +61,7 @@ describe('nextDetectedState', () => {
   it('returns a new state object when the incoming payload differs', async () => {
     const { nextDetectedState } = await import('../../src/configpanel/hooks/useDetected.js');
 
-    const rows = [
+    const rows: DetectedRow[] = [
       { path: 'navigation.position', sources: ['gps1', 'gps2'], kind: 'position', optedIn: false },
     ];
     const prev = {
@@ -70,7 +70,7 @@ describe('nextDetectedState', () => {
       loading: false,
       error: null,
     };
-    const newRows = [
+    const newRows: DetectedRow[] = [
       ...rows,
       {
         path: 'environment.depth.belowKeel',
@@ -79,9 +79,8 @@ describe('nextDetectedState', () => {
         optedIn: false,
       },
     ];
-    const incoming = JSON.stringify({ paths: newRows });
 
-    const next = nextDetectedState(prev, incoming);
+    const next = nextDetectedState(prev, { paths: newRows });
     // Different payload: new state object with updated paths.
     expect(next).not.toBe(prev);
     expect(next.paths).toHaveLength(2);

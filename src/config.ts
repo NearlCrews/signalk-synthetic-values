@@ -149,10 +149,7 @@ function validateScalars(
   return { scalars: { method, angular, trimFraction, staleness, emitInterval, minSources } };
 }
 
-function validatePathEntry(raw: RawPathConfig, options: PluginOptions): PathValidation {
-  // Callers must ensure raw.path is a non-empty string before calling this function.
-  const id = raw.path;
-
+function validatePathEntry(id: string, raw: RawPathConfig, options: PluginOptions): PathValidation {
   const scalarsResult = validateScalars(id, raw, options);
   if ('error' in scalarsResult) {
     return { errors: [scalarsResult.error], advisories: [] };
@@ -223,7 +220,7 @@ export function validateConfig(options: PluginOptions): ValidationResult {
       continue;
     }
     seen.add(id);
-    const result = validatePathEntry(raw, options);
+    const result = validatePathEntry(id, raw, options);
     errors.push(...result.errors);
     advisories.push(...result.advisories);
     if (result.path) paths.push(result.path);

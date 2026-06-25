@@ -4,6 +4,8 @@
 //   'muted'  - uses --skn-surface-muted / --skn-text-muted (combinable kinds)
 //   'warn'   - uses --skn-warn-bg / --skn-warn-fg (non-combinable: other)
 
+import type { Kind } from '../metrics.js';
+
 export interface KindMeta {
   /** Display label shown inside the pill. */
   label: string;
@@ -13,7 +15,11 @@ export interface KindMeta {
   srLabel: string;
 }
 
-const META: Record<string, KindMeta> = {
+// Typed over the full Kind union plus the 'unknown' fallback, so adding a new
+// combine Kind (as 'attitude' was) is a compile error until its badge entry is
+// added rather than silently routing to the 'unknown' fallback. `Kind` is
+// type-only, so this import adds nothing to the browser bundle.
+const META: Record<Kind | 'unknown', KindMeta> = {
   position: { label: 'position', token: 'muted', srLabel: 'kind: position' },
   angular: { label: 'angular', token: 'muted', srLabel: 'kind: angular' },
   attitude: { label: 'attitude', token: 'muted', srLabel: 'kind: attitude' },
@@ -22,9 +28,7 @@ const META: Record<string, KindMeta> = {
   unknown: { label: 'unknown', token: 'muted', srLabel: 'kind: unknown' },
 };
 
-// META.unknown is a required fallback entry defined above; the non-null
-// assertion is safe because removing it would be a compile-visible omission.
 export function kindMeta(kind: string): KindMeta {
-  // biome-ignore lint/style/noNonNullAssertion: META.unknown is always defined above
-  return META[kind] ?? META.unknown!;
+  // 'unknown' is a required key of META, so the fallback is always defined.
+  return (META as Record<string, KindMeta>)[kind] ?? META.unknown;
 }

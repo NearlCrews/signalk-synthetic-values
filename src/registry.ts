@@ -1,5 +1,6 @@
 import type { Clock } from './clock';
 import type { Sample } from './combine';
+import { oldestKey } from './mapUtil';
 import type { SampleValue } from './metrics';
 
 interface Entry {
@@ -29,14 +30,7 @@ export class Registry {
       this.store.set(path, bySource);
     }
     if (!bySource.has(sourceRef) && bySource.size >= this.maxSources) {
-      let oldestRef: string | undefined;
-      let oldestTs = Infinity;
-      for (const [ref, e] of bySource) {
-        if (e.receiptTs < oldestTs) {
-          oldestTs = e.receiptTs;
-          oldestRef = ref;
-        }
-      }
+      const oldestRef = oldestKey(bySource, (e) => e.receiptTs);
       if (oldestRef !== undefined) bySource.delete(oldestRef);
     }
     bySource.set(sourceRef, { value, receiptTs: ts });

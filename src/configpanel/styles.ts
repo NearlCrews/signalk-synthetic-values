@@ -59,8 +59,6 @@ const LIGHT_TOKENS = `
 	--skn-accent: #3b82f6;
 	--skn-accent-text: #ffffff;
 	--skn-ok: #22c55e;
-	--skn-wait: #f59e0b;
-	--skn-off: #9ca3af;
 	--skn-danger-bg: #fef2f2;
 	--skn-danger-fg: #991b1b;
 	--skn-danger-border: #fca5a5;
@@ -90,8 +88,6 @@ const DARK_TOKENS = `
 	--skn-accent: #4c93ff;
 	--skn-accent-text: #ffffff;
 	--skn-ok: #2dd4a0;
-	--skn-wait: #fbbf24;
-	--skn-off: #6b7785;
 	--skn-danger-bg: #3a1a1a;
 	--skn-danger-fg: #f5a3a3;
 	--skn-danger-border: #7a3a3a;
@@ -124,8 +120,6 @@ const NIGHT_TOKENS = `
 	--skn-accent: #cf6a3c;
 	--skn-accent-text: #1a0808;
 	--skn-ok: #cf8a4a;
-	--skn-wait: #a9742e;
-	--skn-off: #7a4f4f;
 	--skn-danger-bg: #2a0d0d;
 	--skn-danger-fg: #e07a6a;
 	--skn-danger-border: #6e2a2a;
@@ -230,6 +224,38 @@ export function injectStyles(): void {
 
 export const S: Record<string, CSSProperties> = {};
 
+// Marine touch targets: toolbar/inline controls at 36px, row Combine/Remove
+// buttons one step larger for finger clearance in table rows. Named so the
+// sizing lives in one place instead of repeated minHeight literals.
+const TOUCH = 36;
+const TOUCH_ROW = 40;
+
+// Button padding literals, shared across the button variants below.
+const PAD_BTN = '8px 16px';
+const PAD_BTN_ROW = '8px 14px';
+const PAD_BTN_SM = '6px 12px';
+
+// Shared box model for the bordered input and select fields: every property
+// except the width treatment is identical between the two.
+const fieldBase: CSSProperties = {
+  padding: '6px 10px',
+  borderRadius: 'var(--skn-radius)',
+  border: '1px solid var(--skn-border)',
+  background: 'var(--skn-surface)',
+  color: 'var(--skn-text)',
+  fontSize: 'var(--skn-font-body)',
+};
+
+// Shared box model for the error and info banners; each adds its own token
+// family, alignment, padding, and margin.
+const bannerBase: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 'var(--skn-space-2)',
+  borderRadius: 'var(--skn-radius)',
+  fontSize: 'var(--skn-font-body)',
+};
+
 // Small (12px) semantic text utilities. Components spread these and add only
 // layout tweaks (margins), so the small-text color treatments live in one
 // place instead of being re-declared per component.
@@ -250,33 +276,18 @@ S.fieldRow = {
 };
 // flex-basis 280 with shrink allowed: labels align in a column on wide
 // screens but give the space back on tablets instead of forcing a dead gutter.
-S.label = {
+// Private base: only the narrow/wide variants are consumed, never S.label itself.
+const labelBase: CSSProperties = {
   fontSize: 'var(--skn-font-body)',
   color: 'var(--skn-text-muted)',
   flex: '0 1 280px',
 };
 // Narrower label variants for denser panels (PerPathSettings and row editors).
-// Spread S.label and override flex-basis only; all other properties are shared.
-S.labelNarrow = { ...S.label, flex: '0 1 180px' };
-S.labelWide = { ...S.label, flex: '0 1 220px' };
-S.select = {
-  padding: '6px 10px',
-  borderRadius: 'var(--skn-radius)',
-  border: '1px solid var(--skn-border)',
-  background: 'var(--skn-surface)',
-  color: 'var(--skn-text)',
-  fontSize: 'var(--skn-font-body)',
-  minWidth: 220,
-};
-S.input = {
-  padding: '6px 10px',
-  borderRadius: 'var(--skn-radius)',
-  border: '1px solid var(--skn-border)',
-  background: 'var(--skn-surface)',
-  color: 'var(--skn-text)',
-  fontSize: 'var(--skn-font-body)',
-  width: 220,
-};
+// Spread labelBase and override flex-basis only; all other properties are shared.
+S.labelNarrow = { ...labelBase, flex: '0 1 180px' };
+S.labelWide = { ...labelBase, flex: '0 1 220px' };
+S.select = { ...fieldBase, minWidth: 220 };
+S.input = { ...fieldBase, width: 220 };
 // 22px hit area for marine use: a 16px checkbox is too small for wet fingers
 // on a moving boat. accentColor keeps the checked fill on the token palette.
 S.checkbox = {
@@ -287,8 +298,8 @@ S.checkbox = {
   accentColor: 'var(--skn-accent)',
 };
 S.btnPrimary = {
-  padding: '8px 16px',
-  minHeight: 36,
+  padding: PAD_BTN,
+  minHeight: TOUCH,
   background: 'var(--skn-accent)',
   color: 'var(--skn-accent-text)',
   border: 'none',
@@ -297,30 +308,30 @@ S.btnPrimary = {
   cursor: 'pointer',
 };
 S.btnSecondary = {
-  padding: '8px 16px',
-  minHeight: 36,
+  padding: PAD_BTN,
+  minHeight: TOUCH,
   background: 'var(--skn-surface-raised)',
   color: 'var(--skn-text)',
   border: '1px solid var(--skn-border)',
   borderRadius: 'var(--skn-radius)',
   cursor: 'pointer',
 };
-// Row Combine/Remove buttons: base button plus a 40px touch target for
+// Row Combine/Remove buttons: base button plus a larger touch target for
 // marine use (wider finger clearance in table rows than toolbar buttons).
 S.btnPrimaryRow = {
   ...S.btnPrimary,
-  minHeight: 40,
-  padding: '8px 14px',
+  minHeight: TOUCH_ROW,
+  padding: PAD_BTN_ROW,
 };
 S.btnSecondaryRow = {
   ...S.btnSecondary,
-  minHeight: 40,
-  padding: '8px 14px',
+  minHeight: TOUCH_ROW,
+  padding: PAD_BTN_ROW,
 };
 // Compact secondary button.
 S.btnSecondarySm = {
   ...S.btnSecondary,
-  padding: '6px 12px',
+  padding: PAD_BTN_SM,
   fontSize: 'var(--skn-font-small)',
 };
 S.cardTitle = {
@@ -329,6 +340,21 @@ S.cardTitle = {
   flex: 1,
   minWidth: 180,
   margin: 0,
+  color: 'var(--skn-text)',
+};
+// Panel header: title row that holds the view title and the theme toggle.
+S.panelHeader = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  flexWrap: 'wrap',
+  gap: 'var(--skn-space-2)',
+  marginBottom: 'var(--skn-space-3)',
+};
+S.panelTitle = {
+  margin: 0,
+  fontSize: 'var(--skn-font-display)',
+  fontWeight: 700,
   color: 'var(--skn-text)',
 };
 S.note = {
@@ -342,37 +368,29 @@ S.note = {
   padding: '6px 8px',
 };
 S.errorBanner = {
+  ...bannerBase,
+  alignItems: 'center',
+  padding: '8px 12px',
+  margin: '8px 0',
   color: 'var(--skn-danger-fg)',
   background: 'var(--skn-danger-bg)',
   border: '1px solid var(--skn-danger-border)',
-  borderRadius: 'var(--skn-radius)',
-  padding: '8px 12px',
-  fontSize: 'var(--skn-font-body)',
-  margin: '8px 0',
-  display: 'flex',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: 'var(--skn-space-2)',
 };
 // Info banner: same box model as the error banner on the info token family.
 // Used by the source-priority reminder.
 S.infoBanner = {
-  display: 'flex',
+  ...bannerBase,
   alignItems: 'flex-start',
-  flexWrap: 'wrap',
-  gap: 'var(--skn-space-2)',
   padding: 'var(--skn-space-2) var(--skn-space-3)',
   marginBottom: 'var(--skn-space-2)',
   background: 'var(--skn-info-bg)',
   border: '1px solid var(--skn-info-border)',
-  borderRadius: 'var(--skn-radius)',
   color: 'var(--skn-info-fg)',
-  fontSize: 'var(--skn-font-body)',
 };
 S.btnInfoDismiss = {
   flexShrink: 0,
-  padding: '6px 12px',
-  minHeight: 36,
+  padding: PAD_BTN_SM,
+  minHeight: TOUCH,
   background: 'transparent',
   color: 'var(--skn-info-fg)',
   border: '1px solid var(--skn-info-border)',
@@ -409,8 +427,8 @@ S.checklistRow = {
   marginBottom: 'var(--skn-space-1)',
 };
 S.btnRetry = {
-  padding: '6px 12px',
-  minHeight: 36,
+  padding: PAD_BTN_SM,
+  minHeight: TOUCH,
   background: 'var(--skn-surface)',
   color: 'var(--skn-danger-fg)',
   border: '1px solid var(--skn-danger-border)',
@@ -444,8 +462,8 @@ S.segmented = {
   background: 'var(--skn-surface)',
 };
 S.segmentedBtn = {
-  padding: '6px 12px',
-  minHeight: 36,
+  padding: PAD_BTN_SM,
+  minHeight: TOUCH,
   background: 'transparent',
   color: 'var(--skn-text-muted)',
   border: 'none',
@@ -465,7 +483,7 @@ S.disclosureToggle = {
   alignItems: 'center',
   gap: 'var(--skn-space-1)',
   width: '100%',
-  minHeight: 36,
+  minHeight: TOUCH,
   background: 'none',
   border: 'none',
   padding: 0,
@@ -487,4 +505,36 @@ S.pill = {
   padding: '1px 6px',
   borderRadius: 'var(--skn-radius-pill)',
   border: '1px solid transparent',
+};
+// Pill color variants over the shared box model. One source of truth for each
+// token family so the badges, chips, and pills across the panel cannot drift.
+S.pillWarn = {
+  ...S.pill,
+  background: 'var(--skn-warn-bg)',
+  color: 'var(--skn-warn-fg)',
+  borderColor: 'var(--skn-warn-border)',
+};
+S.pillMuted = {
+  ...S.pill,
+  background: 'var(--skn-surface-muted)',
+  color: 'var(--skn-text-muted)',
+  borderColor: 'var(--skn-border)',
+};
+S.pillInfo = {
+  ...S.pill,
+  background: 'var(--skn-info-bg)',
+  color: 'var(--skn-info-fg)',
+  borderColor: 'var(--skn-info-border)',
+};
+S.pillSuccess = {
+  ...S.pill,
+  background: 'var(--skn-success-bg)',
+  color: 'var(--skn-success-fg)',
+  borderColor: 'var(--skn-success-border)',
+};
+S.pillRaised = {
+  ...S.pill,
+  background: 'var(--skn-surface-raised)',
+  color: 'var(--skn-text-muted)',
+  borderColor: 'var(--skn-border)',
 };

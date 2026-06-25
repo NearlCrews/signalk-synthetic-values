@@ -83,22 +83,14 @@ export function applyUpdatePath(
     ...options,
     paths: options.paths.map((p) => {
       if (p.path !== path) return p;
-      // Build a new entry starting from the existing one, then apply the patch.
-      // Keys in the patch that are explicitly `undefined` are omitted from the
-      // result so the plugin default re-applies (satisfies exactOptionalPropertyTypes).
-      const next: RawPathConfig = { path: p.path };
-      const merged = { ...p, ...patch };
-      for (const k of Object.keys(merged) as Array<keyof typeof merged>) {
-        if (k === 'path') continue;
-        const v = merged[k];
-        if (v !== undefined) {
-          // The value is defined; assign it. Cast is safe because `k` and `v`
-          // come from the same object so the types align.
-          // biome-ignore lint/suspicious/noExplicitAny: safe cast; k and v come from the same object
-          (next as any)[k] = v;
-        }
+      // Merge the patch over the existing entry, then drop any key the patch set
+      // to `undefined` so the plugin default re-applies (satisfies
+      // exactOptionalPropertyTypes). `path` is never patched to undefined.
+      const next = { ...p, ...patch } as Record<string, unknown>;
+      for (const k of Object.keys(next)) {
+        if (next[k] === undefined) delete next[k];
       }
-      return next;
+      return next as unknown as RawPathConfig;
     }),
   };
 }

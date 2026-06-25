@@ -5,6 +5,10 @@
 
 export const apiBase = '/plugins/signalk-synthetic-values/api';
 
+// The source name the plugin publishes combined values under. Shared by the
+// priority banner and the per-row priority instruction so the two cannot drift.
+export const PLUGIN_SOURCE_LABEL = 'signalk-synthetic-values';
+
 /**
  * Fetch a panel API endpoint and parse the JSON body. Throws on a non-ok
  * HTTP status so callers can catch and surface the error. Network failures
@@ -18,7 +22,7 @@ export async function fetchJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** Fold an unknown thrown value into a display string. */
-export function toErrorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+/** Structural equality by JSON serialization, for change-gating panel state. */
+export function jsonEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }

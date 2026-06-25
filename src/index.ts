@@ -16,7 +16,7 @@ import { Discovery } from './discovery';
 import { Emitter } from './emitter';
 import type { Kind, SampleValue } from './metrics';
 import type { MetadataLookup, ValueCategory } from './pathClassifier';
-import { classify, valueCategory } from './pathClassifier';
+import { classify, isCombinableCategory, valueCategory } from './pathClassifier';
 import { Registry } from './registry';
 import { buildSchema } from './schema';
 import { aggregateStatus, pathStatus } from './status';
@@ -25,6 +25,9 @@ const PLUGIN_ID = 'signalk-synthetic-values';
 // Built once: isOwnSource runs for every source on every delta, so the prefix
 // must not be re-templated per call.
 const OWN_SOURCE_PREFIX = `${PLUGIN_ID}.`;
+// Reason recorded in `skipped` when a configured path carries a value that
+// cannot be averaged (text, object, or other non-combinable shape).
+const NON_COMBINABLE_REASON = 'non-combinable value';
 
 // A delta as observed off the wire. The Signal K Delta type uses branded path
 // and source strings; the combiner works on plain values, so this loose shape
@@ -51,6 +54,19 @@ interface ServerAPIWithUnregister extends ServerAPI {
 // only the members used here are declared.
 interface RouterResponse {
   json(body: unknown): void;
+}
+
+// One row of the /api/detected response. The panel's DetectedRow mirrors this
+// shape; naming it here documents the contract the route serves.
+interface DetectedApiRow {
+  path: string;
+  sources: string[];
+  kind: string;
+  optedIn: boolean;
+  combinable: boolean;
+  recommended: boolean;
+  duplicateGroups: string[][];
+  advisory?: string;
 }
 
 export default function createPlugin(appBase: ServerAPI): Plugin {
@@ -114,8 +130,24 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     // first; that is an unusual case and does not require redesign here.
     const kind = classify(path, value, cfg.angular, getUnits, selfContext);
     classification.set(path, kind);
-    if (kind === 'other') skipped.push({ path, reason: 'non-combinable value' });
+    if (kind === 'other') skipped.push({ path, reason: NON_COMBINABLE_REASON });
     return kind;
+  }
+
+  // Reset every per-run map and counter to its empty state. Shared by start()
+  // (which then repopulates `skipped` from config issues) and stop(), so the
+  // two cannot drift on which state they clear.
+  function resetRuntimeState(): void {
+    registry.reset();
+    emitter.reset();
+    discovery.reset();
+    jumpState.clear();
+    slewState.clear();
+    classification.clear();
+    detectedKind.clear();
+    pathOutcome.clear();
+    skipped.length = 0;
+    lastStatus = '';
   }
 
   function damped(
@@ -208,7 +240,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     src: string,
     cat: ValueCategory
   ): void {
-    if (cat !== 'number' && cat !== 'latlon' && cat !== 'attitude') return;
+    if (!isCombinableCategory(cat)) return;
     discovery.observe(pv.path, src, pv.value as SampleValue);
     if (detectedKind.has(pv.path)) return;
     detectedKind.set(
@@ -229,7 +261,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     if (cat === 'nonCombinable') {
       if (!classification.has(pv.path)) {
         classification.set(pv.path, 'other');
-        skipped.push({ path: pv.path, reason: 'non-combinable value' });
+        skipped.push({ path: pv.path, reason: NON_COMBINABLE_REASON });
       }
       return;
     }
@@ -253,16 +285,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   // whether averaging is meaningful (false for GNSS fix metadata). `advisory`
   // explains either negative case for the panel. `duplicateGroups` flags sources
   // that look like the same feed re-broadcast.
-  function detectedRow(d: DetectedPath): {
-    path: string;
-    sources: string[];
-    kind: string;
-    optedIn: boolean;
-    combinable: boolean;
-    recommended: boolean;
-    duplicateGroups: string[][];
-    advisory?: string;
-  } {
+  function detectedRow(d: DetectedPath): DetectedApiRow {
     const kind = detectedKind.get(d.path) ?? classification.get(d.path) ?? 'unknown';
     const combinable = kind !== 'other';
     const meaningful = isMeaningfulToCombine(d.path);
@@ -297,21 +320,11 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       registry.setMaxSourcesPerPath(config.maxSourcesPerPath);
       byPath = new Map(config.paths.map((p) => [p.path, p]));
       selfContext = app.selfContext ?? 'vessels.self';
-      registry.reset();
-      emitter.reset();
-      discovery.reset();
-      jumpState.clear();
-      slewState.clear();
-      classification.clear();
-      detectedKind.clear();
-      pathOutcome.clear();
-      lastStatus = '';
-      skipped.length = 0;
-      for (const e of errors) {
-        skipped.push({ path: e.path, reason: e.message });
-        app.debug(`config ${e.path}: ${e.message}`);
-      }
-      for (const e of advisories) {
+      resetRuntimeState();
+      // Errors and advisories are surfaced identically (skipped entry plus a
+      // debug line); the validator keeps them separate, but the status layer
+      // treats both as config issues.
+      for (const e of [...errors, ...advisories]) {
         skipped.push({ path: e.path, reason: e.message });
         app.debug(`config ${e.path}: ${e.message}`);
       }
@@ -336,15 +349,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
         unregister();
         unregister = null;
       }
-      registry.reset();
-      emitter.reset();
-      discovery.reset();
-      jumpState.clear();
-      slewState.clear();
-      classification.clear();
-      detectedKind.clear();
-      pathOutcome.clear();
-      lastStatus = '';
+      resetRuntimeState();
     },
 
     registerWithRouter(router) {

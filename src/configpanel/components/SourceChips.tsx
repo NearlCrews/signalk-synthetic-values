@@ -10,10 +10,7 @@ const VISIBLE_MAX = 3;
 // Module-level style constants: these have no reactive dependencies and are
 // identical across every render, so they live outside the component function.
 const chipStyle: React.CSSProperties = {
-  ...S.pill,
-  background: 'var(--skn-surface-raised)',
-  color: 'var(--skn-text-muted)',
-  borderColor: 'var(--skn-border)',
+  ...S.pillRaised,
   whiteSpace: 'nowrap',
 };
 

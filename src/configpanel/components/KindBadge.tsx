@@ -6,21 +6,6 @@ interface KindBadgeProps {
   kind: string;
 }
 
-// Two static variants, built once: the warn family for non-combinable 'other'
-// and the muted family for every other kind. Neither depends on runtime state.
-const PILL_WARN: React.CSSProperties = {
-  ...S.pill,
-  background: 'var(--skn-warn-bg)',
-  color: 'var(--skn-warn-fg)',
-  borderColor: 'var(--skn-warn-border)',
-};
-const PILL_MUTED: React.CSSProperties = {
-  ...S.pill,
-  background: 'var(--skn-surface-muted)',
-  color: 'var(--skn-text-muted)',
-  borderColor: 'var(--skn-border)',
-};
-
 // Quiet pill showing the kind of a detected path.
 //
 // The kind badge is the least prominent element in the row: it uses the muted
@@ -35,7 +20,7 @@ const PILL_MUTED: React.CSSProperties = {
 // a plain <span> because ARIA prohibits it without a role.
 export function KindBadge({ kind }: KindBadgeProps): React.ReactElement {
   const meta = kindMeta(kind);
-  const pillStyle = meta.token === 'warn' ? PILL_WARN : PILL_MUTED;
+  const pillStyle = meta.token === 'warn' ? S.pillWarn : S.pillMuted;
 
   return (
     <span style={pillStyle}>

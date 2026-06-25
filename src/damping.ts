@@ -5,10 +5,15 @@ function signedAngularDelta(a: number, b: number): number {
   return Math.atan2(Math.sin(b - a), Math.cos(b - a));
 }
 
+// Move `base` by `delta`, capped at maxStep, preserving the sign of `delta`.
+// Shared by the angular and scalar slew limiters.
+function stepToward(base: number, delta: number, maxStep: number): number {
+  return base + Math.sign(delta) * Math.min(Math.abs(delta), maxStep);
+}
+
 // Step one angle from a toward b by at most maxStep, the short way around.
 function stepAngle(a: number, b: number, maxStep: number): number {
-  const diff = signedAngularDelta(a, b);
-  return a + Math.sign(diff) * Math.min(Math.abs(diff), maxStep);
+  return stepToward(a, signedAngularDelta(a, b), maxStep);
 }
 
 export interface JumpConfig {
@@ -66,8 +71,9 @@ export interface SlewState {
 
 function clampScalar(prev: number, next: number, maxStep: number): number {
   const delta = next - prev;
+  // Return next exactly when within the step (no float drift from reconstructing it).
   if (Math.abs(delta) <= maxStep) return next;
-  return prev + Math.sign(delta) * maxStep;
+  return stepToward(prev, delta, maxStep);
 }
 
 export function applySlew(
@@ -80,14 +86,16 @@ export function applySlew(
   if (!state) return { value, state: { value, ts } };
   const dtSec = Math.max(0, ts - state.ts) / 1000;
   const maxStep = maxRatePerSec * dtSec;
-  if (distance(kind, state.value, value) <= maxStep) {
+  const d = distance(kind, state.value, value);
+  if (d <= maxStep) {
     return { value, state: { value, ts } };
   }
   let limited: SampleValue;
   if (kind === 'position') {
     const a = state.value as LatLon;
     const b = value as LatLon;
-    const f = maxStep / distance(kind, a, b);
+    // a === state.value and b === value, so the over-limit distance is `d`; reuse it.
+    const f = maxStep / d;
     limited = {
       latitude: a.latitude + f * (b.latitude - a.latitude),
       longitude: a.longitude + f * (b.longitude - a.longitude),

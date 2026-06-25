@@ -1,5 +1,5 @@
 import type { CombineMethod, CombineResult, Outcome } from './combine';
-import { oxfordJoin } from './textFormat';
+import { oxfordJoin, plural } from './textFormat';
 
 export function pathStatus(
   path: string,
@@ -23,10 +23,16 @@ export function pathStatus(
     }
     case 'skipped':
       return `${path}: skipped, value is not combinable.`;
-    default:
-      // 'ok': combining normally. The priority reminder lives here because this
-      // is the only outcome where the synthetic value is actually being emitted.
+    case 'ok':
+      // Combining normally. The priority reminder lives here because this is the
+      // only outcome where the synthetic value is actually being emitted.
       return `Combining ${result.usedSources.length} sources on ${path}. Set this path's source priority to prefer ${sourceLabel} in Server, Data, Sources.`;
+    default: {
+      // Exhaustiveness guard: a new Outcome member surfaces here as a compile
+      // error rather than silently inheriting the 'ok' message.
+      const unreachable: never = result.outcome;
+      return unreachable;
+    }
   }
 }
 
@@ -48,21 +54,19 @@ export function aggregateStatus(
   if (configuredCount === 0) return appendSkipped(detectionMessage(detectedCount), skipped);
 
   const t = tallyOutcomes(outcomes);
-  const plural = configuredCount === 1 ? '' : 's';
   const notes: string[] = [];
   if (t.waiting > 0) notes.push(`${t.waiting} waiting for sources`);
   if (t.diverging > 0) notes.push(`${t.diverging} diverging`);
   if (t.disagreeing > 0) notes.push(`${t.disagreeing} disagreeing`);
   if (t.singleSource > 0) notes.push(`${t.singleSource} on a single source`);
-  let body = `Combining ${t.emitting} of ${configuredCount} path${plural}.`;
+  let body = `Combining ${t.emitting} of ${configuredCount} path${plural(configuredCount)}.`;
   if (notes.length > 0) body += ` ${oxfordJoin(notes)}.`;
   return appendSkipped(body, skipped);
 }
 
 function detectionMessage(detectedCount: number): string {
   if (detectedCount === 0) return 'No multi-source paths detected yet (need 2+ sources on a path).';
-  const plural = detectedCount === 1 ? '' : 's';
-  return `${detectedCount} multi-source path${plural} detected. Add paths in the config panel to combine them.`;
+  return `${detectedCount} multi-source path${plural(detectedCount)} detected. Add paths in the config panel to combine them.`;
 }
 
 interface OutcomeTally {

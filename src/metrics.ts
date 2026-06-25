@@ -20,6 +20,16 @@ export type SampleValue = number | LatLon | Attitude;
 // Mean radius of the Earth in meters; sufficient for haversine at navigation scales.
 const EARTH_RADIUS_M = 6371000;
 
+// Degree/radian conversions, in one place so the inline `* Math.PI / 180`
+// spelling does not get repeated across the distance and combine paths.
+export function toRadians(deg: number): number {
+  return (deg * Math.PI) / 180;
+}
+
+export function toDegrees(rad: number): number {
+  return (rad * 180) / Math.PI;
+}
+
 export function scalarDistance(a: number, b: number): number {
   return Math.abs(a - b);
 }
@@ -30,11 +40,10 @@ export function angularDistance(a: number, b: number): number {
 }
 
 export function geoDistance(a: LatLon, b: LatLon): number {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLon = toRad(b.longitude - a.longitude);
-  const lat1 = toRad(a.latitude);
-  const lat2 = toRad(b.latitude);
+  const dLat = toRadians(b.latitude - a.latitude);
+  const dLon = toRadians(b.longitude - a.longitude);
+  const lat1 = toRadians(a.latitude);
+  const lat2 = toRadians(b.latitude);
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
   return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
 }
@@ -48,9 +57,15 @@ export function mapAttitudeComponents(fn: (component: keyof Attitude) => number)
 }
 
 // Distance between two attitudes: the largest of the per-component angular
-// separations, so a source that is off on any axis is rejected.
+// separations, so a source that is off on any axis is rejected. A running max
+// avoids the intermediate array a `Math.max(...map())` would allocate per call.
 export function attitudeDistance(a: Attitude, b: Attitude): number {
-  return Math.max(...ATTITUDE_COMPONENTS.map((c) => angularDistance(a[c], b[c])));
+  let max = 0;
+  for (const c of ATTITUDE_COMPONENTS) {
+    const d = angularDistance(a[c], b[c]);
+    if (d > max) max = d;
+  }
+  return max;
 }
 
 export function distance(kind: Kind, a: SampleValue, b: SampleValue): number {
@@ -65,12 +80,10 @@ export function maxPairwiseDistance(kind: Kind, values: SampleValue[]): number {
   let max = 0;
   for (let i = 0; i < values.length; i++) {
     for (let j = i + 1; j < values.length; j++) {
-      // Loop bounds guarantee values[i] and values[j] are defined; we guard defensively.
-      const vi = values[i];
-      const vj = values[j];
-      if (vi !== undefined && vj !== undefined) {
-        max = Math.max(max, distance(kind, vi, vj));
-      }
+      // Loop bounds guarantee values[i] and values[j] are defined; the casts
+      // satisfy noUncheckedIndexedAccess without a per-pair runtime guard.
+      const d = distance(kind, values[i] as SampleValue, values[j] as SampleValue);
+      if (d > max) max = d;
     }
   }
   return max;

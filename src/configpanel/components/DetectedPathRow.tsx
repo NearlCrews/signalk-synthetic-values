@@ -2,12 +2,60 @@ import type * as React from 'react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { NON_NUMERIC_ADVISORY } from '../../combinability.js';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
-import { oxfordJoin } from '../../textFormat.js';
+import { oxfordJoin, plural } from '../../textFormat.js';
+import { PLUGIN_SOURCE_LABEL } from '../api-base.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
+import { Disclosure } from './Disclosure.js';
 import { KindBadge } from './KindBadge.js';
 import { PerPathSettings } from './PerPathSettings.js';
 import { SourceChips } from './SourceChips.js';
+
+// Static pill variants for the row, built once. The info family marks the
+// source count; the success family marks an opted-in path.
+const PILL_SOURCE_COUNT: React.CSSProperties = {
+  ...S.pillInfo,
+  justifyContent: 'center',
+  fontWeight: 700,
+  padding: '1px 8px',
+  whiteSpace: 'nowrap',
+};
+const PILL_ADDED: React.CSSProperties = {
+  ...S.pillSuccess,
+  fontWeight: 600,
+  padding: '1px 8px',
+};
+
+// Row container and header are static except for the opted-in left rail, so
+// they live at module scope rather than rebuilding every render.
+const ROW_OUTER: React.CSSProperties = {
+  background: 'var(--skn-surface)',
+  border: '1px solid var(--skn-border)',
+  borderRadius: 'var(--skn-radius)',
+  marginBottom: 'var(--skn-space-1)',
+  overflow: 'hidden',
+};
+const ROW_HEADER_BASE: React.CSSProperties = {
+  paddingLeft: 'var(--skn-space-2)',
+  paddingRight: 'var(--skn-space-2)',
+  paddingTop: 'var(--skn-space-1)',
+  paddingBottom: 'var(--skn-space-1)',
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 'var(--skn-space-1)',
+  minHeight: 40,
+};
+// The header carries the rail left border so it stays a short tick and does not
+// run down the Tune body.
+const ROW_HEADER_OPTED: React.CSSProperties = {
+  ...ROW_HEADER_BASE,
+  borderLeft: '3px solid var(--skn-ok)',
+};
+const ROW_HEADER_PLAIN: React.CSSProperties = {
+  ...ROW_HEADER_BASE,
+  borderLeft: '3px solid transparent',
+};
 
 // ---------------------------------------------------------------------------
 // Props
@@ -45,20 +93,9 @@ function DuplicateSourcesHint({ groups }: { groups: string[][] }): React.ReactEl
 }
 
 function SourceCountBadge({ count }: { count: number }): React.ReactElement {
-  const label = `${count} source${count !== 1 ? 's' : ''}`;
+  const label = `${count} source${plural(count)}`;
   return (
-    <span
-      style={{
-        ...S.pill,
-        justifyContent: 'center',
-        fontWeight: 700,
-        padding: '1px 8px',
-        background: 'var(--skn-info-bg)',
-        color: 'var(--skn-info-fg)',
-        borderColor: 'var(--skn-info-border)',
-        whiteSpace: 'nowrap',
-      }}
-    >
+    <span style={PILL_SOURCE_COUNT}>
       {/* aria-label on a plain <span> is not allowed without a role.
           Instead we show the number visually and append a visually-hidden
           label so assistive technology reads the full count. */}
@@ -69,20 +106,7 @@ function SourceCountBadge({ count }: { count: number }): React.ReactElement {
 }
 
 function AddedPill(): React.ReactElement {
-  return (
-    <span
-      style={{
-        ...S.pill,
-        fontWeight: 600,
-        padding: '1px 8px',
-        background: 'var(--skn-success-bg)',
-        color: 'var(--skn-success-fg)',
-        borderColor: 'var(--skn-success-border)',
-      }}
-    >
-      added
-    </span>
-  );
+  return <span style={PILL_ADDED}>added</span>;
 }
 
 function PriorityInstruction(): React.ReactElement {
@@ -95,9 +119,8 @@ function PriorityInstruction(): React.ReactElement {
         borderTop: '1px solid var(--skn-border)',
       }}
     >
-      Priority not set, the boat is not using this yet. Set{' '}
-      <strong>signalk-synthetic-values</strong> as top priority for this path in Signal K under
-      Data, Source priorities.
+      Priority not set, the boat is not using this yet. Set <strong>{PLUGIN_SOURCE_LABEL}</strong>{' '}
+      as top priority for this path in Signal K under Data, Source priorities.
     </div>
   );
 }
@@ -125,33 +148,17 @@ function TuneSection({
 }: TuneSectionProps): React.ReactElement {
   return (
     <div style={{ borderTop: '1px solid var(--skn-border)' }}>
-      <button
-        ref={tuneToggleRef}
-        type="button"
-        style={{
-          ...S.disclosureToggle,
-          padding: '6px var(--skn-space-2)',
-          fontSize: 'var(--skn-font-small)',
-        }}
-        aria-expanded={tuneOpen}
-        aria-controls={tuneBodyId}
-        onClick={onToggle}
+      <Disclosure
+        label="Tune"
+        bodyId={tuneBodyId}
+        open={tuneOpen}
+        onToggle={onToggle}
+        toggleRef={tuneToggleRef}
+        toggleStyle={{ padding: '6px var(--skn-space-2)', fontSize: 'var(--skn-font-small)' }}
+        bodyStyle={{ padding: 'var(--skn-space-1) var(--skn-space-2) var(--skn-space-2)' }}
       >
-        <span aria-hidden="true" style={{ marginRight: 6 }}>
-          {tuneOpen ? '▾' : '▸'}
-        </span>
-        Tune
-      </button>
-      {tuneOpen ? (
-        <div
-          id={tuneBodyId}
-          style={{ padding: 'var(--skn-space-1) var(--skn-space-2) var(--skn-space-2)' }}
-        >
-          <PerPathSettings row={row} config={config} onChange={onUpdate} idPrefix={idPrefix} />
-        </div>
-      ) : (
-        <div id={tuneBodyId} hidden />
-      )}
+        <PerPathSettings row={row} config={config} onChange={onUpdate} idPrefix={idPrefix} />
+      </Disclosure>
     </div>
   );
 }
@@ -229,36 +236,13 @@ export function DetectedPathRow({
     wasTuneOpen.current = tuneOpen;
   }, [tuneOpen]);
 
-  const outerStyle: React.CSSProperties = {
-    background: 'var(--skn-surface)',
-    border: '1px solid var(--skn-border)',
-    borderRadius: 'var(--skn-radius)',
-    marginBottom: 'var(--skn-space-1)',
-    overflow: 'hidden',
-  };
-
-  // The header carries the rail left border so it stays a short tick and does
-  // not run down the Tune body.
-  const headerStyle: React.CSSProperties = {
-    borderLeft: optedIn ? '3px solid var(--skn-ok)' : '3px solid transparent',
-    paddingLeft: 'var(--skn-space-2)',
-    paddingRight: 'var(--skn-space-2)',
-    paddingTop: 'var(--skn-space-1)',
-    paddingBottom: 'var(--skn-space-1)',
-    display: 'flex',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 'var(--skn-space-1)',
-    minHeight: 40,
-  };
-
   return (
-    <div style={outerStyle} className="skn-row">
+    <div style={ROW_OUTER} className="skn-row">
       {/* Row header: rail + controls + badges + chips */}
-      <div style={headerStyle}>
+      <div style={optedIn ? ROW_HEADER_OPTED : ROW_HEADER_PLAIN}>
         {/* Visually-hidden accessible name: "path X, N sources, kind, added" */}
         <span className="skn-vh" style={S.visuallyHidden}>
-          {path}, {sources.length} source{sources.length !== 1 ? 's' : ''}, {kind}
+          {path}, {sources.length} source{plural(sources.length)}, {kind}
           {optedIn ? ', added' : ''}
         </span>
 

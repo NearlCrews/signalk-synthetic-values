@@ -1,9 +1,11 @@
 import type * as React from 'react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
+import { plural } from '../../textFormat.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
 import { DetectedPathRow } from './DetectedPathRow.js';
+import { Disclosure } from './Disclosure.js';
 
 // ---------------------------------------------------------------------------
 // Funnel glyph: an inline SVG in currentColor so it recolors per theme
@@ -156,38 +158,29 @@ function NonCombinableGroup({
   // the browser naturally leaves focus on the button.
   return (
     <div style={{ marginTop: 'var(--skn-space-2)' }}>
-      <button
-        type="button"
-        style={S.disclosureToggle}
-        aria-expanded={open}
-        aria-controls={bodyId}
-        onClick={() => {
+      <Disclosure
+        label={`Detected but not recommended (${rows.length})`}
+        bodyId={bodyId}
+        open={open}
+        onToggle={() => {
           setOpen((p) => !p);
         }}
       >
-        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
-        <span>Detected but not recommended ({rows.length})</span>
-      </button>
-      {open ? (
-        <div id={bodyId}>
-          {rows.map((row) => {
-            const cfg = configByPath.get(row.path);
-            const optedIn = configByPath.has(row.path);
-            return (
-              <DetectedPathRow
-                key={row.path}
-                row={{ ...row, optedIn }}
-                config={cfg}
-                onAdd={onAdd}
-                onRemove={onRemove}
-                onUpdate={onUpdate}
-              />
-            );
-          })}
-        </div>
-      ) : (
-        <div id={bodyId} hidden />
-      )}
+        {rows.map((row) => {
+          const cfg = configByPath.get(row.path);
+          const optedIn = configByPath.has(row.path);
+          return (
+            <DetectedPathRow
+              key={row.path}
+              row={{ ...row, optedIn }}
+              config={cfg}
+              onAdd={onAdd}
+              onRemove={onRemove}
+              onUpdate={onUpdate}
+            />
+          );
+        })}
+      </Disclosure>
     </div>
   );
 }
@@ -232,8 +225,8 @@ function CombineAllBar({ rows, onAddAll }: CombineAllBarProps): React.ReactEleme
         }}
       >
         <span style={{ fontSize: 'var(--skn-font-body)', color: 'var(--skn-text)' }}>
-          Combine {count} detected path{count !== 1 ? 's' : ''} with default settings? You can
-          exclude individual sources afterward.
+          Combine {count} detected path{plural(count)} with default settings? You can exclude
+          individual sources afterward.
         </span>
         <button
           type="button"
@@ -344,7 +337,7 @@ export function DetectedPathList({
   // DOM is stable (safe setState from useEffect, not from the render body).
   useEffect(() => {
     if (prevCountRef.current !== null && prevCountRef.current !== totalCount) {
-      setAnnouncement(`${totalCount} path${totalCount !== 1 ? 's' : ''} detected.`);
+      setAnnouncement(`${totalCount} path${plural(totalCount)} detected.`);
     }
     prevCountRef.current = totalCount;
   }, [totalCount]);

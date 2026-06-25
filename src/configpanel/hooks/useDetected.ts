@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchJson } from '../api-base.js';
+import type { Kind } from '../../metrics.js';
+import { fetchJson, jsonEqual } from '../api-base.js';
 
 // 10 s poll: the detected list changes only when new sources come online,
 // so anything faster wastes CPU on Pi-class SK servers.
@@ -8,7 +9,7 @@ export const POLL_MS = 10_000;
 export interface DetectedRow {
   path: string;
   sources: string[];
-  kind: string;
+  kind: Kind | 'unknown';
   optedIn: boolean;
   /** Whether the value can be averaged at all (false for text/objects). Defaults true when absent. */
   combinable?: boolean;
@@ -35,44 +36,39 @@ export interface UseDetectedResult extends DetectedState {
   refresh: () => void;
 }
 
-/**
- * Pure reducer: given the previous state and the new raw payload string
- * (or null on error), compute the next state. Returns the exact same object
- * reference when the payload is unchanged so callers can use a reference
- * equality check to skip React state updates.
- *
- * Exported for direct unit testing without a DOM renderer.
- */
 function errorState(prev: DetectedState): DetectedState {
   return {
     paths: prev.paths,
     lastChecked: prev.lastChecked,
     loading: false,
-    error: 'invalid JSON in detected response',
+    error: 'could not load detected paths',
   };
 }
 
-export function nextDetectedState(prev: DetectedState, incoming: string | null): DetectedState {
+/**
+ * Pure reducer: given the previous state and the parsed response (or null when
+ * the fetch failed), compute the next state. Returns the exact same object
+ * reference when the paths are unchanged so callers can use a reference
+ * equality check to skip React state updates.
+ *
+ * Takes the already-parsed response rather than a raw string: `fetchJson` has
+ * parsed the body once already, so re-stringifying and re-parsing here would be
+ * wasted work on every 10 s poll. Comparing `paths` (not the whole response)
+ * means an added top-level field cannot defeat the change gate.
+ *
+ * Exported for direct unit testing without a DOM renderer.
+ */
+export function nextDetectedState(
+  prev: DetectedState,
+  incoming: DetectedResponse | null
+): DetectedState {
   if (incoming === null) {
     return errorState(prev);
   }
 
-  let parsed: DetectedResponse;
-  try {
-    parsed = JSON.parse(incoming) as DetectedResponse;
-  } catch {
-    return errorState(prev);
-  }
-  const paths = parsed.paths ?? [];
+  const paths = incoming.paths ?? [];
 
-  // Changed-payload gate: return the same object when the paths are unchanged.
-  // Comparing the parsed paths (not the raw string) means an added top-level
-  // response field cannot defeat the gate and cause needless re-renders.
-  if (
-    !prev.loading &&
-    prev.error === null &&
-    JSON.stringify(paths) === JSON.stringify(prev.paths)
-  ) {
+  if (!prev.loading && prev.error === null && jsonEqual(paths, prev.paths)) {
     return prev;
   }
 
@@ -97,15 +93,12 @@ export function useDetected(): UseDetectedResult {
     loading: true,
     error: null,
   });
-  // The last serialized payload for the changed-payload gate.
-  const lastPayloadRef = useRef<string | null>(null);
   const cancelled = useRef(false);
 
   const doFetch = useCallback(async (): Promise<void> => {
-    let incoming: string | null = null;
+    let data: DetectedResponse | null = null;
     try {
-      const data = await fetchJson<DetectedResponse>('/detected');
-      incoming = JSON.stringify(data);
+      data = await fetchJson<DetectedResponse>('/detected');
     } catch {
       if (cancelled.current) return;
       setState((prev) => nextDetectedState(prev, null));
@@ -113,16 +106,10 @@ export function useDetected(): UseDetectedResult {
     }
     if (cancelled.current) return;
 
-    // Only update state when the payload actually changed. The loading and
-    // error checks use the functional setState form (prev) inside
-    // nextDetectedState so we don't need a separate stateRef here.
-    setState((prev) => {
-      if (incoming !== lastPayloadRef.current || prev.loading || prev.error !== null) {
-        lastPayloadRef.current = incoming;
-        return nextDetectedState(prev, incoming);
-      }
-      return prev;
-    });
+    // nextDetectedState returns the same reference when paths are unchanged, so
+    // React bails out of the update: the changed-payload gate lives entirely in
+    // the reducer, no separate payload ref needed.
+    setState((prev) => nextDetectedState(prev, data));
   }, []);
 
   const refresh = useCallback((): void => {

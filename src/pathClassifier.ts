@@ -4,6 +4,13 @@ export type MetadataLookup = (contextPrefixedPath: string) => { units?: string }
 
 export type ValueCategory = 'number' | 'latlon' | 'attitude' | 'invalid' | 'nonCombinable';
 
+// The categories that carry a value the combiner can average. Keeps the
+// "is this combinable" test in one place instead of an inline list of
+// category comparisons at each call site.
+export function isCombinableCategory(cat: ValueCategory): boolean {
+  return cat === 'number' || cat === 'latlon' || cat === 'attitude';
+}
+
 export function valueCategory(value: unknown): ValueCategory {
   if (value === null || value === undefined) return 'invalid';
   if (typeof value === 'number') {

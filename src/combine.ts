@@ -5,6 +5,8 @@ import {
   distance,
   mapAttitudeComponents,
   maxPairwiseDistance,
+  toDegrees,
+  toRadians,
 } from './metrics';
 
 const TWO_PI = 2 * Math.PI;
@@ -67,7 +69,7 @@ export function circularMedoid(angles: number[]): number {
 }
 
 function radiansToLonDegrees(rad: number): number {
-  const deg = (rad * 180) / Math.PI;
+  const deg = toDegrees(rad);
   return ((((deg + 180) % 360) + 360) % 360) - 180;
 }
 
@@ -79,7 +81,7 @@ function lonCircularMean(lons: number[]): number {
   let sumSin = 0;
   let sumCos = 0;
   for (const d of lons) {
-    const r = (d * Math.PI) / 180;
+    const r = toRadians(d);
     sumSin += Math.sin(r);
     sumCos += Math.cos(r);
   }
@@ -252,9 +254,11 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
     return { usedSources: samples.map((s) => s.sourceRef), freshCount, outcome: 'belowMin' };
   }
 
-  const sampleValues = samples.map((s) => s.value);
   let used = samples;
   if (opts.outlierRejection) {
+    // Only the rejection path needs the bare value array; build it here so a
+    // run with rejection disabled allocates nothing.
+    const sampleValues = samples.map((s) => s.value);
     const mask = rejectMask(opts.kind, sampleValues, opts.madThreshold, opts.rejectThreshold);
     used = samples.filter((_, i) => mask[i]);
   }
