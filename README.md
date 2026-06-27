@@ -27,7 +27,7 @@ You stay in control. The combined reading is published as its own extra source, 
 
 ## What it does
 
-Signal K is an open marine data standard that streams a boat's navigation, environment, and AIS data over a single API. When redundant sensors all feed the same path, the server picks whichever source wrote last: a stuttering GPS can make the chart plotter jump, and a bad depth sounder can suppress a good one.
+Signal K is an open marine data standard that streams a boat's navigation, environment, and AIS data over a single API. When redundant sensors all feed the same path, the server picks whichever source wrote last: a stuttering GPS can make the chartplotter jump, and a bad depth sounder can suppress a good one.
 
 Synthetic Values subscribes to every source on the opted-in paths, applies a combining method (median by default), and emits the result under the plugin's own source label. Because the result rides a separate source, it does not displace raw sensor data and real-instrument consumers can still see the underlying sources.
 
