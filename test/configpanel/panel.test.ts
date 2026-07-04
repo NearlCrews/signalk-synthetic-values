@@ -109,6 +109,21 @@ describe('PluginConfigurationPanel', () => {
     expect(screen.queryByRole('button', { name: /enable plugin/i })).not.toBeInTheDocument();
   });
 
+  it('surfaces a failed save and retries it from the banner', async () => {
+    const mockSave = vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue(undefined);
+    render(createElement(PluginConfigurationPanel, { configuration: undefined, save: mockSave }));
+    fireEvent.click(screen.getByRole('button', { name: /enable plugin/i }));
+    // The rejection must surface instead of silently marking the write saved.
+    await waitFor(() => {
+      expect(screen.getByText(/could not save the configuration/i)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    await waitFor(() => {
+      expect(mockSave).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText(/could not save the configuration/i)).not.toBeInTheDocument();
+    });
+  });
+
   it('renders the theme toggle', async () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));

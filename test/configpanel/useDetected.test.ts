@@ -103,4 +103,17 @@ describe('nextDetectedState', () => {
     expect(next.error).not.toBeNull();
     expect(next.loading).toBe(false);
   });
+
+  it('returns the same state object on a repeated failure (no wasted re-render)', async () => {
+    const { nextDetectedState } = await import('../../src/configpanel/hooks/useDetected.js');
+
+    const prev = {
+      paths: [],
+      lastChecked: 5,
+      loading: false,
+      error: 'could not load detected paths',
+    };
+
+    expect(nextDetectedState(prev, null)).toBe(prev);
+  });
 });

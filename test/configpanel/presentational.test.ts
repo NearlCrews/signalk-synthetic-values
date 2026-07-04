@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { createElement } from 'react';
 import { KindBadge } from '../../src/configpanel/components/KindBadge';
+import { PriorityBanner } from '../../src/configpanel/components/PriorityBanner';
+import SegmentedControl from '../../src/configpanel/components/SegmentedControl';
 import { SourceChips } from '../../src/configpanel/components/SourceChips';
 import { kindMeta } from '../../src/configpanel/kindMeta';
 
@@ -160,5 +162,100 @@ describe('SourceChips', () => {
     expect(getByText('gps.2')).toBeInTheDocument();
     expect(getByText('gps.3')).toBeInTheDocument();
     expect(queryByText(/more/)).toBeNull();
+  });
+});
+
+// ---- PriorityBanner component tests ----
+
+describe('PriorityBanner', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('renders when show is true', () => {
+    render(
+      createElement(PriorityBanner, {
+        show: true,
+        sourceLabel: 'signalk-synthetic-values',
+        onDismiss: vi.fn(),
+      })
+    );
+    expect(screen.getByRole('region')).toBeInTheDocument();
+  });
+
+  it('does not render when show is false', () => {
+    const { container } = render(
+      createElement(PriorityBanner, {
+        show: false,
+        sourceLabel: 'signalk-synthetic-values',
+        onDismiss: vi.fn(),
+      })
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('mentions the source name and Source priorities', () => {
+    render(
+      createElement(PriorityBanner, {
+        show: true,
+        sourceLabel: 'signalk-synthetic-values',
+        onDismiss: vi.fn(),
+      })
+    );
+    // The banner names the source twice (once in the prose sentence, once in the priorities instruction).
+    expect(screen.getAllByText(/signalk-synthetic-values/i)).toHaveLength(2);
+    expect(screen.getByText(/source priorities/i)).toBeInTheDocument();
+  });
+
+  it('is dismissible via a button that calls onDismiss', () => {
+    const onDismiss = vi.fn();
+    render(
+      createElement(PriorityBanner, {
+        show: true,
+        sourceLabel: 'signalk-synthetic-values',
+        onDismiss,
+      })
+    );
+    const dismissBtn = screen.getByRole('button', { name: /dismiss/i });
+    fireEvent.click(dismissBtn);
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it('does not claim the source is "preferred"', () => {
+    render(
+      createElement(PriorityBanner, {
+        show: true,
+        sourceLabel: 'signalk-synthetic-values',
+        onDismiss: vi.fn(),
+      })
+    );
+    expect(screen.queryByText(/preferred/i)).toBeNull();
+  });
+});
+
+// ---- SegmentedControl component tests ----
+
+describe('SegmentedControl', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('marks the active choice with aria-pressed and fires onChange on the other', () => {
+    const onChange = vi.fn();
+    const { getByRole } = render(
+      createElement(SegmentedControl<'a' | 'b'>, {
+        legend: 'Pick one',
+        choices: [
+          { value: 'a', label: 'Alpha' },
+          { value: 'b', label: 'Beta' },
+        ],
+        value: 'a',
+        onChange,
+      })
+    );
+    expect(getByRole('button', { name: 'Alpha' })).toHaveAttribute('aria-pressed', 'true');
+    expect(getByRole('button', { name: 'Beta' })).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(getByRole('button', { name: 'Beta' }));
+    expect(onChange).toHaveBeenCalledWith('b');
   });
 });

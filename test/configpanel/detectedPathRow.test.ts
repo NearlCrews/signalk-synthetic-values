@@ -49,6 +49,7 @@ describe('DetectedPathRow: available row', () => {
     render(
       createElement(DetectedPathRow, {
         row: availableRow,
+        optedIn: false,
         config: undefined,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -65,6 +66,7 @@ describe('DetectedPathRow: available row', () => {
     render(
       createElement(DetectedPathRow, {
         row: availableRow,
+        optedIn: false,
         config: undefined,
         onAdd,
         onRemove: vi.fn(),
@@ -81,6 +83,7 @@ describe('DetectedPathRow: available row', () => {
     render(
       createElement(DetectedPathRow, {
         row: availableRow,
+        optedIn: false,
         config: undefined,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -94,6 +97,7 @@ describe('DetectedPathRow: available row', () => {
     render(
       createElement(DetectedPathRow, {
         row: availableRow,
+        optedIn: false,
         config: undefined,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -117,6 +121,7 @@ describe('DetectedPathRow: opted-in row', () => {
     render(
       createElement(DetectedPathRow, {
         row: optedInRow,
+        optedIn: true,
         config: optedInConfig,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -132,6 +137,7 @@ describe('DetectedPathRow: opted-in row', () => {
     render(
       createElement(DetectedPathRow, {
         row: optedInRow,
+        optedIn: true,
         config: optedInConfig,
         onAdd: vi.fn(),
         onRemove,
@@ -143,19 +149,20 @@ describe('DetectedPathRow: opted-in row', () => {
     expect(onRemove).toHaveBeenCalledWith(optedInRow.path);
   });
 
-  it('shows the "added" pill', () => {
+  it('shows the "combined" pill', () => {
     const { container } = render(
       createElement(DetectedPathRow, {
         row: optedInRow,
+        optedIn: true,
         config: optedInConfig,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
         onUpdate: vi.fn(),
       })
     );
-    // The AddedPill renders a <span> with exact text "added" and the success palette.
+    // The CombinedPill renders a <span> with exact text "combined" and the success palette.
     // getAllByText returns all matches; we expect exactly one visible pill.
-    const pills = screen.getAllByText('added', { exact: true });
+    const pills = screen.getAllByText('combined', { exact: true });
     expect(pills).toHaveLength(1);
     const pill = pills[0] as HTMLElement;
     // Confirm the pill itself (or its containing span in the container) carries success tokens.
@@ -173,6 +180,7 @@ describe('DetectedPathRow: opted-in row', () => {
     render(
       createElement(DetectedPathRow, {
         row: optedInRow,
+        optedIn: true,
         config: optedInConfig,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -186,6 +194,7 @@ describe('DetectedPathRow: opted-in row', () => {
     render(
       createElement(DetectedPathRow, {
         row: optedInRow,
+        optedIn: true,
         config: optedInConfig,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -198,17 +207,22 @@ describe('DetectedPathRow: opted-in row', () => {
     // The kind badge text appears in the visible badge and two sr spans: exactly three.
     expect(screen.getAllByText(/angular/i)).toHaveLength(3);
     // A visually-hidden span should carry all parts of the accessible name.
-    const srText = document.querySelector('.skn-vh');
+    // Identified by content: it is the only span whose text starts with the
+    // path followed by a comma (the visible path label has no comma).
+    const srText = Array.from(document.querySelectorAll('span')).find((el) =>
+      (el.textContent ?? '').startsWith('navigation.headingTrue,')
+    );
     expect(srText?.textContent).toMatch(/navigation\.headingTrue/);
     expect(srText?.textContent).toMatch(/3 source/i);
     expect(srText?.textContent).toMatch(/angular/i);
-    expect(srText?.textContent).toMatch(/added/i);
+    expect(srText?.textContent).toMatch(/combined/i);
   });
 
   it('the Tune section is collapsed by default', () => {
     render(
       createElement(DetectedPathRow, {
         row: optedInRow,
+        optedIn: true,
         config: optedInConfig,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -223,6 +237,7 @@ describe('DetectedPathRow: opted-in row', () => {
     render(
       createElement(DetectedPathRow, {
         row: optedInRow,
+        optedIn: true,
         config: optedInConfig,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -241,6 +256,7 @@ describe('DetectedPathRow: opted-in row', () => {
     render(
       createElement(DetectedPathRow, {
         row: optedInRow,
+        optedIn: true,
         config: optedInConfig,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -269,6 +285,7 @@ describe('DetectedPathRow: non-combinable row', () => {
     render(
       createElement(DetectedPathRow, {
         row: otherRow,
+        optedIn: false,
         config: undefined,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -283,6 +300,7 @@ describe('DetectedPathRow: non-combinable row', () => {
     render(
       createElement(DetectedPathRow, {
         row: otherRow,
+        optedIn: false,
         config: undefined,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -303,6 +321,7 @@ describe('DetectedPathRow: non-combinable row', () => {
     render(
       createElement(DetectedPathRow, {
         row: otherRow,
+        optedIn: false,
         config: undefined,
         onAdd,
         onRemove: vi.fn(),
@@ -339,6 +358,7 @@ describe('DetectedPathRow: not-recommended row', () => {
     render(
       createElement(DetectedPathRow, {
         row: metadataRow,
+        optedIn: false,
         config: undefined,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
@@ -381,6 +401,7 @@ describe('DetectedPathRow: duplicate sources hint', () => {
     render(
       createElement(DetectedPathRow, {
         row: availableRow,
+        optedIn: false,
         config: undefined,
         onAdd: vi.fn(),
         onRemove: vi.fn(),

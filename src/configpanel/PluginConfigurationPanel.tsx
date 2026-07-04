@@ -5,6 +5,7 @@ import { jsonEqual, PLUGIN_SOURCE_LABEL } from './api-base.js';
 import { DetectedPathList } from './components/DetectedPathList.js';
 import { PriorityBanner } from './components/PriorityBanner.js';
 import ThemeToggle from './components/ThemeToggle.js';
+import { PanelDefaultsContext } from './defaultsContext.js';
 import type { DetectedRow } from './hooks/useDetected.js';
 import { useDetected } from './hooks/useDetected.js';
 import {
@@ -43,9 +44,17 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
     injectStyles();
   }, []);
 
+  // Ref that always holds the last successfully saved options, used by the
+  // no-op save gate and by the hook's self-save echo detection. Normalized so
+  // a fresh install (undefined or empty configuration) starts from a complete
+  // options object.
+  const savedOptionsRef = useRef<PluginOptions>(normalizeOptions(configuration));
+
   // Form state: holds the full PluginOptions being edited.
-  const { options, addPath, addAllCombinable, removePath, updatePath } =
-    usePanelConfig(configuration);
+  const { options, addPath, addAllCombinable, removePath, updatePath } = usePanelConfig(
+    configuration,
+    savedOptionsRef
+  );
 
   // Live detection: polls /api/detected every 10 s.
   const { paths: detected, lastChecked, loading, error, refresh } = useDetected();
@@ -80,31 +89,54 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
     };
   }, []);
 
-  // Ref that always holds the last successfully saved options so the no-op
-  // guard can compare without a stale closure. Normalized so a fresh install
-  // (undefined or empty configuration) starts from a complete options object.
-  const savedOptionsRef = useRef<PluginOptions>(normalizeOptions(configuration));
+  // Save failure surface: null while saves succeed, a message after a failure.
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Write actions: mutate form state then immediately persist.
   // React state updates are asynchronous, so next-state is computed
   // synchronously via the pure transitions to call save immediately.
 
-  // Commit a new options object: record it as the saved baseline, save it, then
-  // refresh detection once the save settles. Shared by every immediate-write
-  // action so the save-then-refresh sequence lives in one place.
+  // Record `next` as the saved baseline and save it. On failure, roll the
+  // baseline back so the change is not masked as already saved (the no-op
+  // gate would otherwise swallow the retry), and surface the error.
+  const saveWithBaseline = useCallback(
+    (next: PluginOptions, onSaved?: () => void): void => {
+      const prevSaved = savedOptionsRef.current;
+      savedOptionsRef.current = next;
+      void Promise.resolve()
+        .then(() => save(next))
+        .then(() => {
+          setSaveError(null);
+          onSaved?.();
+        })
+        .catch(() => {
+          savedOptionsRef.current = prevSaved;
+          setSaveError('Could not save the configuration.');
+        });
+    },
+    [save]
+  );
+
+  // Commit a new options object: save it, then refresh detection once the save
+  // settles. Shared by every immediate-write action so the save-then-refresh
+  // sequence lives in one place.
   const persist = useCallback(
     (next: PluginOptions): void => {
-      savedOptionsRef.current = next;
-      void Promise.resolve(save(next)).then(() => {
-        refresh();
-      });
+      saveWithBaseline(next, refresh);
     },
-    [save, refresh]
+    [saveWithBaseline, refresh]
   );
+
+  const handleRetrySave = useCallback((): void => {
+    persist(optionsRef.current);
+  }, [persist]);
 
   const handleAdd = useCallback(
     (path: string): void => {
       const next = applyAddPath(optionsRef.current, path);
+      // Advance the ref immediately so a second write action dispatched before
+      // React re-renders reads this change instead of the stale snapshot.
+      optionsRef.current = next;
       addPath(path);
       persist(next);
     },
@@ -114,6 +146,7 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
   const handleAddAll = useCallback(
     (rows: DetectedRow[]): void => {
       const next = applyAddAllCombinable(optionsRef.current, rows);
+      optionsRef.current = next;
       addAllCombinable(rows);
       persist(next);
     },
@@ -123,6 +156,7 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
   const handleRemove = useCallback(
     (path: string): void => {
       const next = applyRemovePath(optionsRef.current, path);
+      optionsRef.current = next;
       removePath(path);
       persist(next);
     },
@@ -148,11 +182,11 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
         // Skip saving when nothing actually changed to avoid a pointless
         // plugin restart.
         if (jsonEqual(next, savedOptionsRef.current)) return;
-        savedOptionsRef.current = next;
-        void Promise.resolve(save(next));
+        optionsRef.current = next;
+        saveWithBaseline(next);
       }, 500);
     },
-    [save, updatePath]
+    [saveWithBaseline, updatePath]
   );
 
   // A plugin with no saved configuration is "Unconfigured" and disabled. Since
@@ -172,52 +206,74 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
 
   const showBanner = options.paths.length > 0 && !bannerDismissed;
 
+  // Resolved top-level defaults for the per-path editors' placeholders.
+  const panelDefaults = useMemo(
+    () => ({
+      minSources: options.defaultMinSources,
+      stalenessTimeoutMs: options.defaultStalenessTimeoutMs,
+      emitMinIntervalMs: options.defaultEmitMinIntervalMs,
+    }),
+    [options.defaultMinSources, options.defaultStalenessTimeoutMs, options.defaultEmitMinIntervalMs]
+  );
+
   return (
-    <div className="skn-panel" style={{ padding: 'var(--skn-space-3)' }}>
-      {/* Panel header: title and theme toggle */}
-      <div style={S.panelHeader}>
-        <h1 style={S.panelTitle}>Synthetic Values</h1>
-        <ThemeToggle />
-      </div>
+    <PanelDefaultsContext.Provider value={panelDefaults}>
+      <div className="skn-panel" style={{ padding: 'var(--skn-space-3)' }}>
+        {/* Panel header: title and theme toggle */}
+        <div style={S.panelHeader}>
+          <h1 style={S.panelTitle}>Synthetic Values</h1>
+          <ThemeToggle />
+        </div>
 
-      {/* Enable prompt: the only save trigger when the plugin is unconfigured */}
-      {unconfigured && (
-        <section
-          aria-label="Enable plugin"
-          style={{ ...S.infoBanner, marginBottom: 'var(--skn-space-3)' }}
-        >
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <strong>This plugin is not enabled yet.</strong> Enabling it saves a default
-            configuration and starts watching your data for paths reported by two or more sources.
-            Nothing is combined until you opt a path in.
+        {/* Save failure: baseline already rolled back, retry re-sends the form state. */}
+        {saveError !== null && (
+          <div style={{ ...S.errorBanner, marginBottom: 'var(--skn-space-2)' }} role="alert">
+            <span style={{ flex: 1 }}>{saveError}</span>
+            <button type="button" style={S.btnRetry} onClick={handleRetrySave}>
+              Retry
+            </button>
           </div>
-          <button type="button" style={S.btnPrimary} onClick={handleEnable}>
-            Enable plugin
-          </button>
-        </section>
-      )}
+        )}
 
-      {/* Priority banner: shown once any path is combined, dismissible */}
-      <PriorityBanner
-        show={showBanner}
-        sourceLabel={PLUGIN_SOURCE_LABEL}
-        onDismiss={handleDismiss}
-      />
+        {/* Enable prompt: the only save trigger when the plugin is unconfigured */}
+        {unconfigured && (
+          <section
+            aria-label="Enable plugin"
+            style={{ ...S.infoBanner, marginBottom: 'var(--skn-space-3)' }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <strong>This plugin is not enabled yet.</strong> Enabling it saves a default
+              configuration and starts watching your data for paths reported by two or more sources.
+              Nothing is combined until you opt a path in.
+            </div>
+            <button type="button" style={S.btnPrimary} onClick={handleEnable}>
+              Enable plugin
+            </button>
+          </section>
+        )}
 
-      {/* Detected paths list */}
-      <DetectedPathList
-        detected={detected}
-        configByPath={configByPath}
-        onAdd={handleAdd}
-        onAddAll={handleAddAll}
-        onRemove={handleRemove}
-        onUpdate={handleUpdate}
-        lastChecked={lastChecked}
-        loading={loading}
-        error={error}
-        onRefresh={refresh}
-      />
-    </div>
+        {/* Priority banner: shown once any path is combined, dismissible */}
+        <PriorityBanner
+          show={showBanner}
+          sourceLabel={PLUGIN_SOURCE_LABEL}
+          onDismiss={handleDismiss}
+        />
+
+        {/* Detected paths list */}
+        <DetectedPathList
+          detected={detected}
+          configByPath={configByPath}
+          onAdd={handleAdd}
+          onAddAll={handleAddAll}
+          onRemove={handleRemove}
+          onUpdate={handleUpdate}
+          lastChecked={lastChecked}
+          loading={loading}
+          error={error}
+          onRefresh={refresh}
+        />
+      </div>
+    </PanelDefaultsContext.Provider>
   );
 };
 

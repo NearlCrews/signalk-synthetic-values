@@ -37,12 +37,17 @@ const SCALE_TOKENS = `
 	--skn-space-1: 8px;
 	--skn-space-2: 12px;
 	--skn-space-3: 16px;
+	--skn-rail-width: 3px;
 `;
 
 // Light theme. Cards must read white so they stand out from the admin's gray
 // page background. Faint text is #62687a: 5.05:1 on the raised surface and
 // 4.99:1 on the warn background, so it clears WCAG AA (4.5:1) everywhere it
-// is used at small sizes.
+// is used at small sizes. The accent pair also clears AA: white accent text
+// on #2563eb is 5.17:1 (the earlier #3b82f6 was 3.68:1, a fail at body size).
+// Hover and active feedback darkens on the light surfaces; the dark and night
+// blocks override the brightness tokens to lighten instead, since darkening a
+// near-black surface is imperceptible.
 // color-scheme rides along with each token block so native widgets
 // (checkboxes, select dropdown lists, number spinners, scrollbars) follow the
 // panel theme even when it is pinned against the host.
@@ -56,8 +61,11 @@ const LIGHT_TOKENS = `
 	--skn-text: #333333;
 	--skn-text-muted: #555555;
 	--skn-text-faint: #62687a;
-	--skn-accent: #3b82f6;
+	--skn-accent: #2563eb;
 	--skn-accent-text: #ffffff;
+	--skn-hover-brightness: 0.96;
+	--skn-active-brightness: 0.9;
+	--skn-row-hover-brightness: 0.97;
 	--skn-ok: #22c55e;
 	--skn-danger-bg: #fef2f2;
 	--skn-danger-fg: #991b1b;
@@ -74,7 +82,9 @@ const LIGHT_TOKENS = `
 `;
 
 // Dark theme. Faint text is #9aa1ad: 4.88:1 on the raised surface, 5.63:1 on
-// the card surface, so AA holds on every dark background it appears on.
+// the card surface, so AA holds on every dark background it appears on. The
+// accent stays light (#4c93ff) for visibility, so its text flips dark:
+// #10131c on #4c93ff is 6.12:1 (white on it was 3.03:1, an AA fail).
 const DARK_TOKENS = `
 	color-scheme: dark;
 	--skn-bg: #1b1c22;
@@ -86,7 +96,10 @@ const DARK_TOKENS = `
 	--skn-text-muted: #a3a9b5;
 	--skn-text-faint: #9aa1ad;
 	--skn-accent: #4c93ff;
-	--skn-accent-text: #ffffff;
+	--skn-accent-text: #10131c;
+	--skn-hover-brightness: 1.15;
+	--skn-active-brightness: 1.3;
+	--skn-row-hover-brightness: 1.08;
 	--skn-ok: #2dd4a0;
 	--skn-danger-bg: #3a1a1a;
 	--skn-danger-fg: #f5a3a3;
@@ -119,6 +132,9 @@ const NIGHT_TOKENS = `
 	--skn-text-faint: #ad6c6c;
 	--skn-accent: #cf6a3c;
 	--skn-accent-text: #1a0808;
+	--skn-hover-brightness: 1.15;
+	--skn-active-brightness: 1.3;
+	--skn-row-hover-brightness: 1.08;
 	--skn-ok: #cf8a4a;
 	--skn-danger-bg: #2a0d0d;
 	--skn-danger-fg: #e07a6a;
@@ -171,10 +187,12 @@ ${NIGHT_TOKENS}}
 	cursor: not-allowed !important;
 }
 /* Pointer feedback. Inline styles cannot express :hover or :active, so the
-   interactive elements get a shared brightness response here: a touch darker
-   on hover, darker still while pressed, with a short transition so the shift
-   reads as a response rather than a flicker. Disabled buttons opt out. Only
-   buttons transition filter: inputs and selects never receive one. */
+   interactive elements get a shared brightness response here, with a short
+   transition so the shift reads as a response rather than a flicker. The
+   direction is themed: light darkens, dark and night brighten (darkening a
+   near-black surface moves channels by 2-3/255, imperceptible). Disabled
+   buttons opt out. Only buttons transition filter: inputs and selects never
+   receive one. */
 .skn-panel input,
 .skn-panel select {
 	transition:
@@ -188,10 +206,10 @@ ${NIGHT_TOKENS}}
 		filter 120ms ease;
 }
 .skn-panel button:hover:not(:disabled) {
-	filter: brightness(0.96);
+	filter: brightness(var(--skn-hover-brightness));
 }
 .skn-panel button:active:not(:disabled) {
-	filter: brightness(0.9);
+	filter: brightness(var(--skn-active-brightness));
 }
 /* Inputs and selects inside mapping-table cells flex with the column instead
    of holding the fixed 220px of S.input / S.select, so the table fits a phone
@@ -204,10 +222,7 @@ ${NIGHT_TOKENS}}
 	min-width: 120px !important;
 	box-sizing: border-box !important;
 }
-.skn-panel { --skn-toolbar-height: 52px; }
-.skn-toolbar { position: sticky; top: 0; z-index: 2; }
-.skn-row { scroll-margin-top: var(--skn-toolbar-height); }
-.skn-row:hover { filter: brightness(0.97); }
+.skn-row:hover { filter: brightness(var(--skn-row-hover-brightness)); }
 `;
 
 // Injects TOKENS_CSS into the document once. Safe to call multiple times;
@@ -226,9 +241,14 @@ export const S: Record<string, CSSProperties> = {};
 
 // Marine touch targets: toolbar/inline controls at 36px, row Combine/Remove
 // buttons one step larger for finger clearance in table rows. Named so the
-// sizing lives in one place instead of repeated minHeight literals.
+// sizing lives in one place instead of repeated minHeight literals. TOUCH_ROW
+// is exported for row containers that must match the row-button height.
 const TOUCH = 36;
-const TOUCH_ROW = 40;
+export const TOUCH_ROW = 40;
+
+// The hairline border every bordered element shares. Exported so components
+// do not respell the literal.
+export const BORDER_HAIRLINE = '1px solid var(--skn-border)';
 
 // Button padding literals, shared across the button variants below.
 const PAD_BTN = '8px 16px';
@@ -240,7 +260,7 @@ const PAD_BTN_SM = '6px 12px';
 const fieldBase: CSSProperties = {
   padding: '6px 10px',
   borderRadius: 'var(--skn-radius)',
-  border: '1px solid var(--skn-border)',
+  border: BORDER_HAIRLINE,
   background: 'var(--skn-surface)',
   color: 'var(--skn-text)',
   fontSize: 'var(--skn-font-body)',
@@ -312,7 +332,7 @@ S.btnSecondary = {
   minHeight: TOUCH,
   background: 'var(--skn-surface-raised)',
   color: 'var(--skn-text)',
-  border: '1px solid var(--skn-border)',
+  border: BORDER_HAIRLINE,
   borderRadius: 'var(--skn-radius)',
   cursor: 'pointer',
 };
@@ -364,14 +384,14 @@ S.note = {
   color: 'var(--skn-warn-fg)',
   fontSize: 'var(--skn-font-small)',
   lineHeight: 1.45,
-  margin: '8px 0',
-  padding: '6px 8px',
+  margin: 'var(--skn-space-1) 0',
+  padding: '6px var(--skn-space-1)',
 };
 S.errorBanner = {
   ...bannerBase,
   alignItems: 'center',
-  padding: '8px 12px',
-  margin: '8px 0',
+  padding: 'var(--skn-space-1) var(--skn-space-2)',
+  margin: 'var(--skn-space-1) 0',
   color: 'var(--skn-danger-fg)',
   background: 'var(--skn-danger-bg)',
   border: '1px solid var(--skn-danger-border)',
@@ -394,14 +414,16 @@ S.btnInfoDismiss = {
   background: 'transparent',
   color: 'var(--skn-info-fg)',
   border: '1px solid var(--skn-info-border)',
-  borderRadius: 'var(--skn-radius-sm)',
+  borderRadius: 'var(--skn-radius)',
   cursor: 'pointer',
   fontSize: 'var(--skn-font-small)',
 };
 // Inset sub-row beneath a detected-path header: the advisory line and the
-// duplicate-sources hint share this container and small-text shape.
+// duplicate-sources hint share this container and small-text shape. The left
+// padding adds the rail width so text aligns with the header content beside
+// the opted-in rail.
 S.insetSubRow = {
-  paddingLeft: 'calc(var(--skn-space-2) + 3px)',
+  paddingLeft: 'calc(var(--skn-space-2) + var(--skn-rail-width))',
   paddingRight: 'var(--skn-space-2)',
   paddingBottom: 'var(--skn-space-1)',
 };
@@ -502,7 +524,7 @@ S.pill = {
   display: 'inline-flex',
   alignItems: 'center',
   fontSize: 'var(--skn-font-small)',
-  padding: '1px 6px',
+  padding: '1px 8px',
   borderRadius: 'var(--skn-radius-pill)',
   border: '1px solid transparent',
 };

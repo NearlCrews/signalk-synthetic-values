@@ -1,36 +1,34 @@
 import type * as React from 'react';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { NON_NUMERIC_ADVISORY } from '../../combinability.js';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import { oxfordJoin, plural } from '../../textFormat.js';
 import { PLUGIN_SOURCE_LABEL } from '../api-base.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
-import { S } from '../styles.js';
+import { BORDER_HAIRLINE, S, TOUCH_ROW } from '../styles.js';
 import { Disclosure } from './Disclosure.js';
 import { KindBadge } from './KindBadge.js';
 import { PerPathSettings } from './PerPathSettings.js';
 import { SourceChips } from './SourceChips.js';
 
 // Static pill variants for the row, built once. The info family marks the
-// source count; the success family marks an opted-in path.
+// source count; the success family marks a combined path.
 const PILL_SOURCE_COUNT: React.CSSProperties = {
   ...S.pillInfo,
   justifyContent: 'center',
   fontWeight: 700,
-  padding: '1px 8px',
   whiteSpace: 'nowrap',
 };
-const PILL_ADDED: React.CSSProperties = {
+const PILL_COMBINED: React.CSSProperties = {
   ...S.pillSuccess,
   fontWeight: 600,
-  padding: '1px 8px',
 };
 
 // Row container and header are static except for the opted-in left rail, so
 // they live at module scope rather than rebuilding every render.
 const ROW_OUTER: React.CSSProperties = {
   background: 'var(--skn-surface)',
-  border: '1px solid var(--skn-border)',
+  border: BORDER_HAIRLINE,
   borderRadius: 'var(--skn-radius)',
   marginBottom: 'var(--skn-space-1)',
   overflow: 'hidden',
@@ -44,17 +42,17 @@ const ROW_HEADER_BASE: React.CSSProperties = {
   flexWrap: 'wrap',
   alignItems: 'center',
   gap: 'var(--skn-space-1)',
-  minHeight: 40,
+  minHeight: TOUCH_ROW,
 };
 // The header carries the rail left border so it stays a short tick and does not
 // run down the Tune body.
 const ROW_HEADER_OPTED: React.CSSProperties = {
   ...ROW_HEADER_BASE,
-  borderLeft: '3px solid var(--skn-ok)',
+  borderLeft: 'var(--skn-rail-width) solid var(--skn-ok)',
 };
 const ROW_HEADER_PLAIN: React.CSSProperties = {
   ...ROW_HEADER_BASE,
-  borderLeft: '3px solid transparent',
+  borderLeft: 'var(--skn-rail-width) solid transparent',
 };
 
 // ---------------------------------------------------------------------------
@@ -63,6 +61,12 @@ const ROW_HEADER_PLAIN: React.CSSProperties = {
 
 export interface DetectedPathRowProps {
   row: DetectedRow;
+  /**
+   * Local form-state truth for whether the path is opted in. Passed separately
+   * from `row` (whose server-side optedIn field lags a save) so the row object
+   * keeps a stable identity and the memo below actually skips re-renders.
+   */
+  optedIn: boolean;
   /** Defined when the path is opted in; undefined otherwise. */
   config: RawPathConfig | undefined;
   onAdd: (path: string) => void;
@@ -105,8 +109,8 @@ function SourceCountBadge({ count }: { count: number }): React.ReactElement {
   );
 }
 
-function AddedPill(): React.ReactElement {
-  return <span style={PILL_ADDED}>added</span>;
+function CombinedPill(): React.ReactElement {
+  return <span style={PILL_COMBINED}>combined</span>;
 }
 
 function PriorityInstruction(): React.ReactElement {
@@ -115,11 +119,11 @@ function PriorityInstruction(): React.ReactElement {
       style={{
         fontSize: 'var(--skn-font-small)',
         color: 'var(--skn-text-muted)',
-        padding: '4px var(--skn-space-2)',
-        borderTop: '1px solid var(--skn-border)',
+        padding: 'var(--skn-space-1) var(--skn-space-2)',
+        borderTop: BORDER_HAIRLINE,
       }}
     >
-      Priority not set, the boat is not using this yet. Set <strong>{PLUGIN_SOURCE_LABEL}</strong>{' '}
+      Priority not set: the boat is not using this yet. Set <strong>{PLUGIN_SOURCE_LABEL}</strong>{' '}
       as top priority for this path in Signal K under Data, Source priorities.
     </div>
   );
@@ -147,7 +151,7 @@ function TuneSection({
   idPrefix,
 }: TuneSectionProps): React.ReactElement {
   return (
-    <div style={{ borderTop: '1px solid var(--skn-border)' }}>
+    <div style={{ borderTop: BORDER_HAIRLINE }}>
       <Disclosure
         label="Tune"
         bodyId={tuneBodyId}
@@ -171,7 +175,7 @@ function TuneSection({
  * One row in the DetectedPathList. Handles three states:
  *
  * - available (optedIn=false, kind != 'other'): primary "Combine" button.
- * - opted-in (optedIn=true): secondary "Remove" button, "added" pill,
+ * - opted-in (optedIn=true): secondary "Remove" button, "combined" pill,
  *   priority instruction, and expandable "Tune" section.
  * - non-combinable (kind === 'other'): disabled "Combine" with a reason in
  *   aria-describedby.
@@ -179,15 +183,20 @@ function TuneSection({
  * Left rail: solid --skn-ok when opted-in, transparent otherwise. Three
  * redundant cues per state so the night-red theme (where hues collapse) stays
  * legible: token family + text label + structural cue.
+ *
+ * Memoized: rows receive stable row objects and stable callbacks, so
+ * list-level state changes (an announcement tick, the poll's loading toggle)
+ * skip re-rendering untouched rows.
  */
-export function DetectedPathRow({
+export const DetectedPathRow = memo(function DetectedPathRow({
   row,
+  optedIn,
   config,
   onAdd,
   onRemove,
   onUpdate,
 }: DetectedPathRowProps): React.ReactElement {
-  const { path, sources, kind, optedIn } = row;
+  const { path, sources, kind } = row;
   // canCombine drives the disabled state of the Combine button: false only for
   // text and objects, which cannot be averaged at all. GNSS fix metadata stays
   // combinable but carries an advisory and is excluded from "Combine all".
@@ -240,10 +249,10 @@ export function DetectedPathRow({
     <div style={ROW_OUTER} className="skn-row">
       {/* Row header: rail + controls + badges + chips */}
       <div style={optedIn ? ROW_HEADER_OPTED : ROW_HEADER_PLAIN}>
-        {/* Visually-hidden accessible name: "path X, N sources, kind, added" */}
-        <span className="skn-vh" style={S.visuallyHidden}>
+        {/* Visually-hidden accessible name: "path X, N sources, kind, combined" */}
+        <span style={S.visuallyHidden}>
           {path}, {sources.length} source{plural(sources.length)}, {kind}
-          {optedIn ? ', added' : ''}
+          {optedIn ? ', combined' : ''}
         </span>
 
         {/* Opt-in control */}
@@ -283,7 +292,7 @@ export function DetectedPathRow({
         <SourceCountBadge count={sources.length} />
         <SourceChips sources={sources} />
         <KindBadge kind={kind} />
-        {optedIn && <AddedPill />}
+        {optedIn && <CombinedPill />}
       </div>
 
       {/* Advisory reason (visible below header; referenced by aria-describedby) */}
@@ -314,4 +323,4 @@ export function DetectedPathRow({
       )}
     </div>
   );
-}
+});

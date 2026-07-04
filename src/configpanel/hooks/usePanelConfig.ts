@@ -6,6 +6,7 @@ import {
   DEFAULT_MIN_SOURCES,
   DEFAULT_STALENESS_MS,
 } from '../../config.js';
+import { jsonEqual } from '../api-base.js';
 import type { DetectedRow } from './useDetected.js';
 
 /**
@@ -112,17 +113,28 @@ export interface UsePanelConfigResult {
  * Holds the full `PluginOptions` (not just `paths`) so top-level defaults are
  * preserved on every save. The pure transitions (`applyAddPath`, etc.) are
  * exported separately for unit testing without a DOM renderer.
+ *
+ * `lastSavedRef` is the panel's last-saved baseline. The admin host echoes a
+ * panel save back as a fresh `configuration` object; comparing the incoming
+ * prop against the baseline tells a self-save echo (skip, keep local edits)
+ * apart from a genuine external change (resync).
  */
 export function usePanelConfig(
-  configuration?: Partial<PluginOptions> | null
+  configuration: Partial<PluginOptions> | null | undefined,
+  lastSavedRef: { current: PluginOptions }
 ): UsePanelConfigResult {
   const [options, setOptions] = useState<PluginOptions>(() => normalizeOptions(configuration));
 
-  // Resync when the host supplies a new configuration object after a restart.
+  // Resync when the host supplies a genuinely new configuration (a restart or
+  // an edit made outside this panel), never on a self-save echo.
   const [prevConfiguration, setPrevConfiguration] = useState(configuration);
   if (prevConfiguration !== configuration) {
     setPrevConfiguration(configuration);
-    setOptions(normalizeOptions(configuration));
+    const normalized = normalizeOptions(configuration);
+    if (!jsonEqual(normalized, lastSavedRef.current)) {
+      lastSavedRef.current = normalized;
+      setOptions(normalized);
+    }
   }
 
   const addPath = useCallback((path: string): void => {

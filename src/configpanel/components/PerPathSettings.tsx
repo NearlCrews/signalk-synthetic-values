@@ -1,7 +1,9 @@
 import type * as React from 'react';
 import { memo, useEffect, useState } from 'react';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
+import { DEFAULT_JUMP_PERSIST_MS, DEFAULT_JUMP_PERSIST_SAMPLES } from '../../config.js';
 import { plural } from '../../textFormat.js';
+import { usePanelDefaults } from '../defaultsContext.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
 import { S } from '../styles.js';
 import { Disclosure } from './Disclosure.js';
@@ -94,6 +96,7 @@ const ANGULAR_CHOICES = [
  * warning but does not block the onChange.
  */
 export function PerPathSettings({ row, config, onChange, idPrefix }: Props): React.ReactElement {
+  const defaults = usePanelDefaults();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   // Track the draft minSources value locally so the warning shows immediately
   // as the user types, before the parent re-renders with the new prop.
@@ -139,7 +142,7 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
           min={1}
           style={S.input}
           value={draftMinSources ?? ''}
-          placeholder="default"
+          placeholder={`default: ${defaults.minSources}`}
           onChange={(e) => {
             const parsed = parseNumericInput(e.target.value, { min: 1, integer: true });
             if (parsed === null) return;
@@ -258,6 +261,7 @@ interface AdvancedFieldsProps {
 }
 
 function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): React.ReactElement {
+  const defaults = usePanelDefaults();
   const angularId = `${idPrefix}-angular`;
   const jumpMaxRateId = `${idPrefix}-jump-max-rate`;
 
@@ -342,8 +346,9 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
                   ? undefined
                   : {
                       maxRate: parsed,
-                      persistSamples: config.jumpRejection?.persistSamples ?? 3,
-                      persistMs: config.jumpRejection?.persistMs ?? 5000,
+                      persistSamples:
+                        config.jumpRejection?.persistSamples ?? DEFAULT_JUMP_PERSIST_SAMPLES,
+                      persistMs: config.jumpRejection?.persistMs ?? DEFAULT_JUMP_PERSIST_MS,
                     },
             });
           }}
@@ -364,7 +369,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         label="Staleness timeout (ms)"
         ariaLabel="Staleness timeout ms"
         value={config.stalenessTimeoutMs}
-        placeholder="default: 5000"
+        placeholder={`default: ${defaults.stalenessTimeoutMs}`}
         fieldKey="stalenessTimeoutMs"
         onChange={onChange}
       />
@@ -373,7 +378,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         label="Emit min interval (ms)"
         ariaLabel="Emit min interval ms"
         value={config.emitMinIntervalMs}
-        placeholder="default: 500"
+        placeholder={`default: ${defaults.emitMinIntervalMs}`}
         fieldKey="emitMinIntervalMs"
         onChange={onChange}
       />

@@ -5,7 +5,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { createElement } from 'react';
 import type { RawPathConfig } from '../../src/config.js';
 import { DetectedPathList } from '../../src/configpanel/components/DetectedPathList.js';
-import { PriorityBanner } from '../../src/configpanel/components/PriorityBanner.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
 
 // ---------------------------------------------------------------------------
@@ -203,6 +202,28 @@ describe('DetectedPathList: error state', () => {
     expect(container.textContent).not.toMatch(/no duplicate paths detected yet/i);
     expect(screen.getByText(/timeout/i)).toBeInTheDocument();
   });
+
+  it('keeps the retained list mounted below the error banner', () => {
+    // useDetected preserves the previous rows on a failed poll; a transient
+    // blip must not unmount them (losing open disclosures and focus).
+    render(
+      createElement(DetectedPathList, {
+        detected: [scalRow, angRow],
+        configByPath: mapOf(angRow.path),
+        onAdd: vi.fn(),
+        onAddAll: vi.fn(),
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+        lastChecked: 1000,
+        loading: false,
+        error: 'network error',
+        onRefresh: vi.fn(),
+      })
+    );
+    expect(screen.getByText(/network error/i)).toBeInTheDocument();
+    expect(screen.getByText(scalRow.path)).toBeInTheDocument();
+    expect(screen.getByText(angRow.path)).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -388,6 +409,29 @@ describe('DetectedPathList: Combine all', () => {
     expect(calledPaths).toEqual([posRow.path, scalRow.path].sort());
   });
 
+  it('Cancel dismisses the confirmation without calling onAddAll', () => {
+    const onAddAll = vi.fn();
+    render(
+      createElement(DetectedPathList, {
+        detected: [scalRow, posRow],
+        configByPath: emptyMap(),
+        onAdd: vi.fn(),
+        onAddAll,
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+        lastChecked: null,
+        loading: false,
+        error: null,
+        onRefresh: vi.fn(),
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: /combine all/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(onAddAll).not.toHaveBeenCalled();
+    // The request button is back after cancelling.
+    expect(screen.getByRole('button', { name: /combine all/i })).toBeInTheDocument();
+  });
+
   it('"Combine all" is absent or disabled when all combinable rows are already configured', () => {
     render(
       createElement(DetectedPathList, {
@@ -486,72 +530,5 @@ describe('DetectedPathList: live region', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// PriorityBanner
-// ---------------------------------------------------------------------------
-
-describe('PriorityBanner', () => {
-  beforeEach(() => {
-    document.body.innerHTML = '';
-  });
-
-  it('renders when show is true', () => {
-    render(
-      createElement(PriorityBanner, {
-        show: true,
-        sourceLabel: 'signalk-synthetic-values',
-        onDismiss: vi.fn(),
-      })
-    );
-    expect(screen.getByRole('region')).toBeInTheDocument();
-  });
-
-  it('does not render when show is false', () => {
-    const { container } = render(
-      createElement(PriorityBanner, {
-        show: false,
-        sourceLabel: 'signalk-synthetic-values',
-        onDismiss: vi.fn(),
-      })
-    );
-    expect(container.firstChild).toBeNull();
-  });
-
-  it('mentions the source name and Source priorities', () => {
-    render(
-      createElement(PriorityBanner, {
-        show: true,
-        sourceLabel: 'signalk-synthetic-values',
-        onDismiss: vi.fn(),
-      })
-    );
-    // The banner names the source twice (once in the prose sentence, once in the priorities instruction).
-    expect(screen.getAllByText(/signalk-synthetic-values/i)).toHaveLength(2);
-    expect(screen.getByText(/source priorities/i)).toBeInTheDocument();
-  });
-
-  it('is dismissible via a button that calls onDismiss', () => {
-    const onDismiss = vi.fn();
-    render(
-      createElement(PriorityBanner, {
-        show: true,
-        sourceLabel: 'signalk-synthetic-values',
-        onDismiss,
-      })
-    );
-    const dismissBtn = screen.getByRole('button', { name: /dismiss/i });
-    fireEvent.click(dismissBtn);
-    expect(onDismiss).toHaveBeenCalledOnce();
-  });
-
-  it('does not claim the source is "preferred"', () => {
-    render(
-      createElement(PriorityBanner, {
-        show: true,
-        sourceLabel: 'signalk-synthetic-values',
-        onDismiss: vi.fn(),
-      })
-    );
-    expect(screen.queryByText(/preferred/i)).toBeNull();
-  });
-});
+// PriorityBanner tests live in presentational.test.ts with the other
+// presentational components.

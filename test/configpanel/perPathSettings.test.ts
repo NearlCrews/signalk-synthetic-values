@@ -4,8 +4,12 @@ import '@testing-library/jest-dom';
 import { fireEvent, render } from '@testing-library/react';
 import { createElement } from 'react';
 import type { RawPathConfig, RawPathConfigPatch } from '../../src/config.js';
+import {
+  DEFAULT_JUMP_PERSIST_MS,
+  DEFAULT_JUMP_PERSIST_SAMPLES,
+  DEFAULT_MIN_SOURCES,
+} from '../../src/config.js';
 import { PerPathSettings } from '../../src/configpanel/components/PerPathSettings.js';
-import SegmentedControl from '../../src/configpanel/components/SegmentedControl.js';
 import { SourceChecklist } from '../../src/configpanel/components/SourceChecklist.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
 
@@ -213,29 +217,54 @@ describe('PerPathSettings', () => {
     fireEvent.change(madInput, { target: { value: '2.5' } });
     expect(onChange).toHaveBeenCalledWith({ madThreshold: 2.5 });
   });
-});
 
-describe('SegmentedControl', () => {
-  beforeEach(() => {
-    document.body.innerHTML = '';
-  });
-
-  it('marks the active choice with aria-pressed and fires onChange on the other', () => {
-    const onChange = vi.fn();
-    const { getByRole } = render(
-      createElement(SegmentedControl<'a' | 'b'>, {
-        legend: 'Pick one',
-        choices: [
-          { value: 'a', label: 'Alpha' },
-          { value: 'b', label: 'Beta' },
-        ],
-        value: 'a',
-        onChange,
-      })
+  it('minSources placeholder shows the resolved default value', () => {
+    const { getByLabelText } = render(
+      createElement(PerPathSettings, { row, config, onChange: vi.fn(), idPrefix })
     );
-    expect(getByRole('button', { name: 'Alpha' })).toHaveAttribute('aria-pressed', 'true');
-    expect(getByRole('button', { name: 'Beta' })).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(getByRole('button', { name: 'Beta' }));
-    expect(onChange).toHaveBeenCalledWith('b');
+    // No provider in this render, so the context falls back to the shipped
+    // defaults; the placeholder must state the number, not a bare "default".
+    const input = getByLabelText(/minimum sources/i) as HTMLInputElement;
+    expect(input.placeholder).toBe(`default: ${DEFAULT_MIN_SOURCES}`);
+  });
+
+  it('setting the jump max rate emits a complete jumpRejection with shared defaults', () => {
+    const onChange = vi.fn();
+    const { getByText, getByLabelText } = render(
+      createElement(PerPathSettings, { row, config, onChange, idPrefix })
+    );
+    fireEvent.click(getByText(/advanced/i));
+    const rateInput = getByLabelText(/jump rejection max rate/i) as HTMLInputElement;
+    fireEvent.change(rateInput, { target: { value: '5' } });
+    expect(onChange).toHaveBeenCalledWith({
+      jumpRejection: {
+        maxRate: 5,
+        persistSamples: DEFAULT_JUMP_PERSIST_SAMPLES,
+        persistMs: DEFAULT_JUMP_PERSIST_MS,
+      },
+    });
+    // 0 is not a valid rate (exclusive minimum): no patch may fire.
+    onChange.mockClear();
+    fireEvent.change(rateInput, { target: { value: '0' } });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('clearing the jump max rate removes the whole jumpRejection block', () => {
+    const onChange = vi.fn();
+    const cfgWithJump: RawPathConfig = {
+      path: 'navigation.speedOverGround',
+      jumpRejection: { maxRate: 5, persistSamples: 3, persistMs: 5000 },
+    };
+    const { getByText, getByLabelText } = render(
+      createElement(PerPathSettings, { row, config: cfgWithJump, onChange, idPrefix: 'row2' })
+    );
+    fireEvent.click(getByText(/advanced/i));
+    const rateInput = getByLabelText(/jump rejection max rate/i) as HTMLInputElement;
+    expect(rateInput.value).toBe('5');
+    fireEvent.change(rateInput, { target: { value: '' } });
+    expect(onChange).toHaveBeenCalledWith({ jumpRejection: undefined });
   });
 });
+
+// SegmentedControl tests live in presentational.test.ts with the other
+// presentational components.

@@ -66,13 +66,14 @@ export function SourceChecklist({
         const id = `${idPrefix}-src-${src.replace(SAFE_ID_CHARS, '-')}`;
         return (
           <div key={src} style={S.checklistRow}>
+            {/* No aria-label: the <label htmlFor> below is the accessible name,
+                and a duplicate aria-label would override it and drift. */}
             <input
               id={id}
               type="checkbox"
               style={S.checkbox}
               checked={isChecked(src)}
               onChange={(e) => handleToggle(src, e.target.checked)}
-              aria-label={src}
             />
             <label htmlFor={id} style={labelStyle}>
               {src}

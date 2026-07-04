@@ -19,7 +19,7 @@ function FunnelIcon(): React.ReactElement {
       height="16"
       viewBox="0 0 16 16"
       fill="currentColor"
-      style={{ color: 'var(--skn-ok)', flexShrink: 0 }}
+      style={{ color: 'var(--skn-text-muted)', flexShrink: 0 }}
     >
       <path d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .39.813L9.5 9.18V13.5a.5.5 0 0 1-.277.447l-3 1.5A.5.5 0 0 1 5.5 15V9.18L1.61 2.313A.5.5 0 0 1 1.5 1.5z" />
     </svg>
@@ -168,11 +168,11 @@ function NonCombinableGroup({
       >
         {rows.map((row) => {
           const cfg = configByPath.get(row.path);
-          const optedIn = configByPath.has(row.path);
           return (
             <DetectedPathRow
               key={row.path}
-              row={{ ...row, optedIn }}
+              row={row}
+              optedIn={configByPath.has(row.path)}
               config={cfg}
               onAdd={onAdd}
               onRemove={onRemove}
@@ -196,6 +196,18 @@ interface CombineAllBarProps {
 function CombineAllBar({ rows, onAddAll }: CombineAllBarProps): React.ReactElement | null {
   const count = rows.length;
   const [confirming, setConfirming] = useState(false);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const requestRef = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+
+  // Focus management: the state swap unmounts the focused button, which would
+  // drop focus to <body>. Move focus onto Confirm when the confirmation
+  // appears and back onto the request button when it goes away.
+  useEffect(() => {
+    if (confirming) confirmRef.current?.focus();
+    else if (wasConfirming.current) requestRef.current?.focus();
+    wasConfirming.current = confirming;
+  }, [confirming]);
 
   const handleRequest = useCallback(() => {
     setConfirming(true);
@@ -229,6 +241,7 @@ function CombineAllBar({ rows, onAddAll }: CombineAllBarProps): React.ReactEleme
           individual sources afterward.
         </span>
         <button
+          ref={confirmRef}
           type="button"
           style={S.btnPrimary}
           onClick={handleConfirm}
@@ -245,7 +258,7 @@ function CombineAllBar({ rows, onAddAll }: CombineAllBarProps): React.ReactEleme
 
   return (
     <div style={{ marginBottom: 'var(--skn-space-1)' }}>
-      <button type="button" style={S.btnSecondary} onClick={handleRequest}>
+      <button ref={requestRef} type="button" style={S.btnSecondary} onClick={handleRequest}>
         Combine all ({count})
       </button>
     </div>
@@ -333,14 +346,26 @@ export function DetectedPathList({
   // Total count for the live-region announcement.
   const totalCount = detected.length;
 
-  // Announce count changes after commit so the live region update lands after the
-  // DOM is stable (safe setState from useEffect, not from the render body).
+  // Manual refresh flag: a user-triggered Refresh announces its completion
+  // even when the list is unchanged, so screen readers get feedback for the
+  // click. Interval polls only announce when the count actually changes.
+  const manualRefresh = useRef(false);
+  const handleRefresh = useCallback((): void => {
+    manualRefresh.current = true;
+    onRefresh();
+  }, [onRefresh]);
+
+  // Announce after commit so the live region update lands after the DOM is
+  // stable (safe setState from useEffect, not from the render body).
   useEffect(() => {
-    if (prevCountRef.current !== null && prevCountRef.current !== totalCount) {
+    if (manualRefresh.current && lastChecked !== null) {
+      manualRefresh.current = false;
+      setAnnouncement(`Refreshed: ${totalCount} path${plural(totalCount)} detected.`);
+    } else if (prevCountRef.current !== null && prevCountRef.current !== totalCount) {
       setAnnouncement(`${totalCount} path${plural(totalCount)} detected.`);
     }
     prevCountRef.current = totalCount;
-  }, [totalCount]);
+  }, [totalCount, lastChecked]);
 
   return (
     <div>
@@ -349,13 +374,15 @@ export function DetectedPathList({
         {announcement}
       </span>
 
-      <ListHeader lastChecked={lastChecked} loading={loading} onRefresh={onRefresh} />
+      <ListHeader lastChecked={lastChecked} loading={loading} onRefresh={handleRefresh} />
 
-      {error !== null ? (
-        <ErrorBanner error={error} onRefresh={onRefresh} />
-      ) : detected.length === 0 && !loading ? (
-        <EmptyState />
-      ) : (
+      {/* A failed poll keeps the previous rows (useDetected preserves them), so
+          the banner renders ABOVE the retained list. Swapping the list out for
+          the banner would unmount every row and lose open Tune disclosures,
+          in-progress edits, and focus on a transient blip. */}
+      {error !== null && <ErrorBanner error={error} onRefresh={handleRefresh} />}
+
+      {detected.length > 0 ? (
         <>
           {/* Combine all bar: only the recommended, not-yet-configured rows. */}
           <CombineAllBar rows={combinableNotYetConfigured} onAddAll={onAddAll} />
@@ -364,7 +391,8 @@ export function DetectedPathList({
           {combinableNotYetConfigured.map((row) => (
             <DetectedPathRow
               key={row.path}
-              row={{ ...row, optedIn: false }}
+              row={row}
+              optedIn={false}
               config={undefined}
               onAdd={onAdd}
               onRemove={onRemove}
@@ -378,7 +406,8 @@ export function DetectedPathList({
             return (
               <DetectedPathRow
                 key={row.path}
-                row={{ ...row, optedIn: true }}
+                row={row}
+                optedIn={true}
                 config={cfg}
                 onAdd={onAdd}
                 onRemove={onRemove}
@@ -397,6 +426,8 @@ export function DetectedPathList({
             bodyId={noncombinableBodyId}
           />
         </>
+      ) : (
+        error === null && !loading && <EmptyState />
       )}
     </div>
   );

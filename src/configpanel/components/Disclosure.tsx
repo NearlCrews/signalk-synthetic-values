@@ -23,8 +23,8 @@ interface DisclosureProps {
  * button with the caret glyph and the aria-controls body wrapper, so the same
  * markup is not re-implemented per call site.
  *
- * The body is always rendered (kept in the DOM with `hidden` when collapsed) so
- * its id stays linkable for aria-controls.
+ * When collapsed the children unmount and an empty placeholder div keeps the
+ * body id in the DOM, so the toggle's aria-controls reference stays valid.
  */
 export function Disclosure({
   label,
@@ -46,9 +46,8 @@ export function Disclosure({
         aria-controls={bodyId}
         onClick={onToggle}
       >
-        <span aria-hidden="true" style={{ marginRight: 6 }}>
-          {open ? '▾' : '▸'}
-        </span>
+        {/* No margin: the toggle's own gap (S.disclosureToggle) spaces the caret. */}
+        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
         {label}
       </button>
       {open ? (

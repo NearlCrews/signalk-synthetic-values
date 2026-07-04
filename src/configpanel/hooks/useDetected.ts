@@ -63,6 +63,9 @@ export function nextDetectedState(
   incoming: DetectedResponse | null
 ): DetectedState {
   if (incoming === null) {
+    // Repeat failures return the same object so React bails out of the
+    // update; only the first failure after a success or initial load allocates.
+    if (!prev.loading && prev.error !== null) return prev;
     return errorState(prev);
   }
 
@@ -94,17 +97,23 @@ export function useDetected(): UseDetectedResult {
     error: null,
   });
   const cancelled = useRef(false);
+  // Monotonic fetch sequence: interval ticks, visibility restores, and the
+  // refresh fired after every save can overlap, and a slower older response
+  // must not overwrite the state a newer one already wrote.
+  const fetchSeq = useRef(0);
 
   const doFetch = useCallback(async (): Promise<void> => {
+    const seq = ++fetchSeq.current;
+    const isStale = (): boolean => cancelled.current || seq !== fetchSeq.current;
     let data: DetectedResponse | null = null;
     try {
       data = await fetchJson<DetectedResponse>('/detected');
     } catch {
-      if (cancelled.current) return;
+      if (isStale()) return;
       setState((prev) => nextDetectedState(prev, null));
       return;
     }
-    if (cancelled.current) return;
+    if (isStale()) return;
 
     // nextDetectedState returns the same reference when paths are unchanged, so
     // React bails out of the update: the changed-payload gate lives entirely in
