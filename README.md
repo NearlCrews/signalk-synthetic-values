@@ -9,13 +9,17 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.1.2
+## What's new in 0.2.0
 
-Maintenance release. A build-time dependency refresh only, with no change to runtime behavior, configuration, the data model, or the plugin API. The combined values, paths, and settings are unchanged.
+Correctness and robustness release, from a codebase-wide audit.
 
-- **Toolchain update.** Development dependencies (`@types/node`, `webpack`) are bumped to their latest patch releases. This touches the build and type-check toolchain only; the published runtime is unchanged.
+- **Combining fixes.** A path no longer stays dead after one bad text sample, a partial `jumpRejection` config no longer freezes the damped value, the jump "near" check uses the true per-step rate, outlier rejection can no longer report a fully corroborated combine after dropping below `minSources`, and position slew limiting crosses the antimeridian the short way.
+- **Config hardening.** The admin form and the validator now agree everywhere (exclusive minimums, integer source counts, a bounded `trimFraction`), `madThreshold` is validated, and a hand-edited config missing the global defaults falls back to the shipped defaults instead of erroring every path.
+- **Panel robustness.** A failed save is surfaced with a Retry banner instead of being silently marked saved, a failed poll keeps the list mounted below the error banner, overlapping requests can no longer overwrite fresher data, and a save echo no longer wipes in-flight edits.
+- **More circular paths.** `environment.wind.directionTrue`, `environment.wind.directionMagnetic`, and `navigation.headingCompass` combine correctly under `angular: auto`.
+- **Theme and a11y polish.** WCAG AA accent contrast in light and dark themes, hover feedback that is visible in dark and night, focus management on "Combine all", and screen-reader announcements for manual refresh.
 
-See the [v0.1.2 changelog entry](CHANGELOG.md#v012), or the [full changelog](CHANGELOG.md).
+See the [v0.2.0 changelog entry](CHANGELOG.md#v020), or the [full changelog](CHANGELOG.md).
 
 ## Why you'd want this
 
@@ -109,7 +113,7 @@ Add one entry to **Paths to combine** for each path you want to opt in. The drop
 | `minSources` | global default | Per-path override for the minimum fresh sources required. |
 | `stalenessTimeoutMs` | global default | Per-path override for the staleness timeout. |
 | `emitMinIntervalMs` | global default | Per-path override for the minimum emit interval. |
-| `jumpRejection` | unset | Per-source jump rejection: `{ maxRate, persistSamples, persistMs }`. Rejects a sudden spike and re-accepts after a genuine step is confirmed. |
+| `jumpRejection` | unset | Per-source jump rejection: `{ maxRate, persistSamples, persistMs }`. Rejects a sudden spike and re-accepts after a genuine step is confirmed. Only `maxRate` is required; `persistSamples` defaults to `3` and `persistMs` to `5000`. |
 | `slewLimit` | unset | Maximum change of the emitted value per second, in kind units. Clamps the output to suppress sudden jumps that survive rejection. |
 
 ## Make the synthetic source win
@@ -134,7 +138,7 @@ The admin UI status line shows one stable summary of the whole plugin, so it sta
 - **N multi-source paths detected. Add paths in the config panel to combine them:** the plugin found duplicates but none are opted in yet.
 - **Combining N of M paths:** M paths are opted in, and N of them are currently producing a combined value. Plain "Combining N of M paths." means everything is healthy.
 
-When some paths need attention, the summary appends counts rather than naming each path: **waiting for sources** (not enough fresh sources), **diverging** (angular sources point in opposite directions, or position sources are too far apart to combine safely), **disagreeing** (spread exceeds `disagreeThreshold`, but a value is still emitted), and **on a single source** (running without redundancy). For example: `Combining 9 of 12 paths. 2 waiting for sources, and 1 disagreeing.`
+When some paths need attention, the summary appends counts rather than naming each path: **waiting for sources** (not enough fresh sources), **diverging** (angular sources point in opposite directions, position sources are too far apart to combine safely, or outlier rejection left fewer than the required minimum of agreeing sources), **disagreeing** (spread exceeds `disagreeThreshold`, but a value is still emitted), and **on a single source** (running without redundancy). For example: `Combining 9 of 12 paths. 2 waiting for sources, and 1 disagreeing.`
 
 For the per-path detail behind those counts (which path is waiting, the exact spread, and so on), enable the plugin's debug log in **Server, then Plugin Config**. The plugin writes a line per path as its state changes.
 

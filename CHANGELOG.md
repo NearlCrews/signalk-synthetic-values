@@ -5,6 +5,41 @@ All notable changes to the signalk-synthetic-values project are documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+<a id="v020"></a>
+
+## [0.2.0] - 2026-07-04
+
+Correctness and robustness release. A codebase-wide audit fixed several combining and configuration bugs, hardened the config panel against failed saves and stale responses, and tightened theme contrast and accessibility. Existing configurations keep working; a handful of previously silent misconfigurations now surface as validation errors, and a thin post-rejection consensus is now suppressed instead of emitted.
+
+### Fixed
+
+- A configured path that received one text or object sample was locked as non-combinable until a plugin restart. It now recovers as soon as combinable values arrive, and the stale "skipped" note clears from the status line.
+- A `jumpRejection` config carrying only `maxRate` (saved by the panel's jump field, a REST write, or a hand-edited config.json) froze the damped value forever after the first spike, because the persistence check compared against missing fields. The validator now backfills `persistSamples` (default 3) and `persistMs` (default 5000), rejects invalid values, and the schema declares the same defaults.
+- The jump-rejection "near" check divided the distance from the last pending sample by the time since the cluster origin, so a drift faster than `maxRate` grew ever more likely to be accepted as the cluster aged. It now uses the true per-step rate.
+- Outlier rejection could whittle the used sources below `minSources` yet still emit with a healthy "ok" outcome. The result is now suppressed as diverged, keeping the redundancy guarantee honest.
+- Position slew limiting stepped the wrong way around the antimeridian; the longitude delta is now wrapped so the step takes the short way.
+- The admin-form schema accepted values the validator then rejected: 0 for `rejectThreshold`, `disagreeThreshold`, `angularSpreadThreshold`, `slewLimit`, and `jumpRejection.maxRate` (all now exclusive minimums), `trimFraction` of 0.5 and above (now bounded), and fractional source counts (now integers).
+- `madThreshold` is validated (non-negative) instead of flowing into rejection unchecked, and a config missing the top-level defaults falls back to the shipped defaults instead of erroring every path.
+- Config advisories (for example `madThreshold` set while outlier rejection is off) no longer mark a working path as "skipped" in the status line; they go to the debug log only.
+- A failed save from the config panel was silently recorded as saved, masking the loss; it now rolls the baseline back and shows a banner with a Retry button.
+- A failed detected-paths poll replaced the whole list with the error banner, unmounting every row. The banner now renders above the retained list, so open Tune panels, in-progress edits, and focus survive a transient blip.
+- Overlapping detected-paths requests (poll, tab focus, and post-save refresh) could land out of order and overwrite fresher data with stale rows; responses are now sequenced.
+- A configuration echoed back by the admin host after a save no longer wipes edits made while the save was in flight.
+
+### Added
+
+- `environment.wind.directionTrue`, `environment.wind.directionMagnetic`, and `navigation.headingCompass` are recognized as circular radian paths under `angular: auto`, so redundant wind vanes and compasses on those paths combine without the 0/360-degree wrap artifact.
+- The panel announces a manual refresh to screen readers even when the list is unchanged, and the "Combine all" confirmation moves focus onto Confirm and back instead of dropping it.
+- Tests covering the fixes above plus hook polling, save failure, and out-of-order responses: the suite grew from 273 to 301 tests across 26 files.
+
+### Changed
+
+- Theme contrast now meets WCAG AA on the accent pair: the light theme accent is a deeper blue, and dark-theme accent text is dark on the light-blue accent. Hover and active feedback brightens in the dark and night themes instead of darkening imperceptibly.
+- The opted-in pill reads "combined", matching the Combine button and the documentation.
+- Per-path placeholders show the resolved default values; the staleness and emit-interval placeholders previously showed numbers that did not match the real defaults.
+- For angular paths `trimmedMean` and `median` are the same circular medoid; `trimFraction` has no effect there. This has always been the behavior and is now documented.
+- Angular and attitude disagree checks reuse the spread already computed during combining instead of redoing the pairwise-distance work on every emit.
+
 <a id="v012"></a>
 
 ## [0.1.2] - 2026-06-25
