@@ -18,6 +18,11 @@ export function valueCategory(value: unknown): ValueCategory {
   }
   if (typeof value === 'object') {
     const obj = value as Record<string, unknown>;
+    // Asymmetry is deliberate: an object carrying latitude or longitude keys
+    // IS a position, so a partial one is a malformed (likely transient)
+    // sample and is dropped as 'invalid'. An object missing attitude
+    // components is simply a different shape, so it falls through to
+    // 'nonCombinable' like any other object.
     if ('latitude' in obj || 'longitude' in obj) {
       return isLatLon(value) ? 'latlon' : 'invalid';
     }
@@ -30,11 +35,14 @@ export function valueCategory(value: unknown): ValueCategory {
 export const ANGULAR_ALLOWLIST: ReadonlySet<string> = new Set([
   'navigation.headingTrue',
   'navigation.headingMagnetic',
+  'navigation.headingCompass',
   'navigation.courseOverGroundTrue',
   'navigation.courseOverGroundMagnetic',
   'environment.wind.angleApparent',
   'environment.wind.angleTrueWater',
   'environment.wind.angleTrueGround',
+  'environment.wind.directionTrue',
+  'environment.wind.directionMagnetic',
 ]);
 
 function isLatLon(v: unknown): v is LatLon {

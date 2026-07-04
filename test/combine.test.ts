@@ -46,6 +46,20 @@ describe('combine outlier rejection empties the source set', () => {
     expect(r.outcome).toBe('diverged');
     expect(r.value).toBeUndefined();
   });
+  it('returns diverged when rejection whittles the used set below minSources', () => {
+    // 5 fresh sources pass the pre-rejection gate, MAD rejection drops the two
+    // gross outliers, and the 3 survivors sit below minSources=4: reporting
+    // 'ok' would present a thin consensus as fully corroborated.
+    const r = combine([s('a', 0), s('b', 1), s('c', 2), s('d', 1000), s('e', 2000)], {
+      ...base,
+      kind: 'scalar',
+      minSources: 4,
+    });
+    expect(r.outcome).toBe('diverged');
+    expect(r.value).toBeUndefined();
+    expect(r.freshCount).toBe(5);
+    expect(r.usedSources).toEqual(['a', 'b', 'c']);
+  });
 });
 
 describe('combine scalar', () => {

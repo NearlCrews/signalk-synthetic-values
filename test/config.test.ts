@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { type PluginOptions, validateConfig } from '../src/config';
+import {
+  DEFAULT_JUMP_PERSIST_MS,
+  DEFAULT_JUMP_PERSIST_SAMPLES,
+  DEFAULT_MAX_SOURCES_PER_PATH,
+  DEFAULT_MIN_SOURCES,
+  DEFAULT_STALENESS_MS,
+  type PluginOptions,
+  validateConfig,
+} from '../src/config';
 
-const opts = (paths: any[]): PluginOptions => ({
+// Entries are deliberately loose: many cases feed invalid shapes through the
+// validator, which is exactly what it exists to reject.
+const opts = (paths: unknown[]): PluginOptions => ({
   defaultStalenessTimeoutMs: 1000,
   defaultEmitMinIntervalMs: 1000,
   defaultMinSources: 2,
   maxSourcesPerPath: 16,
-  paths,
+  paths: paths as PluginOptions['paths'],
 });
 
 describe('validateConfig', () => {
@@ -110,5 +120,71 @@ describe('validateConfig', () => {
       (e) => e.path === 'a' && e.message === 'duplicate path entry ignored'
     );
     expect(dupeError).toBeDefined();
+  });
+});
+
+describe('validateConfig: jumpRejection normalization', () => {
+  it('backfills persistSamples and persistMs when only maxRate is set', () => {
+    // A partial jumpRejection reaches damping as a complete JumpConfig, or its
+    // persistence check compares against undefined and freezes the value.
+    const r = validateConfig(opts([{ path: 'a', jumpRejection: { maxRate: 5 } }]));
+    expect(r.errors).toHaveLength(0);
+    expect(r.config.paths[0].jumpRejection).toEqual({
+      maxRate: 5,
+      persistSamples: DEFAULT_JUMP_PERSIST_SAMPLES,
+      persistMs: DEFAULT_JUMP_PERSIST_MS,
+    });
+  });
+  it('keeps explicit persist fields', () => {
+    const r = validateConfig(
+      opts([{ path: 'a', jumpRejection: { maxRate: 5, persistSamples: 7, persistMs: 900 } }])
+    );
+    expect(r.config.paths[0].jumpRejection).toEqual({
+      maxRate: 5,
+      persistSamples: 7,
+      persistMs: 900,
+    });
+  });
+  it('rejects a non-integer persistSamples', () => {
+    const r = validateConfig(
+      opts([{ path: 'a', jumpRejection: { maxRate: 5, persistSamples: 1.5 } }])
+    );
+    expect(r.config.paths).toHaveLength(0);
+    expect(r.errors[0].message).toContain('persistSamples');
+  });
+  it('rejects a negative persistMs', () => {
+    const r = validateConfig(opts([{ path: 'a', jumpRejection: { maxRate: 5, persistMs: -1 } }]));
+    expect(r.config.paths).toHaveLength(0);
+    expect(r.errors[0].message).toContain('persistMs');
+  });
+});
+
+describe('validateConfig: value hardening', () => {
+  it('rejects a negative madThreshold', () => {
+    const r = validateConfig(opts([{ path: 'a', madThreshold: -1 }]));
+    expect(r.config.paths).toHaveLength(0);
+    expect(r.errors[0].message).toContain('madThreshold');
+  });
+  it('accepts madThreshold 0 (schema minimum)', () => {
+    const r = validateConfig(opts([{ path: 'a', madThreshold: 0 }]));
+    expect(r.errors).toHaveLength(0);
+    expect(r.config.paths[0].madThreshold).toBe(0);
+  });
+  it('rejects a fractional minSources', () => {
+    const r = validateConfig(opts([{ path: 'a', minSources: 1.5 }]));
+    expect(r.config.paths).toHaveLength(0);
+    expect(r.errors[0].message).toContain('minSources');
+  });
+  it('falls back to the default when maxSourcesPerPath is fractional', () => {
+    const r = validateConfig({ ...opts([{ path: 'a' }]), maxSourcesPerPath: 2.5 });
+    expect(r.config.maxSourcesPerPath).toBe(DEFAULT_MAX_SOURCES_PER_PATH);
+  });
+  it('falls back to shipped defaults when the top-level defaults are missing', () => {
+    // A REST-written or hand-edited config can omit the globals entirely;
+    // every path must still resolve instead of erroring out.
+    const r = validateConfig({ paths: [{ path: 'a' }] } as PluginOptions);
+    expect(r.errors).toHaveLength(0);
+    expect(r.config.paths[0].minSources).toBe(DEFAULT_MIN_SOURCES);
+    expect(r.config.paths[0].stalenessTimeoutMs).toBe(DEFAULT_STALENESS_MS);
   });
 });

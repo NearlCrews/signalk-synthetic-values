@@ -128,10 +128,19 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     // categories, so this is correct in practice. A path that legitimately carries
     // both a number and a position object would lock to whichever sample arrived
     // first; that is an unusual case and does not require redesign here.
+    // `value` comes from the registry, which stores only combinable categories,
+    // so classify() never returns 'other' here.
     const kind = classify(path, value, cfg.angular, getUnits, selfContext);
     classification.set(path, kind);
-    if (kind === 'other') skipped.push({ path, reason: NON_COMBINABLE_REASON });
     return kind;
+  }
+
+  // Drop the non-combinable skip entries for a path once it recovers.
+  function clearNonCombinableSkip(path: string): void {
+    for (let i = skipped.length - 1; i >= 0; i--) {
+      const s = skipped[i];
+      if (s && s.path === path && s.reason === NON_COMBINABLE_REASON) skipped.splice(i, 1);
+    }
   }
 
   // Reset every per-run map and counter to its empty state. Shared by start()
@@ -265,6 +274,13 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       }
       return;
     }
+    if (classification.get(pv.path) === 'other') {
+      // A combinable value arrived on a path locked 'other' by an earlier
+      // non-combinable sample. Unlock it so the next emit reclassifies from
+      // live data instead of the path staying dead until a plugin restart.
+      classification.delete(pv.path);
+      clearNonCombinableSkip(pv.path);
+    }
     registry.update(pv.path, src, pv.value as SampleValue, systemClock.now());
     maybeEmit(pv.path, cfg);
   }
@@ -321,12 +337,16 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       byPath = new Map(config.paths.map((p) => [p.path, p]));
       selfContext = app.selfContext ?? 'vessels.self';
       resetRuntimeState();
-      // Errors and advisories are surfaced identically (skipped entry plus a
-      // debug line); the validator keeps them separate, but the status layer
-      // treats both as config issues.
-      for (const e of [...errors, ...advisories]) {
+      // Errors drop the path entry, so they surface in the status bar as
+      // skipped. Advisories describe a path that still combines normally, so
+      // they go to the debug log only; listing them as skipped would call a
+      // working path dead.
+      for (const e of errors) {
         skipped.push({ path: e.path, reason: e.message });
         app.debug(`config ${e.path}: ${e.message}`);
+      }
+      for (const a of advisories) {
+        app.debug(`config ${a.path}: ${a.message}`);
       }
       unregister = app.registerDeltaInputHandler((delta, next) => {
         try {

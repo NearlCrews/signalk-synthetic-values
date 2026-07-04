@@ -64,6 +64,25 @@ describe('applyJump', () => {
     r = applyJump('scalar', r.state, 800, 3000, cfg2);
     expect(r.accepted).toBe(800);
   });
+  it('a drift faster than maxRate cannot ride an aging pending cluster to acceptance', () => {
+    // Regression: the near check once divided distance-from-last-pending-sample
+    // by time-since-cluster-ORIGIN, so a steady +6/s drift (above maxRate=5)
+    // looked slower the longer the cluster lived and was eventually accepted.
+    const driftCfg: JumpConfig = { maxRate: 5, persistSamples: 5, persistMs: 100_000 };
+    const st = applyJump('scalar', undefined, 0, 0, driftCfg).state;
+    // Spike to 10 (rate 10 > 5): rejected, pending cluster opens.
+    let r = applyJump('scalar', st, 10, 1000, driftCfg);
+    expect(r.accepted).toBe(0);
+    // Wobble near the pending level: cluster holds, origin ts stays at 1000.
+    r = applyJump('scalar', r.state, 10.1, 2000, driftCfg);
+    expect(r.accepted).toBe(0);
+    // Steady +6/s from here: every per-step rate exceeds maxRate, so the
+    // cluster must reset each time and the held value never advances.
+    for (let t = 3; t <= 6; t++) {
+      r = applyJump('scalar', r.state, 10.1 + (t - 2) * 6, t * 1000, driftCfg);
+    }
+    expect(r.accepted).toBe(0);
+  });
   it('a non-near second spike resets the pending cluster count', () => {
     // First spike: count becomes 1
     const st = applyJump('scalar', undefined, 0, 0, cfg).state;
@@ -110,6 +129,17 @@ describe('applySlew', () => {
     expect(result.latitude).toBeGreaterThan(0);
     expect(result.latitude).toBeLessThan(10);
     expect(result.longitude).toBeCloseTo(0, 6);
+  });
+  it('position slew crosses the antimeridian the short way', () => {
+    const a: LatLon = { latitude: 0, longitude: 179.9 };
+    const b: LatLon = { latitude: 0, longitude: -179.9 }; // 0.2 deg east across the line
+    const st = applySlew('position', undefined, a, 0, 1).state;
+    // maxRatePerSec=100 m/s, dt=1 s: a 100 m step of the ~22 km leg.
+    const r = applySlew('position', st, b, 1000, 100);
+    const v = r.value as LatLon;
+    // Must move EAST toward the line, not lurch west the long way around.
+    expect(v.longitude).toBeGreaterThan(179.9);
+    expect(v.longitude).toBeLessThanOrEqual(180);
   });
   it('position slew with longitude difference exercises the bearing interpolation', () => {
     // Two points that differ in both lat and lon to ensure the geodesic fraction path runs.

@@ -14,6 +14,8 @@ export const DEFAULT_MIN_SOURCES = 2;
 export const DEFAULT_MAD_THRESHOLD = 3;
 export const DEFAULT_TRIM_FRACTION = 0.25;
 export const DEFAULT_ANGULAR_SPREAD_THRESHOLD = Math.PI / 2;
+export const DEFAULT_JUMP_PERSIST_SAMPLES = 3;
+export const DEFAULT_JUMP_PERSIST_MS = 5000;
 
 export interface RawPathConfig {
   path: string;
@@ -30,7 +32,9 @@ export interface RawPathConfig {
   minSources?: number;
   stalenessTimeoutMs?: number;
   emitMinIntervalMs?: number;
-  jumpRejection?: JumpConfig;
+  // Saved configs may carry only maxRate (the panel's jump field, older saves,
+  // or hand-edited config.json); the validator backfills the persist fields.
+  jumpRejection?: { maxRate: number; persistSamples?: number; persistMs?: number };
   slewLimit?: number;
 }
 
@@ -97,6 +101,10 @@ function nonNegative(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n) && n >= 0;
 }
 
+function positiveInt(n: unknown): n is number {
+  return typeof n === 'number' && Number.isInteger(n) && n > 0;
+}
+
 interface PathValidation {
   path?: PathConfig;
   errors: ConfigError[];
@@ -134,29 +142,29 @@ function validateScalars(
   if (!(trimFraction >= 0 && trimFraction < 0.5)) {
     return { error: { path: id, message: 'trimFraction must be in [0, 0.5)' } };
   }
-  const staleness = raw.stalenessTimeoutMs ?? options.defaultStalenessTimeoutMs;
-  const emitInterval = raw.emitMinIntervalMs ?? options.defaultEmitMinIntervalMs;
-  const minSources = raw.minSources ?? options.defaultMinSources;
+  // Fall back to the shipped defaults when the top-level default is missing
+  // (REST-written or hand-edited configs may omit the globals entirely), the
+  // same way maxSourcesPerPath falls back in validateConfig.
+  const staleness =
+    raw.stalenessTimeoutMs ?? options.defaultStalenessTimeoutMs ?? DEFAULT_STALENESS_MS;
+  const emitInterval =
+    raw.emitMinIntervalMs ?? options.defaultEmitMinIntervalMs ?? DEFAULT_EMIT_INTERVAL_MS;
+  const minSources = raw.minSources ?? options.defaultMinSources ?? DEFAULT_MIN_SOURCES;
   if (!positive(staleness)) {
     return { error: { path: id, message: 'stalenessTimeoutMs must be a positive number' } };
   }
   if (!nonNegative(emitInterval)) {
     return { error: { path: id, message: 'emitMinIntervalMs must be a non-negative number' } };
   }
-  if (!positive(minSources)) {
-    return { error: { path: id, message: 'minSources must be a positive number' } };
+  if (!positiveInt(minSources)) {
+    return { error: { path: id, message: 'minSources must be a positive integer' } };
   }
   return { scalars: { method, angular, trimFraction, staleness, emitInterval, minSources } };
 }
 
-function validatePathEntry(id: string, raw: RawPathConfig, options: PluginOptions): PathValidation {
-  const scalarsResult = validateScalars(id, raw, options);
-  if ('error' in scalarsResult) {
-    return { errors: [scalarsResult.error], advisories: [] };
-  }
-  const { method, angular, trimFraction, staleness, emitInterval, minSources } =
-    scalarsResult.scalars;
-
+// Validate the optional threshold and damping fields. Split from
+// validatePathEntry to keep each function's branch count readable.
+function validateThresholds(id: string, raw: RawPathConfig): ConfigError[] {
   const errors: ConfigError[] = [];
   for (const [k, v] of [
     ['rejectThreshold', raw.rejectThreshold],
@@ -168,9 +176,33 @@ function validatePathEntry(id: string, raw: RawPathConfig, options: PluginOption
       errors.push({ path: id, message: `${k} must be positive when set` });
     }
   }
-  if (raw.jumpRejection && !positive(raw.jumpRejection.maxRate)) {
-    errors.push({ path: id, message: 'jumpRejection.maxRate must be positive' });
+  if (raw.madThreshold != null && !nonNegative(raw.madThreshold)) {
+    errors.push({ path: id, message: 'madThreshold must be a non-negative number' });
   }
+  if (raw.jumpRejection) {
+    if (!positive(raw.jumpRejection.maxRate)) {
+      errors.push({ path: id, message: 'jumpRejection.maxRate must be positive' });
+    }
+    const { persistSamples, persistMs } = raw.jumpRejection;
+    if (persistSamples != null && !positiveInt(persistSamples)) {
+      errors.push({ path: id, message: 'jumpRejection.persistSamples must be a positive integer' });
+    }
+    if (persistMs != null && !nonNegative(persistMs)) {
+      errors.push({ path: id, message: 'jumpRejection.persistMs must be a non-negative number' });
+    }
+  }
+  return errors;
+}
+
+function validatePathEntry(id: string, raw: RawPathConfig, options: PluginOptions): PathValidation {
+  const scalarsResult = validateScalars(id, raw, options);
+  if ('error' in scalarsResult) {
+    return { errors: [scalarsResult.error], advisories: [] };
+  }
+  const { method, angular, trimFraction, staleness, emitInterval, minSources } =
+    scalarsResult.scalars;
+
+  const errors = validateThresholds(id, raw);
   if (errors.length > 0) return { errors, advisories: [] };
 
   const advisories: ConfigError[] = [];
@@ -195,7 +227,16 @@ function validatePathEntry(id: string, raw: RawPathConfig, options: PluginOption
       minSources,
       stalenessTimeoutMs: staleness,
       emitMinIntervalMs: emitInterval,
-      jumpRejection: raw.jumpRejection,
+      // Normalize to a complete JumpConfig: damping's persistence check reads
+      // both persist fields, and an undefined there would never satisfy it,
+      // freezing the accepted value after the first rate-exceeding sample.
+      jumpRejection: raw.jumpRejection
+        ? {
+            maxRate: raw.jumpRejection.maxRate,
+            persistSamples: raw.jumpRejection.persistSamples ?? DEFAULT_JUMP_PERSIST_SAMPLES,
+            persistMs: raw.jumpRejection.persistMs ?? DEFAULT_JUMP_PERSIST_MS,
+          }
+        : undefined,
       slewLimit: raw.slewLimit,
     },
     errors: [],
@@ -226,7 +267,7 @@ export function validateConfig(options: PluginOptions): ValidationResult {
     if (result.path) paths.push(result.path);
   }
 
-  const maxSourcesPerPath = positive(options.maxSourcesPerPath)
+  const maxSourcesPerPath = positiveInt(options.maxSourcesPerPath)
     ? options.maxSourcesPerPath
     : DEFAULT_MAX_SOURCES_PER_PATH;
   return { config: { maxSourcesPerPath, paths }, errors, advisories };

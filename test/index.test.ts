@@ -2,7 +2,22 @@
 import { describe, expect, it, vi } from 'vitest';
 import PluginFactory from '../src/index';
 
-type Handler = (delta: any, next: (d: any) => void) => void;
+type Handler = (delta: unknown, next: (d: unknown) => void) => void;
+
+// Shapes of what the plugin emits and serves, as the tests read them.
+interface EmittedDelta {
+  updates: { $source: string; values: { path: string; value: unknown }[] }[];
+}
+interface DetectedApiResponse {
+  paths: {
+    path: string;
+    optedIn: boolean;
+    kind: string;
+    combinable: boolean;
+    recommended: boolean;
+    advisory?: string;
+  }[];
+}
 
 // Minimal fake router: records route handlers so tests can invoke them directly.
 type RouteHandler = (req: unknown, res: { json(x: unknown): void }) => void;
@@ -23,9 +38,9 @@ function makeFakeRouter(): FakeRouter {
 
 function makeApp() {
   let handler: Handler | null = null;
-  const emitted: any[] = [];
+  const emitted: EmittedDelta[] = [];
   let router: FakeRouter | null = null;
-  const app: any = {
+  const app = {
     selfContext: 'vessels.urn:mrn:imo:mmsi:123',
     selfId: 'urn:mrn:imo:mmsi:123',
     registerDeltaInputHandler: (h: Handler) => {
@@ -34,7 +49,7 @@ function makeApp() {
         handler = null;
       };
     },
-    handleMessage: (_id: string, delta: any) => emitted.push(delta),
+    handleMessage: (_id: string, delta: unknown) => emitted.push(delta as EmittedDelta),
     getMetadata: () => undefined,
     setPluginStatus: vi.fn(),
     setPluginError: vi.fn(),
@@ -47,20 +62,20 @@ function makeApp() {
     plugin.registerWithRouter(router);
     return router;
   }
-  function routerGet(r: FakeRouter, path: string): any {
+  function routerGet(r: FakeRouter, path: string): DetectedApiResponse {
     const h = r.routes.get(path);
     if (!h) throw new Error(`no route registered for ${path}`);
-    let result: any;
+    let result: unknown;
     h(undefined, {
       json(x) {
         result = x;
       },
     });
-    return result;
+    return result as DetectedApiResponse;
   }
   return {
     app,
-    fire: (d: any) => handler && handler(d, () => {}),
+    fire: (d: unknown) => handler?.(d, () => {}),
     emitted,
     isRegistered: () => handler !== null,
     captureRouter,
@@ -68,7 +83,7 @@ function makeApp() {
   };
 }
 
-function delta(context: string, $source: string, path: string, value: any) {
+function delta(context: string, $source: string, path: string, value: unknown) {
   return {
     context,
     updates: [{ $source, timestamp: '2026-06-23T00:00:00.000Z', values: [{ path, value }] }],
@@ -197,6 +212,87 @@ describe('plugin integration', () => {
     expect(Number.isFinite(last.updates[0].values[0].value)).toBe(true);
   });
 
+  it('a path locked "other" by a text sample recovers once combinable values arrive', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'q' }],
+    });
+    // A text value poisons the classification cache with 'other'.
+    h.fire(delta(h.app.selfContext, 'a', 'q', 'not-a-number'));
+    expect(h.emitted).toHaveLength(0);
+    // Numeric values from two sources: the path must unlock and combine
+    // without a plugin restart.
+    h.fire(delta(h.app.selfContext, 'a', 'q', 5));
+    h.fire(delta(h.app.selfContext, 'b', 'q', 7));
+    expect(h.emitted.length).toBeGreaterThan(0);
+    const last = h.emitted[h.emitted.length - 1];
+    expect(last.updates[0].values[0].value).toBe(6);
+    // The stale non-combinable skip note must not linger in the status line.
+    const statusCalls = (h.app.setPluginStatus as ReturnType<typeof vi.fn>).mock.calls;
+    const lastStatus = String(statusCalls[statusCalls.length - 1]?.[0] ?? '');
+    expect(lastStatus).not.toContain('non-combinable');
+  });
+
+  it('config advisories do not mark the path as skipped in the status line', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    // madThreshold with outlierRejection off is an advisory: the path still runs.
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p', outlierRejection: false, madThreshold: 3 }],
+    });
+    h.fire(delta(h.app.selfContext, 'a', 'p', 10));
+    h.fire(delta(h.app.selfContext, 'b', 'p', 12));
+    expect(h.emitted.length).toBeGreaterThan(0);
+    const statusCalls = (h.app.setPluginStatus as ReturnType<typeof vi.fn>).mock.calls;
+    const lastStatus = String(statusCalls[statusCalls.length - 1]?.[0] ?? '');
+    expect(lastStatus).toContain('Combining 1 of 1');
+    expect(lastStatus).not.toContain('skipped');
+    // The advisory still lands in the debug log.
+    const debugCalls = (h.app.debug as ReturnType<typeof vi.fn>).mock.calls;
+    expect(debugCalls.some((c: unknown[]) => String(c[0]).includes('madThreshold'))).toBe(true);
+  });
+
+  it('a partial jumpRejection (maxRate only) still re-accepts a persisted step', () => {
+    // The plugin reads systemClock (Date.now), so fake timers space the samples.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const h = makeApp();
+      const plugin = PluginFactory(h.app);
+      plugin.start({
+        defaultStalenessTimeoutMs: 10000,
+        defaultEmitMinIntervalMs: 0,
+        defaultMinSources: 1,
+        maxSourcesPerPath: 16,
+        // No persistSamples or persistMs: the validator must backfill defaults,
+        // or the first rate-exceeding step freezes the output forever.
+        paths: [{ path: 'p', minSources: 1, jumpRejection: { maxRate: 5 } }],
+      });
+      h.fire(delta(h.app.selfContext, 'a', 'p', 0));
+      // A genuine step: rejected at first, then re-accepted once it persists
+      // for DEFAULT_JUMP_PERSIST_SAMPLES near samples.
+      vi.setSystemTime(1000);
+      h.fire(delta(h.app.selfContext, 'a', 'p', 800));
+      vi.setSystemTime(2000);
+      h.fire(delta(h.app.selfContext, 'a', 'p', 805));
+      vi.setSystemTime(3000);
+      h.fire(delta(h.app.selfContext, 'a', 'p', 810));
+      const last = h.emitted[h.emitted.length - 1];
+      expect(last.updates[0].values[0].value).toBeGreaterThan(700);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('partial position is skipped for the cycle without crashing or emitting NaN', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
@@ -222,8 +318,8 @@ describe('plugin integration', () => {
     for (const ev of h.emitted) {
       const v = ev.updates[0].values[0].value;
       if (v && typeof v === 'object') {
-        expect(Number.isFinite((v as any).latitude)).toBe(true);
-        expect(Number.isFinite((v as any).longitude)).toBe(true);
+        expect(Number.isFinite((v as { latitude: number }).latitude)).toBe(true);
+        expect(Number.isFinite((v as { longitude: number }).longitude)).toBe(true);
       }
     }
   });
@@ -267,8 +363,8 @@ describe('plugin integration', () => {
     );
     const router = h.captureRouter(plugin);
     const res = h.routerGet(router, '/api/detected');
-    expect(res.paths.map((p: any) => p.path)).toContain('navigation.position');
-    const posRow = res.paths.find((p: any) => p.path === 'navigation.position');
+    expect(res.paths.map((p) => p.path)).toContain('navigation.position');
+    const posRow = res.paths.find((p) => p.path === 'navigation.position');
     expect(posRow.optedIn).toBe(false);
     // The detected kind is reported even for an un-configured path, not 'unknown'.
     expect(posRow.kind).toBe('position');
@@ -294,7 +390,7 @@ describe('plugin integration', () => {
     h.fire(delta(h.app.selfContext, 'gps2', 'navigation.gnss.satellites', 11));
     const router = h.captureRouter(plugin);
     const res = h.routerGet(router, '/api/detected');
-    const satRow = res.paths.find((p: any) => p.path === 'navigation.gnss.satellites');
+    const satRow = res.paths.find((p) => p.path === 'navigation.gnss.satellites');
     expect(satRow).toBeDefined();
     // It is a number (combinable), but averaging it across receivers is not
     // meaningful, so it is not recommended and carries an advisory.
@@ -385,7 +481,7 @@ describe('plugin integration', () => {
     expect(h.emitted.length).toBeGreaterThan(0);
     // setPluginStatus should have been called with a message containing 'disagree'
     const statusCalls = (h.app.setPluginStatus as ReturnType<typeof vi.fn>).mock.calls;
-    const disagreeCall = statusCalls.find((c: any[]) =>
+    const disagreeCall = statusCalls.find((c: unknown[]) =>
       String(c[0]).toLowerCase().includes('disagree')
     );
     expect(disagreeCall).toBeDefined();

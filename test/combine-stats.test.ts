@@ -18,6 +18,11 @@ describe('trimmedMean small N flooring', () => {
     expect(trimmedMean([0, 10, 12, 100], 0.25)).toBe(11));
   it('trimFraction=0 degenerates to mean', () =>
     expect(trimmedMean([1, 2, 3, 4], 0)).toBe(mean([1, 2, 3, 4])));
+  it('an out-of-range trimFraction on a direct call falls back to the full mean', () => {
+    // validateConfig keeps trimFraction inside [0, 0.5) for the app, so this
+    // guards direct callers of the exported helper only.
+    expect(trimmedMean([1, 2, 3], 0.6)).toBe(mean([1, 2, 3]));
+  });
 });
 
 describe('circularMeanRad', () => {

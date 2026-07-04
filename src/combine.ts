@@ -182,42 +182,60 @@ function linear(method: CombineMethod, xs: number[], trimFraction: number): numb
   return median(xs);
 }
 
-// Combine one set of angles, honoring the method, or return undefined when the
-// set is too scattered to trust (mean resultant length below R_MIN, or spread
-// beyond the threshold). Shared by the angular and attitude paths.
-function combineAngular(angles: number[], opts: CombineOptions): number | undefined {
+// Combine one set of angles, honoring the method. `value` is undefined when
+// the set is too scattered to trust (mean resultant length below R_MIN, or
+// spread beyond the threshold). The already-computed pairwise spread rides
+// along so the disagree check in combine() does not redo the O(n^2) loop.
+// Shared by the angular and attitude paths.
+function combineAngular(
+  angles: number[],
+  opts: CombineOptions
+): { value?: number; spread?: number } {
   const { mean: cm, R } = circularMeanRad(angles);
   // Skip the O(n^2) spread loop when R already gates the output.
-  if (R < R_MIN || maxCircularSpread(angles) > opts.angularSpreadThreshold) return undefined;
-  // 'mean' averages (splits the difference); the robust methods use the circular
-  // medoid so a lone off reading does not drag the result.
-  return opts.method === 'mean' ? cm : circularMedoid(angles);
+  if (R < R_MIN) return {};
+  const spread = maxCircularSpread(angles);
+  if (spread > opts.angularSpreadThreshold) return { spread };
+  // 'mean' averages (splits the difference); the robust methods both use the
+  // circular medoid so a lone off reading does not drag the result. There is
+  // no wrap-correct trimming, so 'median' and 'trimmedMean' are identical on
+  // angular paths and trimFraction has no effect here.
+  return { value: opts.method === 'mean' ? cm : circularMedoid(angles), spread };
 }
 
-// Returns { value, outcome } where value is undefined when the output diverged.
-// The union is intentional: angular, attitude, and position paths may decline to
-// produce a value. The caller owns usedSources and freshCount.
+// Returns { value, outcome, spread } where value is undefined when the output
+// diverged. The union is intentional: angular, attitude, and position paths
+// may decline to produce a value. `spread` is the max pairwise distance when
+// a kind already computed it (angular, attitude); the caller reuses it for
+// the disagree check instead of recomputing. The caller owns usedSources and
+// freshCount.
 function computeValue(
   values: SampleValue[],
   opts: CombineOptions
-): { value?: SampleValue; outcome: Outcome } {
+): { value?: SampleValue; outcome: Outcome; spread?: number | undefined } {
   if (opts.kind === 'angular') {
-    const value = combineAngular(values as number[], opts);
-    return value === undefined ? { outcome: 'diverged' } : { value, outcome: 'ok' };
+    const r = combineAngular(values as number[], opts);
+    return r.value === undefined
+      ? { outcome: 'diverged' }
+      : { value: r.value, outcome: 'ok', spread: r.spread };
   }
   if (opts.kind === 'attitude') {
     const atts = values as Attitude[];
     const out = {} as Attitude;
+    // The attitude pairwise distance is the max per-component angular
+    // distance, so the max over the per-axis spreads IS the pairwise spread.
+    let spread = 0;
     for (const c of ATTITUDE_COMPONENTS) {
-      const combined = combineAngular(
+      const r = combineAngular(
         atts.map((a) => a[c]),
         opts
       );
       // Suppress the whole attitude if any single axis is too scattered.
-      if (combined === undefined) return { outcome: 'diverged' };
-      out[c] = combined;
+      if (r.value === undefined) return { outcome: 'diverged' };
+      out[c] = r.value;
+      if (r.spread !== undefined && r.spread > spread) spread = r.spread;
     }
-    return { value: out, outcome: 'ok' };
+    return { value: out, outcome: 'ok', spread };
   }
   if (opts.kind === 'position') {
     const lats = (values as LatLon[]).map((v) => v.latitude);
@@ -264,7 +282,10 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
   }
   const usedSources = used.map((s) => s.sourceRef);
 
-  if (used.length === 0) {
+  // Rejection can whittle the used set below the configured minimum. Emitting
+  // then would present a thin consensus as fully corroborated, so suppress the
+  // value as a divergence.
+  if (used.length === 0 || used.length < opts.minSources) {
     return { usedSources, freshCount, outcome: 'diverged' };
   }
 
@@ -278,7 +299,9 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
   let outcome: Outcome = computed.outcome;
   let spread: number | undefined;
   if (opts.disagreeThreshold != null) {
-    spread = maxPairwiseDistance(opts.kind, usedValues);
+    // Angular and attitude kinds already computed the pairwise spread inside
+    // computeValue; only scalar and position pay for it here.
+    spread = computed.spread ?? maxPairwiseDistance(opts.kind, usedValues);
     if (spread > opts.disagreeThreshold) outcome = 'disagree';
   }
   const result: CombineResult = { value: computed.value, usedSources, freshCount, outcome };

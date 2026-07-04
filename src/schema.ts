@@ -3,6 +3,8 @@ import {
   ANGULAR_MODES_LIST,
   DEFAULT_ANGULAR_SPREAD_THRESHOLD,
   DEFAULT_EMIT_INTERVAL_MS,
+  DEFAULT_JUMP_PERSIST_MS,
+  DEFAULT_JUMP_PERSIST_SAMPLES,
   DEFAULT_MAD_THRESHOLD,
   DEFAULT_MAX_SOURCES_PER_PATH,
   DEFAULT_MIN_SOURCES,
@@ -34,13 +36,13 @@ export function buildSchema(detected: () => DetectedPath[]): object {
         default: DEFAULT_EMIT_INTERVAL_MS,
       },
       defaultMinSources: {
-        type: 'number',
+        type: 'integer',
         title: 'Default minimum sources',
         minimum: 1,
         default: DEFAULT_MIN_SOURCES,
       },
       maxSourcesPerPath: {
-        type: 'number',
+        type: 'integer',
         title: 'Maximum sources tracked per path',
         minimum: 1,
         default: DEFAULT_MAX_SOURCES_PER_PATH,
@@ -80,14 +82,14 @@ export function buildSchema(detected: () => DetectedPath[]): object {
               title: 'Absolute reject distance',
               description:
                 'Maximum distance from the median before a reading is rejected outright: meters for position, radians for angular paths, value units for scalars.',
-              minimum: 0,
+              exclusiveMinimum: 0,
             },
             disagreeThreshold: {
               type: 'number',
               title: 'Disagreement distance',
               description:
                 'If the spread between sources exceeds this value the synthetic output is flagged as disagreeing: meters for position, radians for angular paths, value units for scalars.',
-              minimum: 0,
+              exclusiveMinimum: 0,
             },
             angular: {
               type: 'string',
@@ -98,7 +100,7 @@ export function buildSchema(detected: () => DetectedPath[]): object {
               default: 'auto',
             },
             minSources: {
-              type: 'number',
+              type: 'integer',
               title: 'Minimum sources',
               description: 'Override the global minimum number of fresh sources required to emit.',
               minimum: 1,
@@ -119,18 +121,19 @@ export function buildSchema(detected: () => DetectedPath[]): object {
               type: 'number',
               title: 'Trim fraction (trimmedMean only, 0 to 0.5)',
               minimum: 0,
+              exclusiveMaximum: 0.5,
               default: DEFAULT_TRIM_FRACTION,
             },
             angularSpreadThreshold: {
               type: 'number',
               title: 'Angular spread threshold (radians, angular paths only)',
-              minimum: 0,
+              exclusiveMinimum: 0,
               default: DEFAULT_ANGULAR_SPREAD_THRESHOLD,
             },
             slewLimit: {
               type: 'number',
               title: 'Slew limit (max change per second, kind units)',
-              minimum: 0,
+              exclusiveMinimum: 0,
             },
             jumpRejection: {
               type: 'object',
@@ -141,17 +144,19 @@ export function buildSchema(detected: () => DetectedPath[]): object {
                 maxRate: {
                   type: 'number',
                   title: 'Max rate (kind units per second)',
-                  minimum: 0,
+                  exclusiveMinimum: 0,
                 },
                 persistSamples: {
-                  type: 'number',
+                  type: 'integer',
                   title: 'Samples a new level must persist',
                   minimum: 1,
+                  default: DEFAULT_JUMP_PERSIST_SAMPLES,
                 },
                 persistMs: {
                   type: 'number',
                   title: 'Milliseconds a new level must persist',
                   minimum: 0,
+                  default: DEFAULT_JUMP_PERSIST_MS,
                 },
               },
             },

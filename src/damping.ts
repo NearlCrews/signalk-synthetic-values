@@ -24,7 +24,9 @@ export interface JumpConfig {
 
 export interface JumpState {
   lastAccepted: { value: SampleValue; ts: number };
-  pending?: { value: SampleValue; ts: number; count: number };
+  // `ts` is the cluster origin (drives the persistMs check); `lastTs` is the
+  // most recent pending sample's timestamp (drives the per-step near check).
+  pending?: { value: SampleValue; ts: number; lastTs: number; count: number };
 }
 
 function rate(kind: Kind, a: SampleValue, b: SampleValue, dtMs: number): number {
@@ -47,13 +49,17 @@ export function applyJump(
     return { accepted: value, state: { lastAccepted: { value, ts } } };
   }
   // Candidate jump: track a pending level that must persist before acceptance.
+  // The near check uses the per-step rate: distance from the last pending
+  // sample over time since THAT sample (lastTs). Dividing by time since the
+  // cluster origin would grow ever more lenient as the cluster ages, letting a
+  // drift faster than maxRate be accepted as a persisted level.
   const near =
     state.pending !== undefined &&
-    rate(kind, state.pending.value, value, ts - state.pending.ts) <= cfg.maxRate;
+    rate(kind, state.pending.value, value, ts - state.pending.lastTs) <= cfg.maxRate;
   const pending =
     near && state.pending !== undefined
-      ? { value, ts: state.pending.ts, count: state.pending.count + 1 }
-      : { value, ts, count: 1 };
+      ? { value, ts: state.pending.ts, lastTs: ts, count: state.pending.count + 1 }
+      : { value, ts, lastTs: ts, count: 1 };
   const persisted = pending.count >= cfg.persistSamples || ts - pending.ts >= cfg.persistMs;
   if (persisted) {
     return { accepted: value, state: { lastAccepted: { value, ts } } };
@@ -96,9 +102,15 @@ export function applySlew(
     const b = value as LatLon;
     // a === state.value and b === value, so the over-limit distance is `d`; reuse it.
     const f = maxStep / d;
+    // Wrap the longitude delta into [-180, 180) so a step across the
+    // antimeridian moves the short way around. The lat/lon-space lerp is an
+    // approximation of the geodesic; per-second slew steps are small, so the
+    // error only matters within a fraction of a degree of the poles.
+    const dLon = (((b.longitude - a.longitude + 540) % 360) + 360) % 360;
+    const lon = a.longitude + f * (dLon - 180);
     limited = {
       latitude: a.latitude + f * (b.latitude - a.latitude),
-      longitude: a.longitude + f * (b.longitude - a.longitude),
+      longitude: ((((lon + 540) % 360) + 360) % 360) - 180,
     };
   } else if (kind === 'angular') {
     limited = stepAngle(state.value as number, value as number, maxStep);
