@@ -35,14 +35,26 @@ describe('classify', () => {
     ).toBe('attitude');
   });
   it('a non-position non-attitude object is other', () => {
-    expect(classify('navigation.foo', { foo: 1 } as any, 'auto', none, 'vessels.self')).toBe(
-      'other'
-    );
+    expect(
+      classify(
+        'navigation.foo',
+        { foo: 1 } as unknown as Parameters<typeof classify>[1],
+        'auto',
+        none,
+        'vessels.self'
+      )
+    ).toBe('other');
   });
   it('string value is other', () => {
-    expect(classify('navigation.state', 'sailing' as any, 'auto', none, 'vessels.self')).toBe(
-      'other'
-    );
+    expect(
+      classify(
+        'navigation.state',
+        'sailing' as unknown as Parameters<typeof classify>[1],
+        'auto',
+        none,
+        'vessels.self'
+      )
+    ).toBe('other');
   });
 });
 

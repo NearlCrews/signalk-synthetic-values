@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CombineResult, Outcome } from '../src/combine';
 import { aggregateStatus, pathStatus } from '../src/status';
 
-const res = (outcome: any, n = 3, spread?: number): CombineResult => ({
+const res = (outcome: Outcome, n = 3, spread?: number): CombineResult => ({
   outcome,
   usedSources: [],
   freshCount: n,
