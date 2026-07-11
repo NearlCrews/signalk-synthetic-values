@@ -15,13 +15,22 @@ import { SourceChecklist } from './SourceChecklist.js';
 // parse-or-clear skeleton lives in one place.
 function parseNumericInput(
   raw: string,
-  opts: { min: number; integer?: boolean; exclusiveMin?: boolean }
+  opts: {
+    min: number;
+    max?: number;
+    integer?: boolean;
+    exclusiveMin?: boolean;
+    exclusiveMax?: boolean;
+  }
 ): number | undefined | null {
   if (raw.trim() === '') return undefined;
   const n = Number(raw);
   const belowBound = opts.exclusiveMin ? n <= opts.min : n < opts.min;
-  if (!Number.isFinite(n) || belowBound) return null;
-  return opts.integer ? Math.trunc(n) : n;
+  const aboveBound = opts.max !== undefined && (opts.exclusiveMax ? n >= opts.max : n > opts.max);
+  if (!Number.isFinite(n) || belowBound || aboveBound || (opts.integer && !Number.isInteger(n))) {
+    return null;
+  }
+  return n;
 }
 
 // Labeled <select> over a fixed choice list. Collapses the duplicated
@@ -140,6 +149,7 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
           id={minSourcesId}
           type="number"
           min={1}
+          step={1}
           style={S.input}
           value={draftMinSources ?? ''}
           placeholder={`default: ${defaults.minSources}`}
@@ -214,6 +224,10 @@ interface NumberFieldProps {
   value: number | undefined;
   placeholder: string;
   fieldKey: NumericKey;
+  min?: number | undefined;
+  max?: number | undefined;
+  exclusiveMin?: boolean | undefined;
+  exclusiveMax?: boolean | undefined;
   onChange: (patch: RawPathConfigPatch) => void;
 }
 
@@ -224,6 +238,10 @@ const NumberField = memo(function NumberField({
   value,
   placeholder,
   fieldKey,
+  min = 0,
+  max,
+  exclusiveMin = false,
+  exclusiveMax = false,
   onChange,
 }: NumberFieldProps): React.ReactElement {
   return (
@@ -234,7 +252,9 @@ const NumberField = memo(function NumberField({
       <input
         id={id}
         type="number"
-        min={0}
+        min={min}
+        max={max}
+        step="any"
         aria-label={ariaLabel}
         style={S.input}
         value={value ?? ''}
@@ -242,7 +262,12 @@ const NumberField = memo(function NumberField({
         onChange={(e) => {
           // Negatives are rejected by validateConfig (positive/nonNegative);
           // do not send them so the panel and plugin agree.
-          const parsed = parseNumericInput(e.target.value, { min: 0 });
+          const parsed = parseNumericInput(e.target.value, {
+            min,
+            ...(max !== undefined ? { max } : {}),
+            exclusiveMin,
+            exclusiveMax,
+          });
           if (parsed !== null) onChange({ [fieldKey]: parsed });
         }}
       />
@@ -283,6 +308,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.rejectThreshold}
         placeholder="not set"
         fieldKey="rejectThreshold"
+        exclusiveMin
         onChange={onChange}
       />
       <NumberField
@@ -292,6 +318,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.disagreeThreshold}
         placeholder="not set"
         fieldKey="disagreeThreshold"
+        exclusiveMin
         onChange={onChange}
       />
       <NumberField
@@ -301,6 +328,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.angularSpreadThreshold}
         placeholder="default: π/2"
         fieldKey="angularSpreadThreshold"
+        exclusiveMin
         onChange={onChange}
       />
       <NumberField
@@ -310,6 +338,8 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.trimFraction}
         placeholder="default: 0.25"
         fieldKey="trimFraction"
+        max={0.5}
+        exclusiveMax
         onChange={onChange}
       />
 
@@ -362,6 +392,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.slewLimit}
         placeholder="disabled"
         fieldKey="slewLimit"
+        exclusiveMin
         onChange={onChange}
       />
       <NumberField
@@ -371,6 +402,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.stalenessTimeoutMs}
         placeholder={`default: ${defaults.stalenessTimeoutMs}`}
         fieldKey="stalenessTimeoutMs"
+        exclusiveMin
         onChange={onChange}
       />
       <NumberField

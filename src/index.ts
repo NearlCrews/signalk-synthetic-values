@@ -9,7 +9,7 @@ import type { CombineOptions, Outcome, Sample } from './combine';
 import { combine } from './combine';
 import type { PathConfig, PluginOptions } from './config';
 import { DEFAULT_MAX_SOURCES_PER_PATH, validateConfig } from './config';
-import type { JumpState, SlewState } from './damping';
+import type { JumpConfig, JumpState, SlewState } from './damping';
 import { applyJump, applySlew } from './damping';
 import type { DetectedPath } from './discovery';
 import { Discovery } from './discovery';
@@ -159,13 +159,32 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     lastStatus = '';
   }
 
-  function damped(
-    path: string,
-    cfg: PathConfig,
+  function dampSample(
     kind: Kind,
-    samples: Sample[],
-    now: number
-  ): Sample[] {
+    state: Map<string, JumpState>,
+    sample: Sample,
+    jumpConfig: JumpConfig
+  ): void {
+    const receiptTs = sample.receiptTs;
+    const observationId = sample.observationId;
+    const previous = state.get(sample.sourceRef);
+    if (observationId !== undefined && previous?.lastProcessedObservationId === observationId) {
+      sample.value = previous.lastAccepted.value;
+      return;
+    }
+    const result = applyJump(
+      kind,
+      previous,
+      sample.value,
+      receiptTs ?? systemClock.now(),
+      jumpConfig
+    );
+    if (observationId !== undefined) result.state.lastProcessedObservationId = observationId;
+    state.set(sample.sourceRef, result.state);
+    sample.value = result.accepted;
+  }
+
+  function damped(path: string, cfg: PathConfig, kind: Kind, samples: Sample[]): Sample[] {
     const jumpConfig = cfg.jumpRejection;
     if (!jumpConfig) return samples;
     let perSource = jumpState.get(path);
@@ -174,13 +193,13 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       jumpState.set(path, perSource);
     }
     const state = perSource;
+    const currentSources = new Set(samples.map((sample) => sample.sourceRef));
+    for (const sourceRef of state.keys()) {
+      if (!currentSources.has(sourceRef)) state.delete(sourceRef);
+    }
     // samples come fresh from registry.fresh() on every call, so mutating each
     // value in place is safe and avoids allocating a new array of new objects.
-    for (const s of samples) {
-      const r = applyJump(kind, state.get(s.sourceRef), s.value, now, jumpConfig);
-      state.set(s.sourceRef, r.state);
-      s.value = r.accepted;
-    }
+    for (const sample of samples) dampSample(kind, state, sample, jumpConfig);
     return samples;
   }
 
@@ -206,7 +225,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
 
     const now = systemClock.now();
     samples = selectSources(samples, cfg);
-    samples = damped(path, cfg, kind, samples, now);
+    samples = damped(path, cfg, kind, samples);
 
     const opts: CombineOptions = {
       kind,
@@ -249,15 +268,19 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     src: string,
     cat: ValueCategory
   ): void {
-    if (!isCombinableCategory(cat)) return;
-    discovery.observe(pv.path, src, pv.value as SampleValue);
-    if (detectedKind.has(pv.path)) return;
-    detectedKind.set(
-      pv.path,
-      classify(pv.path, pv.value as SampleValue, 'auto', getUnits, selfContext)
-    );
-    // A newly discovered path changes the "N detected" count shown while no
-    // paths are configured; refresh (deduped) so that message stays current.
+    if (cat === 'invalid') return;
+    const combinable = isCombinableCategory(cat);
+    discovery.observe(pv.path, src, combinable ? (pv.value as SampleValue) : undefined);
+    if (!combinable) {
+      detectedKind.set(pv.path, 'other');
+    } else if (!detectedKind.has(pv.path) || detectedKind.get(pv.path) === 'other') {
+      detectedKind.set(
+        pv.path,
+        classify(pv.path, pv.value as SampleValue, 'auto', getUnits, selfContext)
+      );
+    }
+    // Source membership can change the "N detected" count shown while no paths
+    // are configured; refresh (deduped) so that message stays current.
     if (byPath.size === 0) refreshStatus();
   }
 
@@ -271,6 +294,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       if (!classification.has(pv.path)) {
         classification.set(pv.path, 'other');
         skipped.push({ path: pv.path, reason: NON_COMBINABLE_REASON });
+        refreshStatus();
       }
       return;
     }

@@ -9,17 +9,16 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.2.0
+## What's new in 0.3.0
 
-Correctness and robustness release, from a codebase-wide audit.
+Correctness and configuration-safety release following a full repository review.
 
-- **Combining fixes.** A path no longer stays dead after one bad text sample, a partial `jumpRejection` config no longer freezes the damped value, the jump "near" check uses the true per-step rate, outlier rejection can no longer report a fully corroborated combine after dropping below `minSources`, and position slew limiting crosses the antimeridian the short way.
-- **Config hardening.** The admin form and the validator now agree everywhere (exclusive minimums, integer source counts, a bounded `trimFraction`), `madThreshold` is validated, and a hand-edited config missing the global defaults falls back to the shipped defaults instead of erroring every path.
-- **Panel robustness.** A failed save is surfaced with a Retry banner instead of being silently marked saved, a failed poll keeps the list mounted below the error banner, overlapping requests can no longer overwrite fresher data, and a save echo no longer wipes in-flight edits.
-- **More circular paths.** `environment.wind.directionTrue`, `environment.wind.directionMagnetic`, and `navigation.headingCompass` combine correctly under `angular: auto`.
-- **Theme and a11y polish.** WCAG AA accent contrast in light and dark themes, hover feedback that is visible in dark and night, focus management on "Combine all", and screen-reader announcements for manual refresh.
+- **Correct jump confirmation.** Jump rejection counts only new observations from the affected source. Cached readings revisited because another source emitted cannot confirm a one-off spike.
+- **Safe configuration writes.** The panel enforces the runtime validator's numeric bounds and serializes saves so an older request cannot overwrite a newer change.
+- **Manageable offline paths.** Configured paths stay visible while sensors are offline or discovery is rebuilding, so they can still be tuned or removed.
+- **Accurate live discovery.** Text and unsupported object paths are reported as non-combinable, stopped sources age out after one minute, and recovered numeric paths are reclassified automatically.
 
-See the [v0.2.0 changelog entry](CHANGELOG.md#v020), or the [full changelog](CHANGELOG.md).
+See the [v0.3.0 changelog entry](CHANGELOG.md#v030), or the [full changelog](CHANGELOG.md).
 
 ## Why you'd want this
 
@@ -39,7 +38,7 @@ The plugin handles four value kinds:
 
 - **Scalar:** standard numeric combining. Median is robust; trimmed mean and mean are available. Whole-source outlier rejection uses scaled MAD at four or more sources, and a configured `rejectThreshold` at smaller N.
 - **Angular:** headings, bearings, and any path with radian units. Combines without the 0/360-degree wrap artifact, honoring the `method` setting: `median` (the default) uses the circular medoid, the reading closest to the others, so one off compass cannot drag the result; `mean` uses the circular mean. Suppresses the synthetic value when the circular pairwise spread exceeds `angularSpreadThreshold`, so a sensor pointing 180 degrees from the rest does not produce a meaningless average.
-- **Position:** latitude/longitude pairs. Combines to the geodesic centroid and applies per-source distance-based outlier rejection so a phantom GPS fix does not drag the result.
+- **Position:** latitude/longitude pairs. Combines latitude with the selected linear statistic (median, trimmed mean, or mean) and longitude with an antimeridian-safe circular mean, then applies per-source geodesic-distance outlier rejection so a phantom GPS fix does not drag the result.
 - **Attitude:** the `navigation.attitude` object, with roll, pitch, and yaw combined independently as angular components. A source whose attitude is off on any axis is rejected, and the synthetic value is suppressed if any axis is too scattered. This is the Signal K way to fuse several motion sensors into one attitude, then prefer it by source priority, the same outcome as selecting a source on a Garmin display.
 
 A staleness timeout excludes sources that have not sent a fresh reading within the configured window, so a sensor that goes quiet does not silently anchor the average.
@@ -69,14 +68,16 @@ In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic V
 
 ### Configuration panel
 
-Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, kind badge (scalar, angular, attitude, or position), and the source names as chips.
+Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, a kind badge, and the source names as chips. Combinable values are classified as scalar, angular, attitude, or position; unsupported values show as other, and configured paths awaiting live data show as unknown.
+
+Sources that stop reporting age out of the detected list after one minute. Configured paths remain visible while offline, so they can still be tuned or removed while discovery is rebuilding.
 
 - **Combine** opts a single path in immediately with default settings.
 - **Combine all** opts in every recommended path at once, with a confirmation step before writing. It skips paths that are detected but not meaningful to average (see below).
 - **Remove** takes a path back out of combining.
 - **Tune** (per opted-in path) opens a settings panel with: the combining method (median, trimmed mean, or mean), minimum sources, and a per-source include/exclude checklist. An **Advanced** sub-section exposes MAD threshold, reject threshold, disagree threshold, angular spread threshold, trim fraction, angular override, jump rejection max rate, slew limit, staleness timeout, and emit interval.
 
-Paths that are detected but not meaningful to average are grouped under **Detected but not recommended**. This covers two cases: values that are not numbers or positions (text and objects, which cannot be averaged at all), and GNSS fix metadata that describes a single receiver's solution rather than a measured quantity (the satellite count, dilution of precision, and differential-correction age and reference). A plotter shows those so you can judge the fix it is using, but averaging them across receivers is not meaningful, so they are kept out of "Combine all". You can still combine one by hand if you have a reason to.
+Paths that are detected but not meaningful to average are grouped under **Detected but not recommended**. This covers two cases: values that are not supported combinable shapes (text and other objects, which cannot be averaged), and numeric GNSS fix metadata that describes a single receiver's solution rather than a measured quantity (the satellite count, dilution of precision, and differential-correction age and reference). A plotter shows GNSS metadata so you can judge the fix it is using, but averaging it across receivers is not meaningful, so it is kept out of "Combine all". You can still combine numeric GNSS metadata by hand if you have a reason to; text and unsupported objects remain disabled.
 
 When two or more sources report identical values while the value is changing, the panel flags them as likely the same feed re-broadcast (for example a GPS forwarded by an autopilot under a second source name). Re-broadcast sources are not independent, so counting each one dilutes the combined value toward that single feed. The panel names the duplicates and suggests excluding all but one in the path's **Tune** section; it never excludes a source for you, since identical values can also be legitimate.
 
@@ -101,7 +102,7 @@ Add one entry to **Paths to combine** for each path you want to opt in. The drop
 |--------|---------|-------------|
 | `path` | required | The Signal K path to combine. |
 | `method` | `median` | Combining method: `median`, `trimmedMean`, or `mean`. For angular paths, `mean` uses the circular mean; `median` and `trimmedMean` use the circular medoid (the reading closest to the others). |
-| `trimFraction` | `0.25` | Fraction trimmed from each end when using `trimmedMean`. Falls back to median or mean at small N. |
+| `trimFraction` | `0.25` | Fraction in the range `[0, 0.5)` trimmed from each end when using `trimmedMean`. Falls back to median or mean at small N. |
 | `outlierRejection` | `true` | Reject whole-source outliers before combining. |
 | `madThreshold` | `3` | Sigma-equivalent multiplier for scaled-MAD outlier rejection when N is 4 or more. |
 | `rejectThreshold` | unset | Absolute rejection distance in kind units: meters for position, radians for angular, and value units for scalar. Used at small N or when the robust scale is degenerate. |
@@ -144,7 +145,7 @@ For the per-path detail behind those counts (which path is waiting, the exact sp
 
 ## Development
 
-This project targets Node 20.18 or newer with TypeScript 6 (development only) and `@signalk/server-api` 2.24 or newer.
+This project targets Node 20.18 or newer with TypeScript 6 and `@signalk/server-api` 2.30 for development. The published peer dependency supports `@signalk/server-api` 2.24 or newer.
 
 ```bash
 git clone https://github.com/NearlCrews/signalk-synthetic-values.git

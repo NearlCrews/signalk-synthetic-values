@@ -19,10 +19,12 @@ export interface DetectedPath {
 // fast sensors while still spanning several seconds of motion.
 const HISTORY = 8;
 const SAMPLE_MS = 1000;
+export const DISCOVERY_SOURCE_TIMEOUT_MS = 60_000;
 
 interface SourceHist {
   ring: string[];
   lastSampledAt: number;
+  lastSeen: number;
 }
 
 interface Entry {
@@ -79,9 +81,10 @@ export class Discovery {
     }
     let hist = entry.sources.get(sourceRef);
     if (!hist) {
-      hist = { ring: [], lastSampledAt: Number.NEGATIVE_INFINITY };
+      hist = { ring: [], lastSampledAt: Number.NEGATIVE_INFINITY, lastSeen: now };
       entry.sources.set(sourceRef, hist);
     }
+    hist.lastSeen = now;
     // Throttle history sampling so the key string is built at most once per
     // SAMPLE_MS per source, not on every delta.
     if (value !== undefined && now - hist.lastSampledAt >= SAMPLE_MS) {
@@ -100,6 +103,7 @@ export class Discovery {
   // Number of paths seen with two or more sources, without building the
   // duplicate-group analysis. Cheap enough for the status path.
   count(): number {
+    this.pruneStaleSources();
     let n = 0;
     for (const entry of this.store.values()) {
       if (entry.sources.size >= 2) n++;
@@ -108,6 +112,7 @@ export class Discovery {
   }
 
   detected(): DetectedPath[] {
+    this.pruneStaleSources();
     const out: DetectedPath[] = [];
     for (const [path, entry] of this.store) {
       if (entry.sources.size >= 2) {
@@ -123,5 +128,15 @@ export class Discovery {
 
   reset(): void {
     this.store.clear();
+  }
+
+  private pruneStaleSources(): void {
+    const cutoff = this.clock.now() - DISCOVERY_SOURCE_TIMEOUT_MS;
+    for (const [path, entry] of this.store) {
+      for (const [sourceRef, hist] of entry.sources) {
+        if (hist.lastSeen <= cutoff) entry.sources.delete(sourceRef);
+      }
+      if (entry.sources.size === 0) this.store.delete(path);
+    }
   }
 }

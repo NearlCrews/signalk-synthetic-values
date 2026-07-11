@@ -194,6 +194,28 @@ describe('PluginConfigurationPanel', () => {
     });
   });
 
+  it('serializes saves so a newer write cannot complete before an older one', async () => {
+    let resolveFirst: (() => void) | undefined;
+    const first = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const mockSave = vi
+      .fn()
+      .mockImplementationOnce(() => first)
+      .mockResolvedValue(undefined);
+    render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
+    await waitFor(() => expect(screen.getByText(availablePath)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /^combine$/i }));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getAllByRole('button', { name: /remove/i })[0] as HTMLElement);
+    await Promise.resolve();
+    expect(mockSave).toHaveBeenCalledTimes(1);
+
+    resolveFirst?.();
+    await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(2));
+  });
+
   it('a no-change tuning edit does not call save after the debounce fires', async () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));

@@ -323,13 +323,35 @@ export function DetectedPathList({
   const prevCountRef = useRef<number | null>(null);
   const [announcement, setAnnouncement] = useState('');
 
+  // Merge live detection with saved configuration. A configured path must stay
+  // manageable while its sensors are offline or discovery is rebuilding after
+  // a plugin restart.
+  const rows = useMemo(() => {
+    const merged = [...detected];
+    const livePaths = new Set(detected.map((row) => row.path));
+    for (const path of configByPath.keys()) {
+      if (!livePaths.has(path)) {
+        merged.push({
+          path,
+          sources: [],
+          kind: 'unknown',
+          optedIn: true,
+          combinable: true,
+          recommended: true,
+          advisory: 'Waiting for live sources to report this configured path.',
+        });
+      }
+    }
+    return merged;
+  }, [detected, configByPath]);
+
   // Partition and sort rows. Memoized so unrelated re-renders (an announcement
   // tick) do not re-bucket the whole list.
   const { combinableNotYetConfigured, combinedRows, nonCombinableRows } = useMemo(() => {
     const notYet: DetectedRow[] = [];
     const combined: DetectedRow[] = [];
     const notRecommended: DetectedRow[] = [];
-    for (const row of detected) {
+    for (const row of rows) {
       if (row.recommended === false || row.kind === 'other') notRecommended.push(row);
       else if (configByPath.has(row.path)) combined.push(row);
       else notYet.push(row);
@@ -341,7 +363,7 @@ export function DetectedPathList({
       combinedRows: combined,
       nonCombinableRows: notRecommended,
     };
-  }, [detected, configByPath]);
+  }, [rows, configByPath]);
 
   // Total count for the live-region announcement.
   const totalCount = detected.length;
@@ -382,7 +404,7 @@ export function DetectedPathList({
           in-progress edits, and focus on a transient blip. */}
       {error !== null && <ErrorBanner error={error} onRefresh={handleRefresh} />}
 
-      {detected.length > 0 ? (
+      {rows.length > 0 ? (
         <>
           {/* Combine all bar: only the recommended, not-yet-configured rows. */}
           <CombineAllBar rows={combinableNotYetConfigured} onAddAll={onAddAll} />

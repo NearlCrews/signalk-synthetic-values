@@ -238,6 +238,63 @@ describe('plugin integration', () => {
     expect(lastStatus).not.toContain('non-combinable');
   });
 
+  it('detects a multi-source text path and reports it as non-combinable', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    const router = h.captureRouter(plugin);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [],
+    });
+    h.fire(delta(h.app.selfContext, 'a', 'vessel.name', 'Alpha'));
+    h.fire(delta(h.app.selfContext, 'b', 'vessel.name', 'Alpha'));
+    expect(h.routerGet(router, '/api/detected').paths).toEqual([
+      expect.objectContaining({
+        path: 'vessel.name',
+        kind: 'other',
+        combinable: false,
+        recommended: false,
+      }),
+    ]);
+  });
+
+  it('updates detected kind when a text path starts reporting numbers', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    const router = h.captureRouter(plugin);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [],
+    });
+    h.fire(delta(h.app.selfContext, 'a', 'p', 'bad'));
+    h.fire(delta(h.app.selfContext, 'b', 'p', 'bad'));
+    h.fire(delta(h.app.selfContext, 'a', 'p', 1));
+    h.fire(delta(h.app.selfContext, 'b', 'p', 2));
+    expect(h.routerGet(router, '/api/detected').paths[0]).toEqual(
+      expect.objectContaining({ kind: 'scalar', combinable: true })
+    );
+  });
+
+  it('refreshes status immediately when a configured path becomes non-combinable', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p' }],
+    });
+    h.fire(delta(h.app.selfContext, 'a', 'p', 'bad'));
+    expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(expect.stringContaining('skipped: p'));
+  });
+
   it('config advisories do not mark the path as skipped in the status line', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
@@ -462,6 +519,39 @@ describe('plugin integration', () => {
     const afterSpike = h.emitted[h.emitted.length - 1]?.updates[0].values[0].value as number;
     // applyJump holds 'a' at its last accepted (10); median of [10, 10] = 10
     expect(afterSpike).toBe(10);
+  });
+
+  it('jumpRejection does not count cached values replayed by other source updates', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const h = makeApp();
+      const plugin = PluginFactory(h.app);
+      plugin.start({
+        defaultStalenessTimeoutMs: 10000,
+        defaultEmitMinIntervalMs: 0,
+        defaultMinSources: 1,
+        maxSourcesPerPath: 16,
+        paths: [
+          {
+            path: 'p',
+            includeSources: ['a'],
+            jumpRejection: { maxRate: 5, persistSamples: 3, persistMs: 100000 },
+          },
+        ],
+      });
+      h.fire(delta(h.app.selfContext, 'a', 'p', 0));
+      vi.setSystemTime(1000);
+      h.fire(delta(h.app.selfContext, 'a', 'p', 100));
+      vi.setSystemTime(2000);
+      h.fire(delta(h.app.selfContext, 'excluded', 'p', 1));
+      vi.setSystemTime(3000);
+      h.fire(delta(h.app.selfContext, 'excluded', 'p', 2));
+      const values = h.emitted.map((d) => d.updates[0]?.values[0]?.value);
+      expect(values).toEqual([0, 0, 0, 0]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('disagreeThreshold: result fires but outcome reflects disagreement', () => {

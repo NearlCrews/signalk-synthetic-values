@@ -66,14 +66,15 @@ export function buildSchema(detected: () => DetectedPath[]): object {
             outlierRejection: {
               type: 'boolean',
               title: 'Outlier rejection',
-              description: 'Drop readings that deviate too far from the median before combining.',
+              description:
+                'Drop readings that deviate too far from the robust, kind-aware center before combining.',
               default: true,
             },
             madThreshold: {
               type: 'number',
               title: 'MAD threshold',
               description:
-                'Number of median absolute deviations a reading may differ before being treated as an outlier.',
+                'Scaled-MAD multiplier for distances from the robust, kind-aware center.',
               minimum: 0,
               default: DEFAULT_MAD_THRESHOLD,
             },
@@ -81,7 +82,7 @@ export function buildSchema(detected: () => DetectedPath[]): object {
               type: 'number',
               title: 'Absolute reject distance',
               description:
-                'Maximum distance from the median before a reading is rejected outright: meters for position, radians for angular paths, value units for scalars.',
+                'Maximum distance from the robust, kind-aware center before a reading is rejected outright: meters for position, radians for angular paths, value units for scalars.',
               exclusiveMinimum: 0,
             },
             disagreeThreshold: {
@@ -119,7 +120,7 @@ export function buildSchema(detected: () => DetectedPath[]): object {
             },
             trimFraction: {
               type: 'number',
-              title: 'Trim fraction (trimmedMean only, 0 to 0.5)',
+              title: 'Trim fraction (trimmedMean only, [0, 0.5))',
               minimum: 0,
               exclusiveMaximum: 0.5,
               default: DEFAULT_TRIM_FRACTION,

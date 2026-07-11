@@ -91,6 +91,9 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
 
   // Save failure surface: null while saves succeed, a message after a failure.
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Serialize writes so an older request can never finish after a newer one and
+  // overwrite its configuration or saved-state baseline.
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   // Write actions: mutate form state then immediately persist.
   // React state updates are asynchronous, so next-state is computed
@@ -101,18 +104,21 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
   // gate would otherwise swallow the retry), and surface the error.
   const saveWithBaseline = useCallback(
     (next: PluginOptions, onSaved?: () => void): void => {
-      const prevSaved = savedOptionsRef.current;
-      savedOptionsRef.current = next;
-      void Promise.resolve()
-        .then(() => save(next))
-        .then(() => {
+      const run = async (): Promise<void> => {
+        const prevSaved = savedOptionsRef.current;
+        // Advance optimistically so a host echo delivered before save() settles
+        // is recognized as our own write and does not wipe newer local edits.
+        savedOptionsRef.current = next;
+        try {
+          await save(next);
           setSaveError(null);
           onSaved?.();
-        })
-        .catch(() => {
+        } catch {
           savedOptionsRef.current = prevSaved;
           setSaveError('Could not save the configuration.');
-        });
+        }
+      };
+      saveQueueRef.current = saveQueueRef.current.then(run, run);
     },
     [save]
   );

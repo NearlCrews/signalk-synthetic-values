@@ -104,6 +104,27 @@ describe('DetectedPathList: empty state', () => {
     );
     expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument();
   });
+
+  it('keeps a configured path visible while it has no detected sources', () => {
+    render(
+      createElement(DetectedPathList, {
+        detected: [],
+        configByPath: mapOf('navigation.offlinePath'),
+        onAdd: vi.fn(),
+        onAddAll: vi.fn(),
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+        lastChecked: null,
+        loading: false,
+        error: null,
+        onRefresh: vi.fn(),
+      })
+    );
+    expect(screen.getByText('navigation.offlinePath')).toBeInTheDocument();
+    expect(screen.getByText(/waiting for live sources/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument();
+    expect(screen.queryByText(/no duplicate paths detected yet/i)).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

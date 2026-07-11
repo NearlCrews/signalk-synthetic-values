@@ -24,6 +24,11 @@ export interface JumpConfig {
 
 export interface JumpState {
   lastAccepted: { value: SampleValue; ts: number };
+  // Receipt time of the last source observation processed. Cached registry
+  // values are revisited whenever another source triggers a combine, and must
+  // not count again toward persistence.
+  lastProcessedTs: number;
+  lastProcessedObservationId?: number;
   // `ts` is the cluster origin (drives the persistMs check); `lastTs` is the
   // most recent pending sample's timestamp (drives the per-step near check).
   pending?: { value: SampleValue; ts: number; lastTs: number; count: number };
@@ -42,11 +47,11 @@ export function applyJump(
   cfg: JumpConfig
 ): { accepted: SampleValue; state: JumpState } {
   if (!state) {
-    return { accepted: value, state: { lastAccepted: { value, ts } } };
+    return { accepted: value, state: { lastAccepted: { value, ts }, lastProcessedTs: ts } };
   }
   const r = rate(kind, state.lastAccepted.value, value, ts - state.lastAccepted.ts);
   if (r <= cfg.maxRate) {
-    return { accepted: value, state: { lastAccepted: { value, ts } } };
+    return { accepted: value, state: { lastAccepted: { value, ts }, lastProcessedTs: ts } };
   }
   // Candidate jump: track a pending level that must persist before acceptance.
   // The near check uses the per-step rate: distance from the last pending
@@ -62,11 +67,11 @@ export function applyJump(
       : { value, ts, lastTs: ts, count: 1 };
   const persisted = pending.count >= cfg.persistSamples || ts - pending.ts >= cfg.persistMs;
   if (persisted) {
-    return { accepted: value, state: { lastAccepted: { value, ts } } };
+    return { accepted: value, state: { lastAccepted: { value, ts }, lastProcessedTs: ts } };
   }
   return {
     accepted: state.lastAccepted.value,
-    state: { lastAccepted: state.lastAccepted, pending },
+    state: { lastAccepted: state.lastAccepted, lastProcessedTs: ts, pending },
   };
 }
 

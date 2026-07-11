@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Discovery } from '../src/discovery';
+import { DISCOVERY_SOURCE_TIMEOUT_MS, Discovery } from '../src/discovery';
 import { fakeClock } from './helpers';
 
 describe('Discovery', () => {
@@ -26,6 +26,17 @@ describe('Discovery', () => {
     d.observe('q', 'a');
     d.observe('q', 'b');
     expect(d.count()).toBe(2);
+  });
+  it('expires sources that have stopped reporting', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c);
+    d.observe('p', 'a');
+    d.observe('p', 'b');
+    c.set(DISCOVERY_SOURCE_TIMEOUT_MS - 1);
+    d.observe('p', 'a');
+    c.set(DISCOVERY_SOURCE_TIMEOUT_MS);
+    expect(d.detected()).toEqual([]);
+    expect(d.count()).toBe(0);
   });
 });
 

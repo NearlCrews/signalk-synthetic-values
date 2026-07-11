@@ -16,6 +16,7 @@ describe('Registry', () => {
         .map((s) => s.sourceRef)
         .sort()
     ).toEqual(['a', 'b']);
+    expect(r.fresh('p', 1000)[0]?.receiptTs).toBe(0);
   });
   it('drops a stale source', () => {
     const c = fakeClock(0);

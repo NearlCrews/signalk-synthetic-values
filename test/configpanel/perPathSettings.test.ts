@@ -218,6 +218,37 @@ describe('PerPathSettings', () => {
     expect(onChange).toHaveBeenCalledWith({ madThreshold: 2.5 });
   });
 
+  it('rejects panel values that the runtime validator would reject', () => {
+    const onChange = vi.fn();
+    const { getByText, getByLabelText } = render(
+      createElement(PerPathSettings, { row, config, onChange, idPrefix })
+    );
+    fireEvent.click(getByText(/advanced/i));
+    for (const label of [
+      /reject threshold/i,
+      /disagree threshold/i,
+      /angular spread threshold/i,
+      /slew limit/i,
+      /staleness timeout/i,
+    ]) {
+      onChange.mockClear();
+      fireEvent.change(getByLabelText(label), { target: { value: '0' } });
+      expect(onChange).not.toHaveBeenCalled();
+    }
+    onChange.mockClear();
+    fireEvent.change(getByLabelText(/trim fraction/i), { target: { value: '0.5' } });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('rejects a fractional minimum source count instead of truncating it', () => {
+    const onChange = vi.fn();
+    const { getByLabelText } = render(
+      createElement(PerPathSettings, { row, config, onChange, idPrefix })
+    );
+    fireEvent.change(getByLabelText(/minimum sources/i), { target: { value: '2.5' } });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('minSources placeholder shows the resolved default value', () => {
     const { getByLabelText } = render(
       createElement(PerPathSettings, { row, config, onChange: vi.fn(), idPrefix })

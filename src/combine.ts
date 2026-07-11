@@ -151,6 +151,10 @@ export type Outcome =
 export interface Sample {
   sourceRef: string;
   value: SampleValue;
+  /** Receipt time of the source observation, when supplied by the runtime registry. */
+  receiptTs?: number;
+  /** Monotonic registry identity, used to distinguish observations received in the same millisecond. */
+  observationId?: number;
 }
 
 export interface CombineOptions {
