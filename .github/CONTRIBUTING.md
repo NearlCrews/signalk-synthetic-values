@@ -24,10 +24,17 @@ Check existing issues first to avoid duplicates, then open a bug report with:
 Open a feature request issue describing the proposed feature, the use case it
 serves, and any implementation ideas you have.
 
+## Development requirements
+
+The published plugin supports Node 20.18 or newer at runtime. The development
+and build toolchain requires Node `^22.22.1 || >=24.11.0`. The checked-in
+`.node-version` selects Node 22.22.1. Use `npm ci` to install the exact dependency
+tree recorded in `package-lock.json`.
+
 ## Pull requests
 
 1. Fork the repository and create a feature branch from `main`.
-2. Install dependencies with `npm install`, then build with `npm run build`.
+2. Install dependencies with `npm ci`, then build with `npm run build`.
    Optional: enable the Biome pre-commit hook with `npm run hooks` (it is not
    auto-installed).
 3. Make focused commits with clear messages (see below).

@@ -9,16 +9,16 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.3.0
+## What's new in 0.3.1
 
-Correctness and configuration-safety release following a full repository review.
+Dependency and documentation maintenance release with no runtime behavior or
+configuration changes.
 
-- **Correct jump confirmation.** Jump rejection counts only new observations from the affected source. Cached readings revisited because another source emitted cannot confirm a one-off spike.
-- **Safe configuration writes.** The panel enforces the runtime validator's numeric bounds and serializes saves so an older request cannot overwrite a newer change.
-- **Manageable offline paths.** Configured paths stay visible while sensors are offline or discovery is rebuilding, so they can still be tuned or removed.
-- **Accurate live discovery.** Text and unsupported object paths are reported as non-combinable, stopped sources age out after one minute, and recovered numeric paths are reclassified automatically.
+- **Current development tools.** Compatible transitive dependencies are recorded in a deduplicated lockfile, with Biome held at the last release that completes type-aware linting reliably.
+- **Clear Node requirements.** The published runtime remains compatible with Node 20.18 or newer, while local, CI, and publish builds use the Node 22 toolchain required by the current development dependencies.
+- **Accurate configuration guidance.** The documentation now distinguishes the controls available in the custom panel from options accepted by the runtime configuration.
 
-See the [v0.3.0 changelog entry](CHANGELOG.md#v030), or the [full changelog](CHANGELOG.md).
+See the [v0.3.1 changelog entry](CHANGELOG.md#v031), or the [full changelog](CHANGELOG.md).
 
 ## Why you'd want this
 
@@ -54,10 +54,14 @@ npm install signalk-synthetic-values
 
 From source:
 
+The published plugin supports Node 20.18 or newer at runtime. Building from
+source requires Node `^22.22.1 || >=24.11.0`; the checked-in `.node-version`
+selects Node 22.22.1.
+
 ```bash
 git clone https://github.com/NearlCrews/signalk-synthetic-values.git
 cd signalk-synthetic-values
-npm install
+npm ci
 npm run build
 ln -s "$(pwd)" ~/.signalk/node_modules/signalk-synthetic-values
 ```
@@ -87,6 +91,9 @@ Detected multi-source paths are also available programmatically at `GET /plugins
 
 ### Global options
 
+The runtime honors the top-level options below. The current custom panel
+preserves existing values but does not edit them.
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `defaultStalenessTimeoutMs` | `1000` | A source whose last receipt is older than this is excluded from combining. Override per path with `stalenessTimeoutMs`. |
@@ -96,7 +103,11 @@ Detected multi-source paths are also available programmatically at `GET /plugins
 
 ### Per-path options
 
-Add one entry to **Paths to combine** for each path you want to opt in. The dropdown shows paths the plugin has already seen with two or more sources. If a path does not appear yet, type it directly or reload the page after the sensors have been running for a moment.
+Click **Combine** on each detected path you want to opt in. The current panel
+can add only paths it has already seen with two or more sources. Existing saved
+paths remain visible while offline. The runtime accepts every option below, but
+the panel preserves rather than edits `outlierRejection`,
+`jumpRejection.persistSamples`, and `jumpRejection.persistMs`.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -145,12 +156,19 @@ For the per-path detail behind those counts (which path is waiting, the exact sp
 
 ## Development
 
-This project targets Node 20.18 or newer with TypeScript 6 and `@signalk/server-api` 2.30 for development. The published peer dependency supports `@signalk/server-api` 2.24 or newer.
+The published plugin targets Node 20.18 or newer. The development toolchain
+requires Node `^22.22.1 || >=24.11.0` and uses TypeScript 7 with
+`@signalk/server-api` 2.30. The published peer dependency supports
+`@signalk/server-api` 2.24 or newer.
+
+Biome is intentionally pinned to 2.5.2. Versions 2.5.3 and 2.5.4 can panic
+while checking the type-aware panel rules and still return a successful exit
+status, which makes them unsafe as a validation gate for this repository.
 
 ```bash
 git clone https://github.com/NearlCrews/signalk-synthetic-values.git
 cd signalk-synthetic-values
-npm install          # install dependencies
+npm ci               # install the locked dependencies
 npm run build        # compile to dist/
 npm test             # Vitest suite, single run
 npm run type-check   # TypeScript type check

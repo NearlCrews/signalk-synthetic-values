@@ -5,6 +5,20 @@ All notable changes to the signalk-synthetic-values project are documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+<a id="v031"></a>
+
+## [0.3.1] - 2026-07-15
+
+Development dependency and documentation maintenance release. Runtime behavior,
+configuration validation, the data model, and the plugin API are unchanged.
+
+### Changed
+
+- Refreshed compatible transitive development dependencies and deduplicated the lockfile. Biome remains pinned to 2.5.2 because 2.5.3 and 2.5.4 can panic during type-aware panel linting while returning a successful exit status.
+- Moved local, CI, and publish builds to Node 22 while retaining Node 20.18 as the published runtime minimum and in the official Signal K plugin compatibility lane.
+- Corrected the configuration documentation to distinguish the controls available in the custom panel from options accepted by the runtime configuration.
+- Updated development documentation for TypeScript 7 and the current Node toolchain requirement.
+
 <a id="v030"></a>
 
 ## [0.3.0] - 2026-07-10

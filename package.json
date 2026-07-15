@@ -1,6 +1,6 @@
 {
   "name": "signalk-synthetic-values",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Combine redundant sensors on one Signal K path into a robust median or outlier-rejected value",
   "keywords": [
     "signalk-node-server-plugin",
