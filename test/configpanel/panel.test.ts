@@ -62,6 +62,11 @@ function mockFetch(): void {
 describe('PluginConfigurationPanel', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
+    localStorage.clear();
+    Object.defineProperty(window, 'CSSScopeRule', {
+      configurable: true,
+      value: class CSSScopeRule {},
+    });
     mockFetch();
   });
 
@@ -76,15 +81,18 @@ describe('PluginConfigurationPanel', () => {
     render(createElement(PluginConfigurationPanel, { configuration: undefined, save: mockSave }));
     expect(screen.getByText('Synthetic Values')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText(availablePath)).toBeInTheDocument();
+      expect(screen.getByTitle(availablePath)).toBeInTheDocument();
     });
   });
 
-  it('renders without crashing when configuration is an empty object', () => {
+  it('renders without crashing when configuration is an empty object', async () => {
     // Some server versions pass an empty object rather than undefined.
     const mockSave = vi.fn().mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: {}, save: mockSave }));
     expect(screen.getByText('Synthetic Values')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTitle(availablePath)).toBeInTheDocument();
+    });
   });
 
   it('shows an Enable button when unconfigured and saves a config on click to enable', async () => {
@@ -103,10 +111,13 @@ describe('PluginConfigurationPanel', () => {
     expect(Array.isArray(saved.paths)).toBe(true);
   });
 
-  it('does not show the Enable button when a configuration is already present', () => {
+  it('does not show the Enable button when a configuration is already present', async () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
     expect(screen.queryByRole('button', { name: /enable plugin/i })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTitle(availablePath)).toBeInTheDocument();
+    });
   });
 
   it('surfaces a failed save and retries it from the banner', async () => {
@@ -128,10 +139,40 @@ describe('PluginConfigurationPanel', () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
 
-    // ThemeToggle renders as a fieldset with legend "Panel theme"
     await waitFor(() => {
-      expect(screen.getByText(/panel theme/i)).toBeInTheDocument();
+      expect(screen.getByRole('radiogroup', { name: /panel theme/i })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: /auto/i })).toHaveAttribute('aria-checked', 'true');
     });
+  });
+
+  it('migrates the legacy theme preference to the shared key', async () => {
+    localStorage.setItem('skn-theme', 'night');
+    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-snui-root]')).toHaveAttribute(
+        'data-snui-theme',
+        'night'
+      );
+      expect(localStorage.getItem('signalk-nearlcrews-ui.theme.v1')).toBe('night');
+    });
+  });
+
+  it('shows a browser update message when native CSS scope is unavailable', () => {
+    Object.defineProperty(window, 'CSSScopeRule', {
+      configurable: true,
+      value: undefined,
+    });
+    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/browser update required/i);
+    expect(container.querySelector('[data-snui-root]')).not.toBeInTheDocument();
   });
 
   it('renders both detected rows after the fetch resolves', async () => {
@@ -140,8 +181,8 @@ describe('PluginConfigurationPanel', () => {
 
     await waitFor(() => {
       // Both path strings should appear in the DOM
-      expect(screen.getByText(combinedPath)).toBeInTheDocument();
-      expect(screen.getByText(availablePath)).toBeInTheDocument();
+      expect(screen.getByTitle(combinedPath)).toBeInTheDocument();
+      expect(screen.getByTitle(availablePath)).toBeInTheDocument();
     });
   });
 
@@ -155,6 +196,21 @@ describe('PluginConfigurationPanel', () => {
     });
   });
 
+  it('moves focus to the detected-paths heading when the priority banner is dismissed', async () => {
+    const mockSave = vi.fn().mockResolvedValue(undefined);
+    render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: /source priority/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /dismiss priority reminder/i }));
+    await waitFor(() => {
+      expect(
+        screen.getByText('Detected multi-source paths').closest('[tabindex="-1"]')
+      ).toHaveFocus();
+    });
+  });
+
   it('calls save with the new path appended when Combine is clicked on the available row', async () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
@@ -164,16 +220,10 @@ describe('PluginConfigurationPanel', () => {
     // The available row is "navigation.headingTrue"; it is not in baseConfig.paths
     // so it renders with a primary "Combine" button (not disabled).
     await waitFor(() => {
-      expect(screen.getByText(availablePath)).toBeInTheDocument();
+      expect(screen.getByTitle(availablePath)).toBeInTheDocument();
     });
 
-    // Find the per-row Combine button by its exact accessible name (distinct from "Combine all").
-    // The available row is not combined yet, so its Combine button is enabled.
-    const combineBtns = screen.getAllByRole('button', { name: /^combine$/i });
-    expect(combineBtns.length).toBeGreaterThanOrEqual(1);
-    const enabledCombine = combineBtns.find((btn) => !(btn as HTMLButtonElement).disabled);
-    expect(enabledCombine).toBeDefined();
-    fireEvent.click(enabledCombine as HTMLElement);
+    fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
 
     await waitFor(() => {
       expect(mockSave).toHaveBeenCalled();
@@ -204,11 +254,11 @@ describe('PluginConfigurationPanel', () => {
       .mockImplementationOnce(() => first)
       .mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
-    await waitFor(() => expect(screen.getByText(availablePath)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTitle(availablePath)).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole('button', { name: /^combine$/i }));
+    fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
     await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getAllByRole('button', { name: /remove/i })[0] as HTMLElement);
+    fireEvent.click(screen.getByRole('button', { name: `Remove ${combinedPath}` }));
     await Promise.resolve();
     expect(mockSave).toHaveBeenCalledTimes(1);
 
@@ -221,11 +271,13 @@ describe('PluginConfigurationPanel', () => {
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
 
     await waitFor(() => {
-      expect(screen.getByText(combinedPath)).toBeInTheDocument();
+      expect(screen.getByTitle(combinedPath)).toBeInTheDocument();
     });
 
     // Open the Tune disclosure on the combined row.
-    const tuneBtn = screen.getByRole('button', { name: /tune/i });
+    const tuneBtn = screen.getByRole('button', {
+      name: new RegExp(`^Tune\\s*settings for ${combinedPath}$`),
+    });
     fireEvent.click(tuneBtn);
 
     const minSourcesInput = screen.getByLabelText(/minimum sources/i);
@@ -260,11 +312,13 @@ describe('PluginConfigurationPanel', () => {
 
     // Wait for the combined path row to appear (real timers; fetch is a microtask).
     await waitFor(() => {
-      expect(screen.getByText(combinedPath)).toBeInTheDocument();
+      expect(screen.getByTitle(combinedPath)).toBeInTheDocument();
     });
 
     // Open the Tune disclosure on the combined row so the inputs render.
-    const tuneBtn = screen.getByRole('button', { name: /tune/i });
+    const tuneBtn = screen.getByRole('button', {
+      name: new RegExp(`^Tune\\s*settings for ${combinedPath}$`),
+    });
     fireEvent.click(tuneBtn);
 
     // The "Minimum sources" number input is now in the DOM.

@@ -1,6 +1,7 @@
 import type * as React from 'react';
+import { Badge } from 'signalk-nearlcrews-ui';
 import { kindMeta } from '../kindMeta.js';
-import { S } from '../styles.js';
+import utilities from '../utilities.module.css';
 
 interface KindBadgeProps {
   kind: string;
@@ -8,24 +9,18 @@ interface KindBadgeProps {
 
 // Quiet pill showing the kind of a detected path.
 //
-// The kind badge is the least prominent element in the row: it uses the muted
-// surface/text family for combinable kinds (position, angular, scalar, unknown)
-// and the warn family for 'other' (non-combinable). No saturated color is used,
-// so the badge does not compete with the state-bearing elements beside it.
+// The kind badge is the least prominent element in the row: it uses the
+// neutral shared tone for combinable kinds and warning for 'other'.
 //
-// Accessibility: a visually-hidden span appended after the display label
-// carries the full srLabel so screen readers get the complete description.
-// The display label is also read, giving context ("position", "kind: position")
-// without hiding it from sighted users. aria-label is intentionally omitted on
-// a plain <span> because ARIA prohibits it without a role.
+// Accessibility: the visible shorthand is hidden from assistive technology,
+// and one visually hidden phrase provides the complete kind description.
 export function KindBadge({ kind }: KindBadgeProps): React.ReactElement {
   const meta = kindMeta(kind);
-  const pillStyle = meta.token === 'warn' ? S.pillWarn : S.pillMuted;
 
   return (
-    <span style={pillStyle}>
-      {meta.label}
-      <span style={S.visuallyHidden}>{meta.srLabel}</span>
-    </span>
+    <Badge tone={meta.tone}>
+      <span aria-hidden="true">{meta.label}</span>
+      <span className={utilities.visuallyHidden}>{meta.srLabel}</span>
+    </Badge>
   );
 }

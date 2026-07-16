@@ -40,7 +40,7 @@ describe('fetchJson', () => {
 // -- nextDetectedState pure reducer tests -------------------------------------
 
 describe('nextDetectedState', () => {
-  it('returns the same state object when the incoming payload is unchanged', async () => {
+  it('reuses unchanged paths while advancing the successful check time', async () => {
     const { nextDetectedState } = await import('../../src/configpanel/hooks/useDetected.js');
 
     const rows: DetectedRow[] = [
@@ -54,8 +54,9 @@ describe('nextDetectedState', () => {
     };
 
     const next = nextDetectedState(prev, { paths: rows });
-    // Same payload: no state change, returns exact same object reference.
-    expect(next).toBe(prev);
+    expect(next).not.toBe(prev);
+    expect(next.paths).toBe(prev.paths);
+    expect(next.lastChecked).toBeGreaterThan(prev.lastChecked);
   });
 
   it('returns a new state object when the incoming payload differs', async () => {
@@ -111,9 +112,58 @@ describe('nextDetectedState', () => {
       paths: [],
       lastChecked: 5,
       loading: false,
-      error: 'could not load detected paths',
+      error: 'Could not load detected paths.',
     };
 
     expect(nextDetectedState(prev, null)).toBe(prev);
+  });
+});
+
+describe('isDetectedResponse', () => {
+  it('accepts a complete detected-path response', async () => {
+    const { isDetectedResponse } = await import('../../src/configpanel/hooks/useDetected.js');
+
+    expect(
+      isDetectedResponse({
+        paths: [
+          {
+            path: 'navigation.position',
+            sources: ['gps.1', 'gps.2'],
+            kind: 'position',
+            optedIn: false,
+            duplicateGroups: [['gps.1', 'gps.2']],
+          },
+        ],
+      })
+    ).toBe(true);
+  });
+
+  it.each([
+    { paths: 'not-an-array' },
+    { paths: [{ path: 'navigation.position', sources: {}, kind: 'position', optedIn: false }] },
+    {
+      paths: [
+        {
+          path: 'navigation.position',
+          sources: ['gps.1'],
+          kind: 'future-kind',
+          optedIn: false,
+        },
+      ],
+    },
+    {
+      paths: [
+        {
+          path: 'navigation.position',
+          sources: ['gps.1'],
+          kind: 'position',
+          optedIn: false,
+          duplicateGroups: ['gps.1'],
+        },
+      ],
+    },
+  ])('rejects malformed response %#', async (payload) => {
+    const { isDetectedResponse } = await import('../../src/configpanel/hooks/useDetected.js');
+    expect(isDetectedResponse(payload)).toBe(false);
   });
 });

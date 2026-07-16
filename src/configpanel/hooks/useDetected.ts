@@ -21,7 +21,7 @@ export interface DetectedRow {
   duplicateGroups?: string[][];
 }
 
-interface DetectedResponse {
+export interface DetectedResponse {
   paths: DetectedRow[];
 }
 
@@ -33,7 +33,7 @@ export interface DetectedState {
 }
 
 export interface UseDetectedResult extends DetectedState {
-  refresh: () => void;
+  refresh: () => Promise<boolean>;
 }
 
 function errorState(prev: DetectedState): DetectedState {
@@ -41,15 +41,72 @@ function errorState(prev: DetectedState): DetectedState {
     paths: prev.paths,
     lastChecked: prev.lastChecked,
     loading: false,
-    error: 'could not load detected paths',
+    error: 'Could not load detected paths.',
   };
+}
+
+const DETECTED_KINDS: ReadonlyArray<DetectedRow['kind']> = [
+  'scalar',
+  'angular',
+  'position',
+  'attitude',
+  'other',
+  'unknown',
+];
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function isDetectedKind(value: unknown): value is DetectedRow['kind'] {
+  return typeof value === 'string' && DETECTED_KINDS.includes(value as DetectedRow['kind']);
+}
+
+function isOptionalBoolean(value: unknown): value is boolean | undefined {
+  return value === undefined || typeof value === 'boolean';
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string';
+}
+
+function isOptionalDuplicateGroups(value: unknown): value is string[][] | undefined {
+  return (
+    value === undefined || (Array.isArray(value) && value.every((group) => isStringArray(group)))
+  );
+}
+
+function isDetectedRow(value: unknown): value is DetectedRow {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.path === 'string' &&
+    row.path.trim() !== '' &&
+    isStringArray(row.sources) &&
+    isDetectedKind(row.kind) &&
+    typeof row.optedIn === 'boolean' &&
+    isOptionalBoolean(row.combinable) &&
+    isOptionalBoolean(row.recommended) &&
+    isOptionalString(row.advisory) &&
+    isOptionalDuplicateGroups(row.duplicateGroups)
+  );
+}
+
+export function isDetectedResponse(value: unknown): value is DetectedResponse {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const response = value as Record<string, unknown>;
+  return Array.isArray(response.paths) && response.paths.every((row) => isDetectedRow(row));
+}
+
+export function isRecommendedCombinable(row: DetectedRow): boolean {
+  return row.kind !== 'other' && row.combinable !== false && row.recommended !== false;
 }
 
 /**
  * Pure reducer: given the previous state and the parsed response (or null when
- * the fetch failed), compute the next state. Returns the exact same object
- * reference when the paths are unchanged so callers can use a reference
- * equality check to skip React state updates.
+ * the fetch failed), compute the next state. Reuses the existing paths array
+ * when the payload is unchanged, while still advancing lastChecked after
+ * every successful request.
  *
  * Takes the already-parsed response rather than a raw string: `fetchJson` has
  * parsed the body once already, so re-stringifying and re-parsing here would be
@@ -69,14 +126,10 @@ export function nextDetectedState(
     return errorState(prev);
   }
 
-  const paths = incoming.paths ?? [];
-
-  if (!prev.loading && prev.error === null && jsonEqual(paths, prev.paths)) {
-    return prev;
-  }
+  const { paths } = incoming;
 
   return {
-    paths,
+    paths: jsonEqual(paths, prev.paths) ? prev.paths : paths,
     lastChecked: Date.now(),
     loading: false,
     error: null,
@@ -86,8 +139,8 @@ export function nextDetectedState(
 /**
  * Polls `GET /api/detected` every 10 s while the admin tab is visible.
  * Pauses on hidden tabs and refreshes immediately on visibility restore.
- * Uses the changed-payload gate from `nextDetectedState` so an idle panel
- * does no re-renders between polls.
+ * Reuses unchanged path data so memoized rows do not re-render during idle
+ * polls, while the lightweight last-checked status remains accurate.
  */
 export function useDetected(): UseDetectedResult {
   const [state, setState] = useState<DetectedState>({
@@ -102,27 +155,30 @@ export function useDetected(): UseDetectedResult {
   // must not overwrite the state a newer one already wrote.
   const fetchSeq = useRef(0);
 
-  const doFetch = useCallback(async (): Promise<void> => {
+  const doFetch = useCallback(async (): Promise<boolean> => {
+    if (cancelled.current) return false;
     const seq = ++fetchSeq.current;
     const isStale = (): boolean => cancelled.current || seq !== fetchSeq.current;
     let data: DetectedResponse | null = null;
     try {
-      data = await fetchJson<DetectedResponse>('/detected');
+      const incoming = await fetchJson<unknown>('/detected');
+      if (!isDetectedResponse(incoming)) throw new Error();
+      data = incoming;
     } catch {
-      if (isStale()) return;
+      if (isStale()) return false;
       setState((prev) => nextDetectedState(prev, null));
-      return;
+      return false;
     }
-    if (isStale()) return;
+    if (isStale()) return false;
 
-    // nextDetectedState returns the same reference when paths are unchanged, so
-    // React bails out of the update: the changed-payload gate lives entirely in
-    // the reducer, no separate payload ref needed.
     setState((prev) => nextDetectedState(prev, data));
+    return true;
   }, []);
 
-  const refresh = useCallback((): void => {
-    void doFetch();
+  const refresh = useCallback(async (): Promise<boolean> => {
+    if (cancelled.current) return false;
+    setState((prev) => (prev.loading ? prev : { ...prev, loading: true }));
+    return doFetch();
   }, [doFetch]);
 
   useEffect(() => {

@@ -39,6 +39,15 @@ const otherRow: DetectedRow = {
   optedIn: false,
 };
 
+const explicitlyNonCombinableRow: DetectedRow = {
+  path: 'navigation.gnss.methodQuality',
+  sources: ['gps.1', 'gps.2'],
+  kind: 'scalar',
+  optedIn: false,
+  combinable: false,
+  advisory: 'This value cannot be combined.',
+};
+
 // Combinable by type (scalar) but flagged not recommended by the server: GNSS
 // fix metadata. It belongs in the not-recommended group, not "Combine all".
 const gnssRow: DetectedRow = {
@@ -120,7 +129,7 @@ describe('DetectedPathList: empty state', () => {
         onRefresh: vi.fn(),
       })
     );
-    expect(screen.getByText('navigation.offlinePath')).toBeInTheDocument();
+    expect(screen.getByTitle('navigation.offlinePath')).toBeInTheDocument();
     expect(screen.getByText(/waiting for live sources/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument();
     expect(screen.queryByText(/no duplicate paths detected yet/i)).not.toBeInTheDocument();
@@ -136,7 +145,8 @@ describe('DetectedPathList: loading state', () => {
     document.body.innerHTML = '';
   });
 
-  it('renders a non-blocking "checking" indicator while loading', () => {
+  it('renders a busy refresh control while loading and blocks activation', () => {
+    const onRefresh = vi.fn();
     render(
       createElement(DetectedPathList, {
         detected: [],
@@ -148,10 +158,16 @@ describe('DetectedPathList: loading state', () => {
         lastChecked: null,
         loading: true,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh,
       })
     );
-    expect(screen.getByText(/checking/i)).toBeInTheDocument();
+    const refresh = screen.getByRole('button', {
+      name: /checking: refresh detected paths/i,
+    });
+    expect(refresh).toHaveAttribute('aria-busy', 'true');
+    expect(refresh).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(refresh);
+    expect(onRefresh).not.toHaveBeenCalled();
   });
 });
 
@@ -242,8 +258,8 @@ describe('DetectedPathList: error state', () => {
       })
     );
     expect(screen.getByText(/network error/i)).toBeInTheDocument();
-    expect(screen.getByText(scalRow.path)).toBeInTheDocument();
-    expect(screen.getByText(angRow.path)).toBeInTheDocument();
+    expect(screen.getByTitle(scalRow.path)).toBeInTheDocument();
+    expect(screen.getByTitle(angRow.path)).toBeInTheDocument();
   });
 });
 
@@ -275,7 +291,7 @@ describe('DetectedPathList: sort order', () => {
         onRefresh: vi.fn(),
       })
     );
-    const pathLabels = Array.from(sortContainer.querySelectorAll('.skn-row'))
+    const pathLabels = Array.from(sortContainer.querySelectorAll('[data-detected-path-row]'))
       .map((el) => (el as HTMLElement).querySelector('[title]')?.getAttribute('title'))
       .filter(Boolean) as string[];
     // Not-yet-combined combinable rows should come first in order: posRow (4 src), scalRow (2 src)
@@ -301,10 +317,10 @@ describe('DetectedPathList: sort order', () => {
         onRefresh: vi.fn(),
       })
     );
-    // The group toggle should exist and be collapsed by default.
-    const toggle = screen.getByRole('button', { name: /detected but not recommended/i });
-    expect(toggle).toBeInTheDocument();
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    const title = screen.getByText(/detected but not recommended/i);
+    const disclosure = title.closest('details');
+    expect(disclosure).toBeInTheDocument();
+    expect(disclosure).not.toHaveAttribute('open');
   });
 
   it('groups a recommended:false GNSS path under not-recommended and out of Combine all', () => {
@@ -326,9 +342,27 @@ describe('DetectedPathList: sort order', () => {
     // Only the one recommended row counts toward "Combine all".
     expect(screen.getByRole('button', { name: /combine all \(1\)/i })).toBeInTheDocument();
     // The GNSS metadata row is under the not-recommended disclosure.
-    expect(
-      screen.getByRole('button', { name: /detected but not recommended \(1\)/i })
-    ).toBeInTheDocument();
+    expect(screen.getByText(/detected but not recommended \(1\)/i)).toBeInTheDocument();
+  });
+
+  it('groups a combinable:false scalar path under not-recommended and out of Combine all', () => {
+    render(
+      createElement(DetectedPathList, {
+        detected: [scalRow, explicitlyNonCombinableRow],
+        configByPath: emptyMap(),
+        onAdd: vi.fn(),
+        onAddAll: vi.fn(),
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+        lastChecked: null,
+        loading: false,
+        error: null,
+        onRefresh: vi.fn(),
+      })
+    );
+
+    expect(screen.getByRole('button', { name: /combine all \(1\)/i })).toBeInTheDocument();
+    expect(screen.getByText(/detected but not recommended \(1\)/i)).toBeInTheDocument();
   });
 
   it('combined rows appear after not-yet-combined combinable rows', () => {
@@ -347,7 +381,7 @@ describe('DetectedPathList: sort order', () => {
         onRefresh: vi.fn(),
       })
     );
-    const pathLabels = Array.from(combinedContainer.querySelectorAll('.skn-row'))
+    const pathLabels = Array.from(combinedContainer.querySelectorAll('[data-detected-path-row]'))
       .map((el) => (el as HTMLElement).querySelector('[title]')?.getAttribute('title'))
       .filter(Boolean) as string[];
     // scalRow (not combined) must come before angRow (combined)
@@ -446,11 +480,14 @@ describe('DetectedPathList: Combine all', () => {
         onRefresh: vi.fn(),
       })
     );
-    fireEvent.click(screen.getByRole('button', { name: /combine all/i }));
+    const requestButton = screen.getByRole('button', { name: /combine all/i });
+    requestButton.focus();
+    fireEvent.click(requestButton);
+    expect(requestButton).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
     expect(onAddAll).not.toHaveBeenCalled();
-    // The request button is back after cancelling.
-    expect(screen.getByRole('button', { name: /combine all/i })).toBeInTheDocument();
+    expect(requestButton).toHaveFocus();
+    expect(requestButton).not.toHaveAttribute('aria-disabled');
   });
 
   it('"Combine all" is absent or disabled when all combinable rows are already configured', () => {
@@ -548,6 +585,51 @@ describe('DetectedPathList: live region', () => {
     const region = screen.getByRole('status');
     // The announcement text should reflect the new count of 2 paths.
     expect(region.textContent).toMatch(/2 paths? detected/i);
+  });
+
+  it('announces a completed manual refresh even when the list is unchanged', async () => {
+    const onRefresh = vi.fn().mockResolvedValue(true);
+    render(
+      createElement(DetectedPathList, {
+        detected: [scalRow],
+        configByPath: emptyMap(),
+        onAdd: vi.fn(),
+        onAddAll: vi.fn(),
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+        lastChecked: Date.now(),
+        loading: false,
+        error: null,
+        onRefresh,
+      })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /refresh detected paths/i }));
+
+    expect(onRefresh).toHaveBeenCalledOnce();
+    expect(await screen.findByText(/detected paths refreshed/i)).toBeInTheDocument();
+  });
+
+  it('does not announce success after a failed manual refresh', async () => {
+    render(
+      createElement(DetectedPathList, {
+        detected: [scalRow],
+        configByPath: emptyMap(),
+        onAdd: vi.fn(),
+        onAddAll: vi.fn(),
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+        lastChecked: Date.now(),
+        loading: false,
+        error: null,
+        onRefresh: vi.fn().mockResolvedValue(false),
+      })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /refresh detected paths/i }));
+    await Promise.resolve();
+
+    expect(screen.getByRole('status')).toHaveTextContent('');
   });
 });
 

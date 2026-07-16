@@ -56,6 +56,7 @@ describe('SourceChecklist', () => {
 
     // Must have excludeSources containing the unchecked source
     expect(payload.excludeSources).toContain('gps.1');
+    expect(payload).toHaveProperty('includeSources', undefined);
 
     // Must NEVER have both includeSources and excludeSources non-empty at once
     const hasIncludes = Array.isArray(payload.includeSources) && payload.includeSources.length > 0;
@@ -112,6 +113,62 @@ describe('SourceChecklist', () => {
     expect(payload.includeSources).not.toContain('gps.1');
     expect(payload.includeSources).toContain('gps.2');
     expect(payload.includeSources).toContain('gps.3');
+    expect(payload).toHaveProperty('excludeSources', undefined);
+  });
+
+  it('switches to excluding all live sources when the final included source is cleared', () => {
+    const onChange = vi.fn();
+    const { getByRole } = render(
+      createElement(SourceChecklist, {
+        sources,
+        includeSources: ['gps.1'],
+        excludeSources: undefined,
+        onChange,
+        idPrefix: 'test-row',
+      })
+    );
+
+    fireEvent.click(getByRole('checkbox', { name: 'gps.1' }));
+
+    expect(onChange).toHaveBeenCalledWith({
+      includeSources: undefined,
+      excludeSources: sources,
+    });
+  });
+
+  it('clears both filter keys when the final excluded source is re-enabled', () => {
+    const onChange = vi.fn();
+    const { getByRole } = render(
+      createElement(SourceChecklist, {
+        sources,
+        includeSources: undefined,
+        excludeSources: ['gps.1'],
+        onChange,
+        idPrefix: 'test-row',
+      })
+    );
+
+    fireEvent.click(getByRole('checkbox', { name: 'gps.1' }));
+
+    expect(onChange).toHaveBeenCalledWith({
+      includeSources: undefined,
+      excludeSources: undefined,
+    });
+  });
+
+  it('generates distinct checkbox ids for names that collided under the legacy sanitizer', () => {
+    const { getAllByRole } = render(
+      createElement(SourceChecklist, {
+        sources: ['gps.1', 'gps-1'],
+        includeSources: undefined,
+        excludeSources: undefined,
+        onChange: vi.fn(),
+        idPrefix: 'test-row',
+      })
+    );
+
+    const ids = getAllByRole('checkbox').map((checkbox) => checkbox.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 
@@ -183,10 +240,15 @@ describe('PerPathSettings', () => {
     expect(payload.minSources).toBeUndefined();
   });
 
-  it('the Advanced section is collapsed by default', () => {
-    const { queryByText } = render(
+  it('the Advanced section is collapsed by default and named for its path', () => {
+    const { getByRole, queryByText } = render(
       createElement(PerPathSettings, { row, config, onChange: vi.fn(), idPrefix })
     );
+    expect(
+      getByRole('button', {
+        name: new RegExp(`^Advanced\\s*settings for ${row.path}$`),
+      })
+    ).toHaveAttribute('aria-expanded', 'false');
     // Advanced threshold labels should not be visible (collapsed)
     expect(queryByText(/outlier threshold/i)).toBeNull();
   });
@@ -208,7 +270,7 @@ describe('PerPathSettings', () => {
       createElement(PerPathSettings, { row, config, onChange, idPrefix })
     );
     fireEvent.click(getByText(/advanced/i));
-    const madInput = getByLabelText(/mad threshold/i) as HTMLInputElement;
+    const madInput = getByLabelText(/outlier threshold/i) as HTMLInputElement;
     onChange.mockClear();
     // Negative: the validator rejects it, so the field emits no patch.
     fireEvent.change(madInput, { target: { value: '-5' } });
@@ -296,6 +358,3 @@ describe('PerPathSettings', () => {
     expect(onChange).toHaveBeenCalledWith({ jumpRejection: undefined });
   });
 });
-
-// SegmentedControl tests live in presentational.test.ts with the other
-// presentational components.

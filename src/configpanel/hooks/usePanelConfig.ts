@@ -7,7 +7,7 @@ import {
   DEFAULT_STALENESS_MS,
 } from '../../config.js';
 import { jsonEqual } from '../api-base.js';
-import type { DetectedRow } from './useDetected.js';
+import { type DetectedRow, isRecommendedCombinable } from './useDetected.js';
 
 /**
  * Normalize the host-supplied configuration into a complete PluginOptions.
@@ -51,11 +51,13 @@ export function applyAddAllCombinable(
   rows: ReadonlyArray<DetectedRow>
 ): PluginOptions {
   const existing = new Set(options.paths.map((p) => p.path));
-  const toAdd = rows.filter(
-    (r) => r.recommended !== false && r.combinable !== false && !existing.has(r.path)
-  );
-  if (toAdd.length === 0) return options;
-  const added: RawPathConfig[] = toAdd.map((r) => ({ path: r.path }));
+  const added: RawPathConfig[] = [];
+  for (const row of rows) {
+    if (!isRecommendedCombinable(row) || existing.has(row.path)) continue;
+    existing.add(row.path);
+    added.push({ path: row.path });
+  }
+  if (added.length === 0) return options;
   return { ...options, paths: [...options.paths, ...added] };
 }
 
@@ -86,7 +88,7 @@ export function applyUpdatePath(
       if (p.path !== path) return p;
       // Merge the patch over the existing entry, then drop any key the patch set
       // to `undefined` so the plugin default re-applies (satisfies
-      // exactOptionalPropertyTypes). `path` is never patched to undefined.
+      // exactOptionalPropertyTypes). RawPathConfigPatch excludes `path`.
       const next = { ...p, ...patch } as Record<string, unknown>;
       for (const k of Object.keys(next)) {
         if (next[k] === undefined) delete next[k];

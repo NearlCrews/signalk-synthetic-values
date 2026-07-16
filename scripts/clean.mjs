@@ -1,7 +1,6 @@
-// Cross-platform replacement for the unix-only "rm -rf dist/ coverage/" clean
-// step, so the build runs on Linux, macOS, and Windows CI runners alike.
+// Cross-platform build-output cleanup for Linux, macOS, and Windows.
 import { rmSync } from 'node:fs';
 
-for (const dir of ['dist', 'public', 'coverage']) {
+for (const dir of ['dist', 'public', '.tmp']) {
   rmSync(dir, { recursive: true, force: true });
 }

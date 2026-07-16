@@ -1,10 +1,18 @@
 import type * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Banner,
+  Button,
+  Cluster,
+  PanelRoot,
+  Stack,
+  supportsNativeCssScope,
+  ThemeToggle,
+} from 'signalk-nearlcrews-ui';
 import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../config.js';
 import { jsonEqual, PLUGIN_SOURCE_LABEL } from './api-base.js';
 import { DetectedPathList } from './components/DetectedPathList.js';
 import { PriorityBanner } from './components/PriorityBanner.js';
-import ThemeToggle from './components/ThemeToggle.js';
 import { PanelDefaultsContext } from './defaultsContext.js';
 import type { DetectedRow } from './hooks/useDetected.js';
 import { useDetected } from './hooks/useDetected.js';
@@ -16,7 +24,7 @@ import {
   normalizeOptions,
   usePanelConfig,
 } from './hooks/usePanelConfig.js';
-import { injectStyles, S } from './styles.js';
+import styles from './PluginConfigurationPanel.module.css';
 
 interface Props {
   // The Signal K admin UI passes whatever is saved, which on a fresh install is
@@ -28,22 +36,31 @@ interface Props {
 /**
  * Composition root for the synthetic-values config panel.
  *
- * Mounts inside the Signal K admin UI. Injects CSS tokens once, wraps
- * everything in `.skn-panel` so the token cascade applies, and wires the
- * form-state hook (usePanelConfig) together with the live-detection hook
- * (useDetected) and the UI components (DetectedPathList, PriorityBanner,
- * ThemeToggle).
+ * Mounts inside the Signal K admin UI. PanelRoot owns shared theme and
+ * component styling, while this component wires the form-state hook
+ * (usePanelConfig) to the live-detection hook (useDetected).
  *
  * Every write action (add, add-all, remove) immediately commits so the panel
  * matches the spec: "clicking Combine writes config immediately; the row flips
  * to Combined in place."
  */
-const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
-  // Inject CSS tokens once on mount. Safe to call multiple times.
-  useEffect(() => {
-    injectStyles();
-  }, []);
+const PluginConfigurationPanel: React.FC<Props> = (props) => {
+  if (typeof window === 'undefined' || !supportsNativeCssScope(window)) {
+    return (
+      <div className={styles.compatibility} data-browser-compatibility-message="" role="alert">
+        <h2>Browser update required</h2>
+        <p>
+          This panel requires native CSS @scope. Update the browser or embedded WebView before
+          reopening Signal K Admin.
+        </p>
+      </div>
+    );
+  }
 
+  return <SupportedPluginConfigurationPanel {...props} />;
+};
+
+const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
   // Ref that always holds the last successfully saved options, used by the
   // no-op save gate and by the hook's self-save echo detection. Normalized so
   // a fresh install (undefined or empty configuration) starts from a complete
@@ -128,7 +145,9 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
   // sequence lives in one place.
   const persist = useCallback(
     (next: PluginOptions): void => {
-      saveWithBaseline(next, refresh);
+      saveWithBaseline(next, () => {
+        void refresh();
+      });
     },
     [saveWithBaseline, refresh]
   );
@@ -221,64 +240,69 @@ const PluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
     }),
     [options.defaultMinSources, options.defaultStalenessTimeoutMs, options.defaultEmitMinIntervalMs]
   );
+  const detectedHeadingRef = useRef<HTMLSpanElement>(null);
 
   return (
     <PanelDefaultsContext.Provider value={panelDefaults}>
-      <div className="skn-panel" style={{ padding: 'var(--skn-space-3)' }}>
-        {/* Panel header: title and theme toggle */}
-        <div style={S.panelHeader}>
-          <h1 style={S.panelTitle}>Synthetic Values</h1>
-          <ThemeToggle />
-        </div>
+      <PanelRoot legacyThemeStorageKeys={['skn-theme']}>
+        <Stack gap={4}>
+          <Cluster justify="between">
+            <h1 className={styles.title}>Synthetic Values</h1>
+            <ThemeToggle />
+          </Cluster>
 
-        {/* Save failure: baseline already rolled back, retry re-sends the form state. */}
-        {saveError !== null && (
-          <div style={{ ...S.errorBanner, marginBottom: 'var(--skn-space-2)' }} role="alert">
-            <span style={{ flex: 1 }}>{saveError}</span>
-            <button type="button" style={S.btnRetry} onClick={handleRetrySave}>
-              Retry
-            </button>
-          </div>
-        )}
+          {/* Save failure: baseline already rolled back, retry re-sends the form state. */}
+          {saveError !== null && (
+            <Banner
+              tone="danger"
+              live="assertive"
+              title="Configuration save failed"
+              actions={<Button onClick={handleRetrySave}>Retry</Button>}
+            >
+              {saveError}
+            </Banner>
+          )}
 
-        {/* Enable prompt: the only save trigger when the plugin is unconfigured */}
-        {unconfigured && (
-          <section
-            aria-label="Enable plugin"
-            style={{ ...S.infoBanner, marginBottom: 'var(--skn-space-3)' }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <strong>This plugin is not enabled yet.</strong> Enabling it saves a default
-              configuration and starts watching your data for paths reported by two or more sources.
-              Nothing is combined until you opt a path in.
-            </div>
-            <button type="button" style={S.btnPrimary} onClick={handleEnable}>
-              Enable plugin
-            </button>
-          </section>
-        )}
+          {/* Enable prompt: the only save trigger when the plugin is unconfigured */}
+          {unconfigured && (
+            <Banner
+              tone="info"
+              title="This plugin is not enabled yet"
+              actions={
+                <Button variant="primary" onClick={handleEnable}>
+                  Enable plugin
+                </Button>
+              }
+            >
+              Enabling it saves a default configuration and starts watching your data for paths
+              reported by two or more sources. Nothing is combined until you opt a path in.
+            </Banner>
+          )}
 
-        {/* Priority banner: shown once any path is combined, dismissible */}
-        <PriorityBanner
-          show={showBanner}
-          sourceLabel={PLUGIN_SOURCE_LABEL}
-          onDismiss={handleDismiss}
-        />
+          {/* Priority banner: shown once any path is combined, dismissible */}
+          <PriorityBanner
+            show={showBanner}
+            sourceLabel={PLUGIN_SOURCE_LABEL}
+            dismissFocusRef={detectedHeadingRef}
+            onDismiss={handleDismiss}
+          />
 
-        {/* Detected paths list */}
-        <DetectedPathList
-          detected={detected}
-          configByPath={configByPath}
-          onAdd={handleAdd}
-          onAddAll={handleAddAll}
-          onRemove={handleRemove}
-          onUpdate={handleUpdate}
-          lastChecked={lastChecked}
-          loading={loading}
-          error={error}
-          onRefresh={refresh}
-        />
-      </div>
+          {/* Detected paths list */}
+          <DetectedPathList
+            detected={detected}
+            configByPath={configByPath}
+            headingRef={detectedHeadingRef}
+            onAdd={handleAdd}
+            onAddAll={handleAddAll}
+            onRemove={handleRemove}
+            onUpdate={handleUpdate}
+            lastChecked={lastChecked}
+            loading={loading}
+            error={error}
+            onRefresh={refresh}
+          />
+        </Stack>
+      </PanelRoot>
     </PanelDefaultsContext.Provider>
   );
 };

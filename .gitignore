@@ -14,6 +14,11 @@ coverage/
 # Vitest
 .vitest/
 
+# Browser tests and generated build metadata
+playwright-report/
+test-results/
+.tmp/
+
 # Stryker mutation testing
 .stryker-tmp/
 reports/mutation/

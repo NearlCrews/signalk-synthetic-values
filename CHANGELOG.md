@@ -5,6 +5,49 @@ All notable changes to the signalk-synthetic-values project are documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+This work modernizes the configuration panel, hardens its discovery and save
+workflows, and expands production-package validation. Existing saved
+configurations remain compatible.
+
+### Added
+
+- Added production Module Federation remote checks that verify host-shared React, bundled shared UI code, generated panel assets, and package contents.
+- Added browser coverage for configuration saves, failed-save recovery, theme migration, keyboard focus, narrow layouts, coarse-pointer targets, accessibility, and unsupported browser handling across Chromium, Firefox, WebKit, and mobile Chromium.
+- Added a browser fixture and screenshot workflow that load the built remote through a host-equivalent React share scope.
+- Added Knip validation for dead files, exports, and dependencies.
+
+### Fixed
+
+- Corrected source-priority guidance for the current Signal K Data, Priorities workflow, including group rankings, lower-ranked fallback timing, and optional path-level overrides.
+- Detection now rejects malformed API payloads without crashing, keeps explicitly non-combinable rows out of Combine all, and prevents duplicate detected rows from creating duplicate path configuration.
+- Manual detection refreshes now show a busy state, block duplicate activation, and keep Retry state clear while requests are active.
+- Repeated row controls now include the Signal K path in their accessible names, while visible labels and layout remain unchanged.
+- Browser fixtures now use the runtime's real default values instead of stale hardcoded placeholders.
+- Builds no longer delete coverage output, CI and prepublish checks avoid a redundant browser-test rebuild, and package validation covers every declared JavaScript and type entrypoint plus their source maps.
+- Successful refreshes now update the last-checked time, and manual refreshes announce completion even when the detected paths are unchanged.
+- Source-filter checkboxes now use collision-safe IDs, clear the opposite filter model, and keep every live source excluded when the final include-only source is unchecked.
+- Removed duplicated screen-reader row details and empty source groups, preserved complete source and kind labels, and aligned form controls' accessible names with their visible labels.
+- Long path names now wrap at Signal K dot boundaries on narrow panels, row metadata stays grouped, and the priority reminder keeps a compact accessible dismiss action.
+- Webpack now preserves public shared UI design tokens and the shared responsive container name inside CSS Modules, and generated CSS no longer ends with blank lines.
+- Installed browser engines in the npm publish workflow so the cross-browser `prepublishOnly` gate can run.
+- Browser test runs now rebuild the production remote before launching the host fixture.
+- Cross-browser execution uses one worker and a fresh runner process per engine to avoid retained browser memory on Pi-class development and CI hosts.
+- Full validation now builds before coverage so the generated coverage report remains available afterward.
+- Verified every generated panel asset is packed and served with the expected content type.
+
+### Changed
+
+- Updated the checked-in Node 22 runtime to 22.23.1.
+- Kept the pre-commit hook offline-friendly by running focused type, lint, dead-code, and unit checks while retaining the complete validation gates before push and publish.
+- Migrated the configuration panel to `signalk-nearlcrews-ui` 0.2.0, replacing duplicated theme, control, disclosure, banner, badge, layout, and form presentation.
+- Moved consumer-specific styling into focused CSS modules that use only the shared UI's public design tokens.
+- Migrated the legacy `skn-theme` preference into the shared theme key and added a clear compatibility message for browsers without native CSS `@scope`.
+- Refreshed the configuration-panel screenshots and expanded package, runtime-audit, build, and prepublish validation.
+- Documented the approved 24,000-byte gzip ceiling for the shared UI migration. The current production panel assets are 23,883 bytes gzip.
+- Removed unused exports, the unused lint-staged configuration and dependency, and a redundant browser-test script.
+
 <a id="v031"></a>
 
 ## [0.3.1] - 2026-07-15

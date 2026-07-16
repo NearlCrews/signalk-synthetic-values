@@ -32,7 +32,7 @@ export function valueCategory(value: unknown): ValueCategory {
   return 'nonCombinable';
 }
 
-export const ANGULAR_ALLOWLIST: ReadonlySet<string> = new Set([
+const ANGULAR_ALLOWLIST: ReadonlySet<string> = new Set([
   'navigation.headingTrue',
   'navigation.headingMagnetic',
   'navigation.headingCompass',
@@ -56,7 +56,7 @@ function isLatLon(v: unknown): v is LatLon {
 
 // A combinable attitude carries all three finite angular components. A partial
 // attitude (some components missing) is left non-combinable.
-export function isAttitude(v: unknown): v is Attitude {
+function isAttitude(v: unknown): v is Attitude {
   return (
     typeof v === 'object' &&
     v !== null &&

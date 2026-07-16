@@ -4,7 +4,7 @@ import type { JumpConfig } from './damping';
 // Single source of truth for the angular-mode options, shared by the schema
 // enum and the validator.
 export const ANGULAR_MODES_LIST = ['auto', 'yes', 'no'] as const;
-export type AngularMode = (typeof ANGULAR_MODES_LIST)[number];
+type AngularMode = (typeof ANGULAR_MODES_LIST)[number];
 
 // Default values shared between the schema, the validator, and the panel so
 // each default lives in exactly one place.
@@ -61,7 +61,7 @@ export interface PathConfig {
 // so the plugin default re-applies. `Partial<RawPathConfig>` cannot express this under
 // exactOptionalPropertyTypes, so we use a mapped type that allows the `| undefined` union.
 export type RawPathConfigPatch = {
-  [K in keyof RawPathConfig]?: RawPathConfig[K] | undefined;
+  [K in Exclude<keyof RawPathConfig, 'path'>]?: RawPathConfig[K] | undefined;
 };
 
 export interface PluginOptions {
@@ -72,12 +72,12 @@ export interface PluginOptions {
   paths: RawPathConfig[];
 }
 
-export interface ResolvedConfig {
+interface ResolvedConfig {
   maxSourcesPerPath: number;
   paths: PathConfig[];
 }
 
-export interface ConfigError {
+interface ConfigError {
   path: string;
   message: string;
 }

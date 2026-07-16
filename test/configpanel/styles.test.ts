@@ -1,45 +1,45 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { TOKENS_CSS } from '../../src/configpanel/styles';
 
-const panelDir = fileURLToPath(new URL('../../src/configpanel', import.meta.url));
+const panelDirectory = fileURLToPath(new URL('../../src/configpanel', import.meta.url));
 
-// Every panel source file except styles.ts (the palette itself).
-function panelSources(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...panelSources(full));
-    else if (/\.(ts|tsx)$/.test(entry.name) && entry.name !== 'styles.ts') out.push(full);
+function panelSources(directory: string): string[] {
+  const output: string[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const fullPath = join(directory, entry.name);
+    if (entry.isDirectory()) output.push(...panelSources(fullPath));
+    else if (/\.(css|ts|tsx)$/.test(entry.name)) output.push(fullPath);
   }
-  return out;
+  return output;
 }
 
-describe('panel tokens', () => {
-  it('defines the three pinned themes and the night block', () => {
-    expect(TOKENS_CSS).toContain('[data-skn-theme="light"]');
-    expect(TOKENS_CSS).toContain('[data-skn-theme="dark"]');
-    expect(TOKENS_CSS).toContain('[data-skn-theme="night"]');
+describe('panel styling boundary', () => {
+  it('uses modular plugin styles instead of the retired local theme registry', () => {
+    expect(existsSync(join(panelDirectory, 'styles.ts'))).toBe(false);
+    const cssModules = panelSources(panelDirectory).filter((file) => file.endsWith('.module.css'));
+    expect(cssModules.length).toBeGreaterThanOrEqual(4);
   });
-  it('defines the state families used by components', () => {
-    expect(TOKENS_CSS).toContain('--skn-ok');
-    expect(TOKENS_CSS).toContain('--skn-info-bg');
-    expect(TOKENS_CSS).toContain('--skn-warn-bg');
+
+  it('uses only public shared UI tokens in plugin CSS', () => {
+    for (const file of panelSources(panelDirectory).filter((path) => path.endsWith('.css'))) {
+      const source = readFileSync(file, 'utf8');
+      expect(source, `${file} uses a retired local token`).not.toContain('--skn-');
+      expect(source, `${file} targets a private shared UI class`).not.toMatch(/\.snui-/);
+    }
   });
-  it('components use tokens, never raw hex colors (styles.ts is the only palette)', () => {
-    const files = panelSources(panelDir);
-    expect(files.length).toBeGreaterThan(5);
-    for (const file of files) {
+
+  it('keeps raw palette colors out of panel source and CSS', () => {
+    for (const file of panelSources(panelDirectory)) {
       const source = readFileSync(file, 'utf8');
       expect(source, `${file} contains a raw hex color`).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     }
   });
-  it('every theme block overrides the interaction brightness tokens', () => {
-    const matches = TOKENS_CSS.match(/--skn-hover-brightness:/g) ?? [];
-    // Light, dark, and night token sets (light and dark each appear twice:
-    // host-driven and pinned blocks share the token string).
-    expect(matches.length).toBeGreaterThanOrEqual(3);
+
+  it('imports the shared UI package from the panel composition root', () => {
+    const source = readFileSync(join(panelDirectory, 'PluginConfigurationPanel.tsx'), 'utf8');
+    expect(source).toContain("from 'signalk-nearlcrews-ui'");
+    expect(source).toContain("legacyThemeStorageKeys={['skn-theme']}");
   });
 });

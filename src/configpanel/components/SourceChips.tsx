@@ -1,33 +1,12 @@
 import type * as React from 'react';
-import { S } from '../styles.js';
+import { Badge, Cluster } from 'signalk-nearlcrews-ui';
+import utilities from '../utilities.module.css';
 
 interface SourceChipsProps {
   sources: string[];
 }
 
 const VISIBLE_MAX = 3;
-
-// Module-level style constants: these have no reactive dependencies and are
-// identical across every render, so they live outside the component function.
-const chipStyle: React.CSSProperties = {
-  ...S.pillRaised,
-  whiteSpace: 'nowrap',
-};
-
-const moreStyle: React.CSSProperties = {
-  ...chipStyle,
-  color: 'var(--skn-text-faint)',
-  background: 'var(--skn-surface-muted)',
-};
-
-const wrapStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  // 4px: a deliberately tighter gap than the 8px base token so chips read as a
-  // single cluster rather than separate controls.
-  gap: 4,
-  flexWrap: 'wrap',
-  alignItems: 'center',
-};
 
 // Renders up to 3 source chips, collapsing extras to "+N more".
 //
@@ -39,20 +18,22 @@ const wrapStyle: React.CSSProperties = {
 //
 // These two affordances together ensure both assistive technology and
 // pointer-driven users can always access every source.
-export function SourceChips({ sources }: SourceChipsProps): React.ReactElement {
+export function SourceChips({ sources }: SourceChipsProps): React.ReactElement | null {
+  if (sources.length === 0) return null;
+
   const visible = sources.slice(0, VISIBLE_MAX);
   const overflow = sources.length - VISIBLE_MAX;
   const fullList = sources.join(', ');
 
   return (
-    <span style={wrapStyle} title={fullList}>
+    <Cluster gap={1} title={fullList}>
       {visible.map((src) => (
-        <span key={src} style={chipStyle}>
+        <Badge key={src} aria-hidden="true">
           {src}
-        </span>
+        </Badge>
       ))}
-      {overflow > 0 && <span style={moreStyle}>{`+${overflow} more`}</span>}
-      <span style={S.visuallyHidden}>Sources: {fullList}</span>
-    </span>
+      {overflow > 0 ? <Badge aria-hidden="true">{`+${overflow} more`}</Badge> : null}
+      <span className={utilities.visuallyHidden}>Sources: {fullList}</span>
+    </Cluster>
   );
 }

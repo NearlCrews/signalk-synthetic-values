@@ -59,7 +59,7 @@ describe('useDetected hook', () => {
 
     const { result } = renderHook(() => useDetected());
     act(() => {
-      result.current.refresh();
+      void result.current.refresh();
     });
     await act(async () => {
       await Promise.resolve();
@@ -74,5 +74,68 @@ describe('useDetected hook', () => {
       await Promise.resolve();
     });
     expect(result.current.paths.map((p) => p.path)).toEqual(['new.path']);
+  });
+
+  it('shows loading during a manual refresh and clears it after success', async () => {
+    const mockFetch = vi.mocked(fetch);
+    let resolveRefresh: (response: Response) => void = () => {};
+    const refreshResponse = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ paths: [] }))
+      .mockReturnValueOnce(refreshResponse);
+
+    const { result } = renderHook(() => useDetected());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.loading).toBe(false);
+
+    let refreshPromise: Promise<boolean> | undefined;
+    act(() => {
+      refreshPromise = result.current.refresh();
+    });
+    expect(result.current.loading).toBe(true);
+
+    resolveRefresh(jsonResponse({ paths: [row('refreshed.path')] }));
+    await act(async () => {
+      await refreshPromise;
+    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.paths.map((item) => item.path)).toEqual(['refreshed.path']);
+  });
+
+  it('retains previous rows and surfaces an error for a malformed payload', async () => {
+    const mockFetch = vi.mocked(fetch);
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ paths: [row('healthy.path')] }))
+      .mockResolvedValueOnce(jsonResponse({ paths: 'invalid' }));
+
+    const { result } = renderHook(() => useDetected());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.paths.map((item) => item.path)).toEqual(['healthy.path']);
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.paths.map((item) => item.path)).toEqual(['healthy.path']);
+    expect(result.current.error).toBe('Could not load detected paths.');
+  });
+
+  it('does not start a refresh after unmount', async () => {
+    const mockFetch = vi.mocked(fetch);
+    mockFetch.mockResolvedValue(jsonResponse({ paths: [] }));
+
+    const { result, unmount } = renderHook(() => useDetected());
+    const refresh = result.current.refresh;
+    unmount();
+
+    await expect(refresh()).resolves.toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });

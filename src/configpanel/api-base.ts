@@ -3,7 +3,7 @@
 // runtime-plugin imports so the browser bundle does not drag Node-side
 // constants along.
 
-export const apiBase = '/plugins/signalk-synthetic-values/api';
+const apiBase = '/plugins/signalk-synthetic-values/api';
 
 // The source name the plugin publishes combined values under. Shared by the
 // priority banner and the per-row priority instruction so the two cannot drift.

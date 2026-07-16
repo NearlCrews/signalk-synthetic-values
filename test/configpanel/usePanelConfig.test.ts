@@ -92,6 +92,19 @@ describe('applyAddAllCombinable', () => {
       optedIn: false,
       recommended: false,
     },
+    {
+      path: 'navigation.gnss.methodQuality',
+      sources: ['gps1', 'gps2'],
+      kind: 'scalar',
+      optedIn: false,
+      combinable: false,
+    },
+    {
+      path: 'vessel.callsign',
+      sources: ['ais', 'manual'],
+      kind: 'other',
+      optedIn: false,
+    },
   ];
 
   it('adds the recommended rows but skips not-recommended rows', () => {
@@ -104,6 +117,8 @@ describe('applyAddAllCombinable', () => {
     expect(addedPaths).toContain('some.unknown.path');
     expect(addedPaths).not.toContain('vessel.name');
     expect(addedPaths).not.toContain('navigation.gnss.satellites');
+    expect(addedPaths).not.toContain('navigation.gnss.methodQuality');
+    expect(addedPaths).not.toContain('vessel.callsign');
     expect(next.paths).toHaveLength(4);
   });
 
@@ -138,6 +153,13 @@ describe('applyAddAllCombinable', () => {
     };
     const next = applyAddAllCombinable(alreadyIn, rows);
     expect(next).toBe(alreadyIn);
+  });
+
+  it('adds a duplicated detected path only once', () => {
+    const duplicateRows = [rows[0], rows[0]].filter((row): row is DetectedRow => row !== undefined);
+    const next = applyAddAllCombinable(baseOptions, duplicateRows);
+
+    expect(next.paths).toEqual([{ path: 'navigation.position' }]);
   });
 });
 

@@ -1,16 +1,6 @@
 import type * as React from 'react';
+import { Checkbox, FieldGroup, Stack } from 'signalk-nearlcrews-ui';
 import type { RawPathConfigPatch } from '../../config.js';
-import { S } from '../styles.js';
-
-// Compiled once, not per source per render.
-const SAFE_ID_CHARS = /[^a-z0-9]/gi;
-
-// Module-level style constant: no reactive dependencies; stable across renders.
-const labelStyle: React.CSSProperties = {
-  fontSize: 'var(--skn-font-body)',
-  color: 'var(--skn-text)',
-  cursor: 'pointer',
-};
 
 interface Props {
   sources: string[];
@@ -21,15 +11,48 @@ interface Props {
   idPrefix: string;
 }
 
+function toggleValue(values: string[], value: string, enabled: boolean): string[] {
+  const next = new Set(values);
+  if (enabled) next.add(value);
+  else next.delete(value);
+  return [...next];
+}
+
+function includePatch(
+  sources: string[],
+  includeSources: string[],
+  source: string,
+  checked: boolean
+): RawPathConfigPatch {
+  const next = toggleValue(includeSources, source, checked);
+  if (next.length === 0) {
+    return { includeSources: undefined, excludeSources: [...sources] };
+  }
+  return { includeSources: next, excludeSources: undefined };
+}
+
+function excludePatch(
+  excludeSources: string[],
+  source: string,
+  checked: boolean
+): RawPathConfigPatch {
+  const next = toggleValue(excludeSources, source, !checked);
+  return {
+    includeSources: undefined,
+    excludeSources: next.length === 0 ? undefined : next,
+  };
+}
+
 /**
  * Renders one labeled checkbox per live source. A source is "on" (included)
  * unless it appears in excludeSources, or unless includeSources is set and
  * non-empty and the source is absent from it.
  *
  * Include/exclude model: prefer the exclude model (all on, uncheck to
- * exclude). Use includeSources only when it was already set by the caller.
- * A patch is never emitted with both includeSources and excludeSources
- * non-empty, because the config layer rejects that combination.
+ * exclude). Preserve an existing non-empty include list until its final live
+ * source is cleared, then switch to excluding every live source because the
+ * runtime treats an empty include list as no filter. Every patch explicitly
+ * clears the opposite model.
  */
 export function SourceChecklist({
   sources,
@@ -47,40 +70,28 @@ export function SourceChecklist({
 
   function handleToggle(src: string, checked: boolean): void {
     if (useIncludeModel) {
-      // Include model: add or remove from the include list. Never set excludeSources.
-      const current = includeSources ?? [];
-      const next = checked ? [...current, src] : current.filter((s) => s !== src);
-      onChange({ includeSources: next });
-    } else {
-      // Exclude model: add or remove from the exclude list. Never set includeSources.
-      const current = excludeSources ?? [];
-      const next = checked ? current.filter((s) => s !== src) : [...current, src];
-      onChange({ excludeSources: next });
+      onChange(includePatch(sources, includeSources, src, checked));
+      return;
     }
+    onChange(excludePatch(excludeSources ?? [], src, checked));
   }
 
   return (
-    <div>
-      <div style={{ ...S.textSmallMuted, marginBottom: 'var(--skn-space-1)' }}>Sources</div>
-      {sources.map((src) => {
-        const id = `${idPrefix}-src-${src.replace(SAFE_ID_CHARS, '-')}`;
-        return (
-          <div key={src} style={S.checklistRow}>
-            {/* No aria-label: the <label htmlFor> below is the accessible name,
-                and a duplicate aria-label would override it and drift. */}
-            <input
+    <FieldGroup legend="Sources">
+      <Stack gap={2}>
+        {sources.map((src) => {
+          const id = `${idPrefix}-source-${encodeURIComponent(src)}`;
+          return (
+            <Checkbox
+              key={src}
               id={id}
-              type="checkbox"
-              style={S.checkbox}
+              label={src}
               checked={isChecked(src)}
-              onChange={(e) => handleToggle(src, e.target.checked)}
+              onChange={(event) => handleToggle(src, event.target.checked)}
             />
-            <label htmlFor={id} style={labelStyle}>
-              {src}
-            </label>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </Stack>
+    </FieldGroup>
   );
 }

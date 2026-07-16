@@ -9,16 +9,17 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.3.1
+## What's new on main
 
-Dependency and documentation maintenance release with no runtime behavior or
-configuration changes.
+The next release modernizes the configuration panel and its validation while
+keeping existing saved configurations compatible.
 
-- **Current development tools.** Compatible transitive dependencies are recorded in a deduplicated lockfile, with Biome held at the last release that completes type-aware linting reliably.
-- **Clear Node requirements.** The published runtime remains compatible with Node 20.18 or newer, while local, CI, and publish builds use the Node 22 toolchain required by the current development dependencies.
-- **Accurate configuration guidance.** The documentation now distinguishes the controls available in the custom panel from options accepted by the runtime configuration.
+- **Shared marine UI.** The panel now uses `signalk-nearlcrews-ui` for accessible controls, consistent auto, light, dark, and night themes, and isolated responsive styling.
+- **Safer configuration workflow.** Detected-path responses are validated before use, refresh and bulk actions resist duplicate activation, and current Signal K priority guidance links directly to group and path-level settings.
+- **Production-remote testing.** Browser coverage loads the built Module Federation remote through a host-equivalent React share scope across Chromium, Firefox, WebKit, and mobile Chromium.
+- **Stronger release checks.** Validation now covers dead code, generated panel boundaries, package contents, runtime dependencies, accessibility, narrow layouts, and refreshed App Store screenshots.
 
-See the [v0.3.1 changelog entry](CHANGELOG.md#v031), or the [full changelog](CHANGELOG.md).
+See the [unreleased changelog](CHANGELOG.md#unreleased) for the complete list.
 
 ## Why you'd want this
 
@@ -55,8 +56,8 @@ npm install signalk-synthetic-values
 From source:
 
 The published plugin supports Node 20.18 or newer at runtime. Building from
-source requires Node `^22.22.1 || >=24.11.0`; the checked-in `.node-version`
-selects Node 22.22.1.
+source requires Node `^22.18.0 || >=24.11.0`; the checked-in `.node-version`
+selects Node 22.23.1.
 
 ```bash
 git clone https://github.com/NearlCrews/signalk-synthetic-values.git
@@ -74,6 +75,15 @@ In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic V
 
 Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, a kind badge, and the source names as chips. Combinable values are classified as scalar, angular, attitude, or position; unsupported values show as other, and configured paths awaiting live data show as unknown.
 
+The panel uses `signalk-nearlcrews-ui` for accessible controls, shared marine
+theming, and isolated styles. Auto, light, dark, and night themes share the
+same preference with other panels that use the library. An existing
+Synthetic Values `skn-theme` preference is migrated automatically.
+
+The shared UI requires native CSS `@scope`: Chromium and Edge 118 or newer,
+Firefox 146 or newer, or Safari 17.4 or newer. Older browsers and embedded
+WebViews receive a browser-update message instead of an unstyled panel.
+
 Sources that stop reporting age out of the detected list after one minute. Configured paths remain visible while offline, so they can still be tuned or removed while discovery is rebuilding.
 
 - **Combine** opts a single path in immediately with default settings.
@@ -85,7 +95,7 @@ Paths that are detected but not meaningful to average are grouped under **Detect
 
 When two or more sources report identical values while the value is changing, the panel flags them as likely the same feed re-broadcast (for example a GPS forwarded by an autopilot under a second source name). Re-broadcast sources are not independent, so counting each one dilutes the combined value toward that single feed. The panel names the duplicates and suggests excluding all but one in the path's **Tune** section; it never excludes a source for you, since identical values can also be legitimate.
 
-After you opt in a path the panel shows a priority reminder: you must still set Signal K source priority to prefer `signalk-synthetic-values` for the combined value to win (see "Make the synthetic source win" below). The panel shows this instruction but does not set priority for you.
+After you opt in a path, the panel shows a priority reminder: you must still rank `signalk-synthetic-values` first in the relevant Signal K priority group for the combined value to win (see "Make the synthetic source win" below). The panel links to the group-based priority screen and offers a path-level override link, but it does not change priority for you.
 
 Detected multi-source paths are also available programmatically at `GET /plugins/signalk-synthetic-values/api/detected`.
 
@@ -130,17 +140,15 @@ the panel preserves rather than edits `outlierRejection`,
 
 ## Make the synthetic source win
 
-The synthetic value is emitted as an additional source alongside the raw sensors. With no priority set, the server uses last-writer-wins, so the displayed value flickers. You must set source priority once per path. The synthetic value does not win until this step is done.
+The synthetic value is emitted as an additional source alongside the raw sensors. Signal K ranks sources by group, with the first source winning every shared path in that group while it is publishing. The synthetic value does not consistently win until you rank it.
 
-1. Open the Signal K admin UI and navigate to **Server, then Data, then Sources** (Source Priorities).
-2. Find the path you opted in, for example `navigation.position`.
-3. Drag **signalk-synthetic-values** to the top of that path's source list.
-4. Set a **timeout** on the synthetic source so that if the plugin stops emitting, the server falls back to a raw source rather than displaying a stale synthetic value.
+1. Open the Signal K admin UI and navigate to **Data, then Priorities**.
+2. In each priority group that contains **signalk-synthetic-values**, drag it to the first position.
+3. Review the lower-ranked raw sources' **Fallback after** values. Each value controls how long the currently winning source must be silent before that backup can take over.
+4. Add a path-level override only when one path needs a different order from the rest of its group.
 5. Save.
 
-Repeat steps 2 through 4 for each path you have opted in.
-
-The configuration panel shows a priority reminder once you opt a path in. The reminder is informational: the plugin cannot read or write the server's priority store directly, but the priority takes effect server-side once you save it.
+The configuration panel shows a priority reminder once you opt a path in. The reminder links to **Data, Priorities**, and each combined row can open a path-level override for that path. The plugin cannot read or write the server's priority store directly, but the ranking takes effect server-side once you save it.
 
 ## Plugin status messages
 
@@ -157,27 +165,51 @@ For the per-path detail behind those counts (which path is waiting, the exact sp
 ## Development
 
 The published plugin targets Node 20.18 or newer. The development toolchain
-requires Node `^22.22.1 || >=24.11.0` and uses TypeScript 7 with
-`@signalk/server-api` 2.30. The published peer dependency supports
-`@signalk/server-api` 2.24 or newer.
+requires Node `^22.18.0 || >=24.11.0`; `.node-version` selects Node 22.23.1.
+It uses TypeScript 7 with `@signalk/server-api` 2.30. The published peer
+dependency supports `@signalk/server-api` 2.24 or newer.
 
 Biome is intentionally pinned to 2.5.2. Versions 2.5.3 and 2.5.4 can panic
-while checking the type-aware panel rules and still return a successful exit
-status, which makes them unsafe as a validation gate for this repository.
+while resolving the type-aware panel module graph, so they are not safe
+validation gates for this repository.
 
 ```bash
 git clone https://github.com/NearlCrews/signalk-synthetic-values.git
 cd signalk-synthetic-values
-npm ci               # install the locked dependencies
-npm run build        # compile to dist/
-npm test             # Vitest suite, single run
-npm run type-check   # TypeScript type check
-npm run lint         # Biome check
-npm run lint:fix     # lint and auto-fix
-npm run validate     # type-check, lint, and tests in one pass
+npm ci                       # install the locked dependencies
+npm run build                # build and verify dist/ and the panel remote
+npm test                     # Vitest suite, single run
+npm run check                # local pre-commit type, lint, dead-code, and unit checks
+npm run test:browser         # Chromium production-remote tests
+npm run test:browser:cross   # Chromium, Firefox, WebKit, and mobile Chromium
+npm run type-check           # runtime, panel, and browser-fixture type checks
+npm run lint                 # Biome check
+npm run lint:fix             # lint and auto-fix
+npm run knip                 # dead files, exports, and dependencies
+npm run package:check        # inspect the files included by npm pack
+npm run security-audit       # audit all dependencies at moderate severity
+npm run screenshots          # refresh the configuration-panel screenshots
+npm run validate             # full non-browser validation
 ```
 
-Run `npm run validate` before committing. See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for the pull request process.
+Install the browser engines once before running browser tests:
+
+```bash
+npx --no-install playwright install chromium firefox webkit
+```
+
+An optional live-host check verifies that Signal K registers the plugin and
+serves its configuration remote. Supply the complete authorization header
+when the server protects its administration API:
+
+```bash
+SIGNALK_URL=http://127.0.0.1:3000 \
+SIGNALK_AUTHORIZATION='Bearer <token>' \
+npm run test:integration
+```
+
+Run `npm run validate` and `npm run test:browser:cross` before pushing. See
+[CONTRIBUTING.md](.github/CONTRIBUTING.md) for the pull request process.
 
 ## License
 

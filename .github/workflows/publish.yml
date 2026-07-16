@@ -62,6 +62,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Install browser engines required by prepublish validation
+        run: npx --no-install playwright install --with-deps chromium firefox webkit
+
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:

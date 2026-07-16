@@ -1,0 +1,24 @@
+.heading {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--snui-space-2);
+  outline-offset: 0.2rem;
+}
+
+.funnel {
+  flex: none;
+  color: var(--snui-color-text-muted);
+}
+
+.timestamp {
+  color: var(--snui-color-text-muted);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.empty {
+  padding-block: var(--snui-space-4);
+  color: var(--snui-color-text-muted);
+  text-align: center;
+}

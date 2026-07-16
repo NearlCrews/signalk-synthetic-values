@@ -56,7 +56,7 @@ describe('DetectedPathRow: available row', () => {
         onUpdate: vi.fn(),
       })
     );
-    const btn = screen.getByRole('button', { name: /combine/i });
+    const btn = screen.getByRole('button', { name: `Combine ${availableRow.path}` });
     expect(btn).toBeInTheDocument();
     expect(btn).not.toBeDisabled();
   });
@@ -73,7 +73,7 @@ describe('DetectedPathRow: available row', () => {
         onUpdate: vi.fn(),
       })
     );
-    const btn = screen.getByRole('button', { name: /combine/i });
+    const btn = screen.getByRole('button', { name: `Combine ${availableRow.path}` });
     fireEvent.click(btn);
     expect(onAdd).toHaveBeenCalledOnce();
     expect(onAdd).toHaveBeenCalledWith(availableRow.path);
@@ -128,8 +128,8 @@ describe('DetectedPathRow: opted-in row', () => {
         onUpdate: vi.fn(),
       })
     );
-    expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /combine/i })).toBeNull();
+    expect(screen.getByRole('button', { name: `Remove ${optedInRow.path}` })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: `Combine ${optedInRow.path}` })).toBeNull();
   });
 
   it('calls onRemove(path) when Remove is clicked', () => {
@@ -144,7 +144,7 @@ describe('DetectedPathRow: opted-in row', () => {
         onUpdate: vi.fn(),
       })
     );
-    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+    fireEvent.click(screen.getByRole('button', { name: `Remove ${optedInRow.path}` }));
     expect(onRemove).toHaveBeenCalledOnce();
     expect(onRemove).toHaveBeenCalledWith(optedInRow.path);
   });
@@ -160,20 +160,9 @@ describe('DetectedPathRow: opted-in row', () => {
         onUpdate: vi.fn(),
       })
     );
-    // The CombinedPill renders a <span> with exact text "combined" and the success palette.
-    // getAllByText returns all matches; we expect exactly one visible pill.
     const pills = screen.getAllByText('combined', { exact: true });
     expect(pills).toHaveLength(1);
-    const pill = pills[0] as HTMLElement;
-    // Confirm the pill itself (or its containing span in the container) carries success tokens.
-    // Fall back to checking the container for the style if the node is a text fragment.
-    const style =
-      pill.getAttribute('style') ??
-      (container.querySelector('[style*="--skn-success"]') as HTMLElement | null)?.getAttribute(
-        'style'
-      ) ??
-      '';
-    expect(style).toMatch(/--skn-success/);
+    expect(container.querySelector('[data-combined="true"]')).toBeInTheDocument();
   });
 
   it('shows the priority instruction', () => {
@@ -187,10 +176,14 @@ describe('DetectedPathRow: opted-in row', () => {
         onUpdate: vi.fn(),
       })
     );
-    expect(screen.getByText(/priority not set/i)).toBeInTheDocument();
+    expect(screen.getByText(/source priority required/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /path-level override/i })).toHaveAttribute(
+      'href',
+      `#/data/priorities?path=${encodeURIComponent(optedInRow.path)}`
+    );
   });
 
-  it('accessible name includes path, source count, and kind', () => {
+  it('groups the row by path without duplicating its visible details', () => {
     render(
       createElement(DetectedPathRow, {
         row: optedInRow,
@@ -201,21 +194,9 @@ describe('DetectedPathRow: opted-in row', () => {
         onUpdate: vi.fn(),
       })
     );
-    // The source-count badge renders a visually-hidden label with the count.
-    // The row's sr span also includes "3 sources", so we expect exactly two matches.
-    expect(screen.getAllByText(/3 sources/i)).toHaveLength(2);
-    // The kind badge text appears in the visible badge and two sr spans: exactly three.
-    expect(screen.getAllByText(/angular/i)).toHaveLength(3);
-    // A visually-hidden span should carry all parts of the accessible name.
-    // Identified by content: it is the only span whose text starts with the
-    // path followed by a comma (the visible path label has no comma).
-    const srText = Array.from(document.querySelectorAll('span')).find((el) =>
-      (el.textContent ?? '').startsWith('navigation.headingTrue,')
-    );
-    expect(srText?.textContent).toMatch(/navigation\.headingTrue/);
-    expect(srText?.textContent).toMatch(/3 source/i);
-    expect(srText?.textContent).toMatch(/angular/i);
-    expect(srText?.textContent).toMatch(/combined/i);
+    expect(screen.getByRole('group', { name: optedInRow.path })).toBeInTheDocument();
+    expect(screen.getAllByText(/3 sources/i)).toHaveLength(1);
+    expect(screen.getAllByText(/kind: angular/i)).toHaveLength(1);
   });
 
   it('the Tune section is collapsed by default', () => {
@@ -229,7 +210,9 @@ describe('DetectedPathRow: opted-in row', () => {
         onUpdate: vi.fn(),
       })
     );
-    const toggle = screen.getByRole('button', { name: /tune/i });
+    const toggle = screen.getByRole('button', {
+      name: new RegExp(`^Tune\\s*settings for ${optedInRow.path}$`),
+    });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -244,7 +227,9 @@ describe('DetectedPathRow: opted-in row', () => {
         onUpdate: vi.fn(),
       })
     );
-    const toggle = screen.getByRole('button', { name: /tune/i });
+    const toggle = screen.getByRole('button', {
+      name: new RegExp(`^Tune\\s*settings for ${optedInRow.path}$`),
+    });
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     // PerPathSettings renders a Method selector when open.
@@ -264,7 +249,11 @@ describe('DetectedPathRow: opted-in row', () => {
       })
     );
     // Expand Tune section.
-    fireEvent.click(screen.getByRole('button', { name: /tune/i }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: new RegExp(`^Tune\\s*settings for ${optedInRow.path}$`),
+      })
+    );
     // Change the method select.
     const methodSelect = screen.getByLabelText(/method/i) as HTMLSelectElement;
     fireEvent.change(methodSelect, { target: { value: 'mean' } });
@@ -387,6 +376,7 @@ describe('DetectedPathRow: duplicate sources hint', () => {
     render(
       createElement(DetectedPathRow, {
         row,
+        optedIn: false,
         config: undefined,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
