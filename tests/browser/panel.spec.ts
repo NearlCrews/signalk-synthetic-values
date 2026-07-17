@@ -129,8 +129,21 @@ test('has no Axe findings in any theme', async ({ page, browserName, isMobile })
   test.skip(browserName !== 'chromium' || isMobile, 'One Chromium pass covers computed colors.');
 
   const themeGroup = page.getByRole('radiogroup', { name: 'Panel theme' });
-  for (const label of ['Auto', 'Light', 'Dark', 'Night']) {
+  const root = page.locator('[data-snui-root]');
+  await page.addStyleTag({ content: '* { transition: none !important; }' });
+
+  for (const [label, value] of [
+    ['Auto', null],
+    ['Light', 'light'],
+    ['Dark', 'dark'],
+    ['Night', 'night'],
+  ] as const) {
     await themeGroup.getByRole('radio', { name: label }).click();
+    if (value === null) {
+      await expect(root).not.toHaveAttribute('data-snui-theme');
+    } else {
+      await expect(root).toHaveAttribute('data-snui-theme', value);
+    }
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations, `${label} theme`).toEqual([]);
   }

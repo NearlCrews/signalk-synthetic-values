@@ -39,6 +39,7 @@ saved configurations remain compatible.
 - Webpack now preserves public shared UI design tokens and the shared responsive container name inside CSS Modules, and generated CSS no longer ends with blank lines.
 - Installed browser engines in the npm publish workflow so the cross-browser `prepublishOnly` gate can run.
 - Browser test runs now rebuild the production remote before launching the host fixture.
+- Browser accessibility checks now wait for settled theme state and disable color transitions before scanning computed contrast.
 - Cross-browser execution uses one worker and a fresh runner process per engine to avoid retained browser memory on Pi-class development and CI hosts.
 - Full validation now builds before coverage so the generated coverage report remains available afterward.
 - Verified every generated panel asset is packed and served with the expected content type.
