@@ -8,8 +8,13 @@ interface SchemaNode {
   default?: number | string;
   examples?: string[];
   minimum?: number;
+  maximum?: number;
   exclusiveMinimum?: number;
   exclusiveMaximum?: number;
+  minLength?: number;
+  pattern?: string;
+  required?: string[];
+  uniqueItems?: boolean;
   properties: Record<string, SchemaNode>;
   items: SchemaNode;
 }
@@ -19,7 +24,9 @@ const schemaOf = (detected: Parameters<typeof buildSchema>[0]): SchemaNode =>
 
 describe('buildSchema', () => {
   it('includes detected paths as enum hints', () => {
-    const schema = schemaOf(() => [{ path: 'navigation.position', sources: ['a', 'b'] }]);
+    const schema = schemaOf(() => [
+      { path: 'navigation.position', sources: ['a', 'b'], duplicateGroups: [] },
+    ]);
     const pathProp = schema.properties.paths.items.properties.path;
     expect(pathProp.examples).toContain('navigation.position');
   });
@@ -46,6 +53,7 @@ describe('buildSchema', () => {
     const schema = schemaOf(() => []);
     const jr = schema.properties.paths.items.properties.jumpRejection;
     expect(jr.type).toBe('object');
+    expect(jr.required).toEqual(['maxRate']);
     expect(Object.keys(jr.properties).sort()).toEqual(['maxRate', 'persistMs', 'persistSamples']);
   });
   it('strictly-positive validator fields use exclusiveMinimum so the form cannot accept 0', () => {
@@ -73,9 +81,18 @@ describe('buildSchema', () => {
     const props = schema.properties.paths.items.properties;
     expect(schema.properties.defaultMinSources.type).toBe('integer');
     expect(schema.properties.maxSourcesPerPath.type).toBe('integer');
+    expect(schema.properties.maxSourcesPerPath.maximum).toBe(64);
     expect(props.minSources.type).toBe('integer');
     expect(props.jumpRejection.properties.persistSamples.type).toBe('integer');
     expect(props.jumpRejection.properties.persistSamples.default).toBeGreaterThan(0);
     expect(props.jumpRejection.properties.persistMs.default).toBeGreaterThan(0);
+  });
+  it('matches runtime path and source-list validation', () => {
+    const props = schemaOf(() => []).properties.paths.items.properties;
+    expect(props.path.minLength).toBe(1);
+    expect(props.path.pattern).toBeDefined();
+    expect(props.includeSources.uniqueItems).toBe(true);
+    expect(props.includeSources.items.minLength).toBe(1);
+    expect(props.excludeSources.uniqueItems).toBe(true);
   });
 });

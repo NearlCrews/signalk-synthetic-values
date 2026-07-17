@@ -9,17 +9,18 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new on main
+## What's new in 0.4.0
 
-The next release modernizes the configuration panel and its validation while
+Version 0.4.0 modernizes the configuration panel and its validation while
 keeping existing saved configurations compatible.
 
 - **Shared marine UI.** The panel now uses `signalk-nearlcrews-ui` for accessible controls, consistent auto, light, dark, and night themes, and isolated responsive styling.
 - **Safer configuration workflow.** Detected-path responses are validated before use, refresh and bulk actions resist duplicate activation, and current Signal K priority guidance links directly to group and path-level settings.
+- **Hardened runtime.** Strict configuration and delta validation, bounded source tracking, monotonic timing, safer emission retries, and kind checks keep malformed or changing feeds from corrupting synthetic values.
 - **Production-remote testing.** Browser coverage loads the built Module Federation remote through a host-equivalent React share scope across Chromium, Firefox, WebKit, and mobile Chromium.
 - **Stronger release checks.** Validation now covers dead code, generated panel boundaries, package contents, runtime dependencies, accessibility, narrow layouts, and refreshed App Store screenshots.
 
-See the [unreleased changelog](CHANGELOG.md#unreleased) for the complete list.
+See the [0.4.0 changelog](CHANGELOG.md#v040) for the complete list.
 
 ## Why you'd want this
 
@@ -37,9 +38,9 @@ Synthetic Values subscribes to every source on the opted-in paths, applies a com
 
 The plugin handles four value kinds:
 
-- **Scalar:** standard numeric combining. Median is robust; trimmed mean and mean are available. Whole-source outlier rejection uses scaled MAD at four or more sources, and a configured `rejectThreshold` at smaller N.
+- **Scalar:** standard numeric combining. Median is robust; trimmed mean and mean are available. Whole-source outlier rejection uses scaled MAD at four or more sources, while a configured `rejectThreshold` always provides an absolute rejection ceiling.
 - **Angular:** headings, bearings, and any path with radian units. Combines without the 0/360-degree wrap artifact, honoring the `method` setting: `median` (the default) uses the circular medoid, the reading closest to the others, so one off compass cannot drag the result; `mean` uses the circular mean. Suppresses the synthetic value when the circular pairwise spread exceeds `angularSpreadThreshold`, so a sensor pointing 180 degrees from the rest does not produce a meaningless average.
-- **Position:** latitude/longitude pairs. Combines latitude with the selected linear statistic (median, trimmed mean, or mean) and longitude with an antimeridian-safe circular mean, then applies per-source geodesic-distance outlier rejection so a phantom GPS fix does not drag the result.
+- **Position:** latitude/longitude pairs. Combines latitude with the selected linear statistic and longitude with an antimeridian-safe circular statistic. `mean` uses the circular mean, while `median` and `trimmedMean` use the robust circular medoid. Per-source geodesic-distance rejection keeps a phantom GPS fix from dragging the result.
 - **Attitude:** the `navigation.attitude` object, with roll, pitch, and yaw combined independently as angular components. A source whose attitude is off on any axis is rejected, and the synthetic value is suppressed if any axis is too scattered. This is the Signal K way to fuse several motion sensors into one attitude, then prefer it by source priority, the same outcome as selecting a source on a Garmin display.
 
 A staleness timeout excludes sources that have not sent a fresh reading within the configured window, so a sensor that goes quiet does not silently anchor the average.
@@ -109,7 +110,7 @@ preserves existing values but does not edit them.
 | `defaultStalenessTimeoutMs` | `1000` | A source whose last receipt is older than this is excluded from combining. Override per path with `stalenessTimeoutMs`. |
 | `defaultEmitMinIntervalMs` | `1000` | Minimum interval in milliseconds between synthetic emits for a path. Override per path with `emitMinIntervalMs`. |
 | `defaultMinSources` | `2` | Minimum fresh sources required to emit a combined value. Set to `1` to pass through a single-source path without combining. Override per path with `minSources`. |
-| `maxSourcesPerPath` | `16` | Global cap on tracked sources per path. |
+| `maxSourcesPerPath` | `16` | Global cap on tracked and detected sources per path, from `1` to `64`. |
 
 ### Per-path options
 
@@ -122,11 +123,11 @@ the panel preserves rather than edits `outlierRejection`,
 | Option | Default | Description |
 |--------|---------|-------------|
 | `path` | required | The Signal K path to combine. |
-| `method` | `median` | Combining method: `median`, `trimmedMean`, or `mean`. For angular paths, `mean` uses the circular mean; `median` and `trimmedMean` use the circular medoid (the reading closest to the others). |
-| `trimFraction` | `0.25` | Fraction in the range `[0, 0.5)` trimmed from each end when using `trimmedMean`. Falls back to median or mean at small N. |
+| `method` | `median` | Combining method: `median`, `trimmedMean`, or `mean`. For angular paths and position longitudes, `mean` uses the circular mean; `median` and `trimmedMean` use the circular medoid (the reading closest to the others). |
+| `trimFraction` | `0.25` | Fraction in the range `[0, 0.5)` trimmed from each end when using `trimmedMean`. The count trimmed from each end is `floor(N * trimFraction)`, so small sets may remain untrimmed. |
 | `outlierRejection` | `true` | Reject whole-source outliers before combining. |
 | `madThreshold` | `3` | Sigma-equivalent multiplier for scaled-MAD outlier rejection when N is 4 or more. |
-| `rejectThreshold` | unset | Absolute rejection distance in kind units: meters for position, radians for angular, and value units for scalar. Used at small N or when the robust scale is degenerate. |
+| `rejectThreshold` | unset | Absolute rejection ceiling in kind units: meters for position, radians for angular and attitude, and value units for scalar. It also applies when scaled-MAD rejection is active. |
 | `disagreeThreshold` | unset | Absolute distance in kind units above which sources are flagged as disagreeing in the plugin status. The combined value is still emitted. |
 | `angularSpreadThreshold` | `pi/2` | Angular paths only: maximum circular pairwise spread in radians. Sources beyond this threshold cause the synthetic value to be suppressed. |
 | `angular` | `auto` | Override angular detection: `auto`, `yes`, or `no`. `auto` uses the known-circular path list and metadata units. |
@@ -182,7 +183,7 @@ npm test                     # Vitest suite, single run
 npm run check                # local pre-commit type, lint, dead-code, and unit checks
 npm run test:browser         # Chromium production-remote tests
 npm run test:browser:cross   # Chromium, Firefox, WebKit, and mobile Chromium
-npm run type-check           # runtime, panel, and browser-fixture type checks
+npm run type-check           # runtime, backend tests, panel, and browser-fixture type checks
 npm run lint                 # Biome check
 npm run lint:fix             # lint and auto-fix
 npm run knip                 # dead files, exports, and dependencies
@@ -198,9 +199,9 @@ Install the browser engines once before running browser tests:
 npx --no-install playwright install chromium firefox webkit
 ```
 
-An optional live-host check verifies that Signal K registers the plugin and
-serves its configuration remote. Supply the complete authorization header
-when the server protects its administration API:
+An optional live-host check verifies that Signal K registers the plugin, serves
+its detected-path API, and serves its configuration remote. Supply the complete
+authorization header when the server protects its administration API:
 
 ```bash
 SIGNALK_URL=http://127.0.0.1:3000 \

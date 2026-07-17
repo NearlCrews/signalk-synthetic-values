@@ -20,16 +20,17 @@ export class Emitter {
     return last === undefined || now - last >= minIntervalMs;
   }
 
-  emit(path: string, value: SampleValue, sourceRef: string): void {
-    this.lastEmit.set(path, this.clock.now());
+  emit(path: string, value: SampleValue): void {
     this.app.handleMessage(this.pluginId, {
       updates: [
         {
-          $source: sourceRef,
+          $source: this.pluginId,
           values: [{ path, value }],
         },
       ],
     });
+    // A failed send must remain immediately retryable.
+    this.lastEmit.set(path, this.clock.now());
   }
 
   reset(): void {

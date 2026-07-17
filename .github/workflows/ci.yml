@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 20
 
     strategy:
+      fail-fast: false
       matrix:
         node-version: [22.x, 24.x]
 
@@ -48,6 +49,7 @@ jobs:
         run: npm run test:coverage
 
       - name: Upload coverage reports to Codecov
+        if: matrix.node-version == '22.x'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./coverage/coverage-final.json,./coverage/lcov.info
@@ -58,18 +60,8 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Run security audit
-        run: |
-          set +e
-          npm run security-audit | tee audit.txt
-          {
-            echo "## npm audit (moderate+)"
-            echo ""
-            echo '```'
-            cat audit.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          # Surface audit output in the job summary but don't fail PRs on transitive advisories.
-          exit 0
+        if: matrix.node-version == '22.x'
+        run: npm run security-audit
 
   build:
     runs-on: ubuntu-latest

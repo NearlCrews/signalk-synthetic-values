@@ -17,7 +17,7 @@ describe('Emitter', () => {
     const app: EmitApp = { handleMessage: vi.fn() };
     const e = new Emitter(app, 'signalk-synthetic-values', fakeClock(0));
     expect(e.due('environment.depth.belowTransducer', 1000)).toBe(true);
-    e.emit('environment.depth.belowTransducer', 4.2, 'signalk-synthetic-values');
+    e.emit('environment.depth.belowTransducer', 4.2);
     const delta = sentDelta(app);
     expect(delta.updates[0].$source).toBe('signalk-synthetic-values');
     expect(delta.updates[0].timestamp).toBeUndefined();
@@ -32,19 +32,19 @@ describe('Emitter', () => {
     const c = fakeClock(0);
     const e = new Emitter(app, 'sv', c);
     expect(e.due('p', 1000)).toBe(true);
-    e.emit('p', 1, 'sv');
+    e.emit('p', 1);
     c.set(500);
     expect(e.due('p', 1000)).toBe(false);
     c.set(1000);
     expect(e.due('p', 1000)).toBe(true);
-    e.emit('p', 3, 'sv');
+    e.emit('p', 3);
     expect(vi.mocked(app.handleMessage).mock.calls).toHaveLength(2);
     expect(sentDelta(app, 1).updates[0].values[0].value).toBe(3);
   });
   it('emits a position value object', () => {
     const app: EmitApp = { handleMessage: vi.fn() };
     const e = new Emitter(app, 'sv', fakeClock(0));
-    e.emit('navigation.position', { latitude: 1, longitude: 2 }, 'sv');
+    e.emit('navigation.position', { latitude: 1, longitude: 2 });
     const delta = sentDelta(app);
     expect(delta.updates[0].values[0].value).toEqual({ latitude: 1, longitude: 2 });
     expect(delta.updates[0].$source).toBe('sv');
@@ -58,10 +58,20 @@ describe('Emitter reset', () => {
     const app: EmitApp = { handleMessage: vi.fn() };
     const c = fakeClock(0);
     const e = new Emitter(app, 'sv', c);
-    e.emit('p', 1, 'sv');
+    e.emit('p', 1);
     c.set(500);
     expect(e.due('p', 1000)).toBe(false);
     e.reset();
+    expect(e.due('p', 1000)).toBe(true);
+  });
+  it('does not rate-limit a retry after handleMessage throws', () => {
+    const app: EmitApp = {
+      handleMessage: vi.fn(() => {
+        throw new Error('send failed');
+      }),
+    };
+    const e = new Emitter(app, 'sv', fakeClock(0));
+    expect(() => e.emit('p', 1)).toThrow('send failed');
     expect(e.due('p', 1000)).toBe(true);
   });
 });

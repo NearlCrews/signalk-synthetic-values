@@ -3,5 +3,7 @@ export interface Clock {
 }
 
 export const systemClock: Clock = {
-  now: () => Date.now(),
+  // Every runtime use is elapsed-time based. performance.now() is monotonic,
+  // so wall-clock corrections cannot freeze rate limiting or distort damping.
+  now: () => performance.now(),
 };

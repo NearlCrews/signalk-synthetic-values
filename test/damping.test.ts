@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyJump, applySlew, type JumpConfig } from '../src/damping';
-import type { LatLon } from '../src/metrics';
+import { geoDistance, type LatLon } from '../src/metrics';
 
 const cfg: JumpConfig = { maxRate: 5, persistSamples: 2, persistMs: 3000 };
 
@@ -107,6 +107,12 @@ describe('applySlew', () => {
     const r = applySlew('scalar', st, 10, 1000, 1); // 1 unit/s, dt 1s
     expect(r.value).toBeCloseTo(1, 6);
   });
+  it('holds the exact prior representation when no time has elapsed', () => {
+    const previous: LatLon = { latitude: 0, longitude: 180 };
+    const st = applySlew('position', undefined, previous, 1000, 1).state;
+    const result = applySlew('position', st, { latitude: 1, longitude: 170 }, 1000, 100).value;
+    expect(result).toBe(previous);
+  });
   it('angular slew steps the short way around the circle', () => {
     // From 0.1 rad, target is 2*pi - 0.1 rad (just below 0 going clockwise).
     // The short angular distance is 0.2 rad; with maxRatePerSec=0.05 and dt=1s
@@ -117,6 +123,13 @@ describe('applySlew', () => {
     const r = applySlew('angular', st, target, 1000, 0.05); // max 0.05 rad/s over 1 s
     // Should step 0.05 rad backward (shortest path), landing near 0.1 - 0.05 = 0.05
     expect(r.value as number).toBeCloseTo(0.05, 6);
+  });
+  it('angular slew keeps a wrapped result in the 0 to 2pi range', () => {
+    const st = applySlew('angular', undefined, 0.01, 0, 0.05).state;
+    const result = applySlew('angular', st, 2 * Math.PI - 0.1, 1000, 0.05).value as number;
+    expect(result).toBeGreaterThan(0);
+    expect(result).toBeLessThan(2 * Math.PI);
+    expect(result).toBeCloseTo(2 * Math.PI - 0.04, 6);
   });
   it('position slew clamps a large step and moves toward target', () => {
     const a: LatLon = { latitude: 0, longitude: 0 };
@@ -154,5 +167,12 @@ describe('applySlew', () => {
     expect(result.longitude).toBeLessThan(10);
     // Latitude should be very close to 0 (the path is due east)
     expect(result.latitude).toBeCloseTo(0, 4);
+  });
+  it('position slew honors the distance cap near the poles', () => {
+    const a: LatLon = { latitude: 80, longitude: 0 };
+    const b: LatLon = { latitude: 80, longitude: 180 };
+    const st = applySlew('position', undefined, a, 0, 1).state;
+    const result = applySlew('position', st, b, 1000, 100).value as LatLon;
+    expect(geoDistance(a, result)).toBeCloseTo(100, 6);
   });
 });

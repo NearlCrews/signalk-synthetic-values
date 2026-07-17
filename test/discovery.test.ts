@@ -5,10 +5,10 @@ import { fakeClock } from './helpers';
 describe('Discovery', () => {
   it('reports a path only once it has two or more sources', () => {
     const d = new Discovery(fakeClock());
-    d.observe('p', 'a');
+    expect(d.observe('p', 'a')).toBe(true);
     expect(d.detected()).toEqual([]);
-    d.observe('p', 'b');
-    d.observe('p', 'b');
+    expect(d.observe('p', 'b')).toBe(true);
+    expect(d.observe('p', 'b')).toBe(false);
     expect(d.detected()).toEqual([{ path: 'p', sources: ['a', 'b'], duplicateGroups: [] }]);
   });
   it('reset clears state', () => {
@@ -75,6 +75,31 @@ describe('Discovery duplicate detection', () => {
     }
     expect(d.detected()[0]?.duplicateGroups).toEqual([]);
   });
+  it('does not group a varying source with a static source that happens to match', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c);
+    for (let i = 0; i < 4; i++) {
+      c.set(i * 1000);
+      d.observe('p', 'varying', i < 3 ? i : 5);
+      d.observe('p', 'static', 5);
+    }
+    expect(d.detected()[0]?.duplicateGroups).toEqual([]);
+  });
+  it('clears duplicate history when a source becomes non-combinable', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c);
+    for (let i = 0; i < 3; i++) {
+      c.set(i * 1000);
+      d.observe('p', 'a', i);
+      d.observe('p', 'b', i);
+    }
+    expect(d.detected()[0]?.duplicateGroups).toEqual([['a', 'b']]);
+    c.set(3000);
+    d.observe('p', 'a', undefined, 'other');
+    expect(d.detected()[0]?.duplicateGroups).toEqual([]);
+    expect(d.detected()[0]?.kind).toBe('other');
+    expect(d.kind('p')).toBe('other');
+  });
 });
 
 describe('Discovery bounded store', () => {
@@ -113,5 +138,26 @@ describe('Discovery bounded store', () => {
       .map((p) => p.path)
       .sort();
     expect(paths).toEqual(['a', 'c']);
+  });
+  it('caps sources per path and evicts the least recently seen source', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c, 200, 2);
+    d.observe('p', 'a');
+    c.set(10);
+    d.observe('p', 'b');
+    c.set(20);
+    d.observe('p', 'c');
+    expect(d.detected()[0]?.sources).toEqual(['b', 'c']);
+  });
+  it('trims existing source sets when the cap decreases', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c, 200, 3);
+    d.observe('p', 'a');
+    c.set(10);
+    d.observe('p', 'b');
+    c.set(20);
+    d.observe('p', 'c');
+    d.setMaxSourcesPerPath(2);
+    expect(d.detected()[0]?.sources).toEqual(['b', 'c']);
   });
 });

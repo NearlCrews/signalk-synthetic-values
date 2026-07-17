@@ -7,7 +7,7 @@ const res = (outcome: Outcome, n = 3, spread?: number): CombineResult => ({
   usedSources: [],
   freshCount: n,
   value: 0,
-  spread,
+  ...(spread === undefined ? {} : { spread }),
 });
 
 describe('pathStatus', () => {
@@ -15,6 +15,7 @@ describe('pathStatus', () => {
     const s = pathStatus('navigation.position', res('ok'), 'signalk-synthetic-values', 2, 'median');
     expect(s).toContain('Set this path');
     expect(s).toContain('signalk-synthetic-values');
+    expect(s).toContain('Server, Data, Priorities');
   });
   it('reports single source', () => {
     expect(pathStatus('p', res('singleSource', 1), 'sv', 2, 'median')).toContain(

@@ -59,7 +59,8 @@ tree recorded in `package-lock.json`.
   dependencies.
 - Do not edit `dist/` or `public/`; both are generated build output.
 - Tests live in `test/`, mirroring the source structure, and run on Vitest
-  (`npm test` for a single run, `npm run test:watch` for the watcher).
+  (`npm test` for a single run, `npm run test:watch` for the watcher). Backend
+  tests are type-checked by `npm run type-check:test`.
 - Production-remote browser tests live in `tests/browser/`. Install Chromium,
   Firefox, and WebKit with
   `npx --no-install playwright install chromium firefox webkit`, then run

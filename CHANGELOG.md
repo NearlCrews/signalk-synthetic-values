@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-This work modernizes the configuration panel, hardens its discovery and save
-workflows, and expands production-package validation. Existing saved
-configurations remain compatible.
+<a id="v040"></a>
+
+## [0.4.0] - 2026-07-16
+
+This release modernizes the configuration panel, hardens runtime validation and
+sensor combining, and expands production-package validation. Existing valid
+saved configurations remain compatible.
 
 ### Added
 
@@ -17,6 +21,7 @@ configurations remain compatible.
 - Added browser coverage for configuration saves, failed-save recovery, theme migration, keyboard focus, narrow layouts, coarse-pointer targets, accessibility, and unsupported browser handling across Chromium, Firefox, WebKit, and mobile Chromium.
 - Added a browser fixture and screenshot workflow that load the built remote through a host-equivalent React share scope.
 - Added Knip validation for dead files, exports, and dependencies.
+- Added backend-test type checking, coverage thresholds, and live Signal K verification for the detected-path API.
 
 ### Fixed
 
@@ -25,7 +30,7 @@ configurations remain compatible.
 - Manual detection refreshes now show a busy state, block duplicate activation, and keep Retry state clear while requests are active.
 - Repeated row controls now include the Signal K path in their accessible names, while visible labels and layout remain unchanged.
 - Browser fixtures now use the runtime's real default values instead of stale hardcoded placeholders.
-- Builds no longer delete coverage output, CI and prepublish checks avoid a redundant browser-test rebuild, and package validation covers every declared JavaScript and type entrypoint plus their source maps.
+- Builds no longer delete coverage output, CI and prepublish checks avoid a redundant browser-test rebuild, and package validation covers every declared JavaScript and type entrypoint plus the runtime source map.
 - Successful refreshes now update the last-checked time, and manual refreshes announce completion even when the detected paths are unchanged.
 - Source-filter checkboxes now use collision-safe IDs, clear the opposite filter model, and keep every live source excluded when the final include-only source is unchecked.
 - Removed duplicated screen-reader row details and empty source groups, preserved complete source and kind labels, and aligned form controls' accessible names with their visible labels.
@@ -36,6 +41,14 @@ configurations remain compatible.
 - Cross-browser execution uses one worker and a fresh runner process per engine to avoid retained browser memory on Pi-class development and CI hosts.
 - Full validation now builds before coverage so the generated coverage report remains available afterward.
 - Verified every generated panel asset is packed and served with the expected content type.
+- Configuration validation now handles null and malformed input without throwing, rejects incorrect field types, caps tracked sources at 64, requires `jumpRejection.maxRate`, and enforces the same bounds as the schema.
+- Malformed deltas, invalid paths, and incorrect source types are skipped without aborting later values or bypassing the Signal K handler chain.
+- Source filters now apply before configured classification and storage. Invalid or shape-changing samples remove that source's stale registry value, and mixed combinable shapes can no longer produce invalid synthetic output.
+- Discovery and configured storage now share the source cap, trim immediately when the cap decreases, clear stale duplicate history, and require at least two changing feeds before flagging a duplicate group.
+- Failed sends remain immediately retryable and no longer advance rate-limit, slew, or status state. Runtime intervals now use a monotonic clock so wall-clock changes cannot distort staleness or damping.
+- Finite extreme scalar values no longer overflow mean or median calculations, absolute rejection remains a ceiling while MAD is active, and a one-source post-rejection result reports lost redundancy.
+- Position slew limiting now follows a distance-capped great-circle step, position coordinates are range-checked, and robust methods use a circular longitude medoid instead of allowing one longitude outlier to drag the result.
+- Plugin status starts configured paths as waiting, points to the current Data, Priorities workflow, and updates an outcome only after a successful synthetic send.
 
 ### Changed
 
@@ -47,6 +60,8 @@ configurations remain compatible.
 - Refreshed the configuration-panel screenshots and expanded package, runtime-audit, build, and prepublish validation.
 - Documented the approved 24,000-byte gzip ceiling for the shared UI migration. The current production panel assets are 23,883 bytes gzip.
 - Removed unused exports, the unused lint-staged configuration and dependency, and a redundant browser-test script.
+- The npm package now ships only its supported root declaration instead of internal declaration files with no corresponding JavaScript exports.
+- CI now uploads coverage once, enforces the clean dependency audit, runs version matrices independently, and applies timeouts and concurrency controls to analysis and publication jobs.
 
 <a id="v031"></a>
 

@@ -4,10 +4,19 @@ import { circularMeanRad, maxCircularSpread, mean, median, trimmedMean } from '.
 describe('median', () => {
   it('odd length', () => expect(median([3, 1, 2])).toBe(2));
   it('even length averages the middle two', () => expect(median([1, 2, 3, 4])).toBe(2.5));
+  it('does not overflow finite same-sign values', () => {
+    expect(median([Number.MAX_VALUE, Number.MAX_VALUE])).toBe(Number.MAX_VALUE);
+  });
 });
 
 describe('mean', () => {
   it('arithmetic mean', () => expect(mean([1, 2, 3])).toBe(2));
+  it('does not overflow finite same-sign values', () => {
+    expect(mean([Number.MAX_VALUE, Number.MAX_VALUE])).toBe(Number.MAX_VALUE);
+  });
+  it('retains a small residual through cancellation', () => {
+    expect(mean([Number.MAX_SAFE_INTEGER, 1, -Number.MAX_SAFE_INTEGER])).toBeCloseTo(1 / 3, 12);
+  });
 });
 
 describe('trimmedMean small N flooring', () => {
@@ -21,7 +30,8 @@ describe('trimmedMean small N flooring', () => {
   it('an out-of-range trimFraction on a direct call falls back to the full mean', () => {
     // validateConfig keeps trimFraction inside [0, 0.5) for the app, so this
     // guards direct callers of the exported helper only.
-    expect(trimmedMean([1, 2, 3], 0.6)).toBe(mean([1, 2, 3]));
+    expect(trimmedMean([1, 2, 100], 0.6)).toBe(mean([1, 2, 100]));
+    expect(trimmedMean([1, 2, 100], -0.1)).toBe(mean([1, 2, 100]));
   });
 });
 

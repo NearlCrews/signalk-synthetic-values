@@ -1,13 +1,13 @@
 // test/combine-reject.test.ts
 import { describe, expect, it } from 'vitest';
 import { rejectMask, robustCenter } from '../src/combine';
-import type { LatLon } from '../src/metrics';
+import type { Attitude, LatLon } from '../src/metrics';
 
 describe('robustCenter', () => {
   it('scalar center is the median', () => {
     expect(robustCenter('scalar', [1, 2, 100])).toBe(2);
   });
-  it('position center is component median (lat) and circular mean (lon)', () => {
+  it('position center is component median (lat) and circular medoid (lon)', () => {
     const c = robustCenter('position', [
       { latitude: 10, longitude: 20 },
       { latitude: 10.0001, longitude: 20.0001 },
@@ -15,6 +15,23 @@ describe('robustCenter', () => {
     ]) as LatLon;
     expect(c.latitude).toBeCloseTo(10, 3);
     expect(c.longitude).toBeCloseTo(20, 3);
+  });
+  it('position center resists one longitude outlier', () => {
+    const c = robustCenter('position', [
+      { latitude: 10, longitude: 20 },
+      { latitude: 10, longitude: 20 },
+      { latitude: 10, longitude: 100 },
+    ]) as LatLon;
+    expect(c.longitude).toBeCloseTo(20, 9);
+  });
+  it('angular and attitude centers use a circular medoid', () => {
+    expect(robustCenter('angular', [0, 0, 2])).toBe(0);
+    const attitude = robustCenter('attitude', [
+      { roll: 0, pitch: 0, yaw: 0 },
+      { roll: 0, pitch: 0, yaw: 0 },
+      { roll: 1, pitch: 2, yaw: 3 },
+    ]) as Attitude;
+    expect(attitude).toEqual({ roll: 0, pitch: 0, yaw: 0 });
   });
 });
 
@@ -38,6 +55,9 @@ describe('rejectMask', () => {
   });
   it('rejects a gross outlier at N=4 even when inliers are bit-identical (MAD=0 fallback)', () => {
     expect(rejectMask('scalar', [0, 0, 0, 100], 3)).toEqual([true, true, true, false]);
+  });
+  it('applies the absolute threshold as a ceiling when MAD is active', () => {
+    expect(rejectMask('scalar', [0, 1, 2, 3], 1000, 0.75)).toEqual([false, true, true, false]);
   });
   it('rejects a whole position source by geodesic distance', () => {
     const tight: LatLon = { latitude: 10, longitude: 20 };

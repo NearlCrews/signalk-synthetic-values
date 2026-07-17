@@ -13,21 +13,39 @@ const TWO_PI = 2 * Math.PI;
 
 // Callers must pass non-empty arrays.
 export function mean(xs: number[]): number {
-  return xs.reduce((s, x) => s + x, 0) / xs.length;
+  // Scale before summing so finite same-sign inputs cannot overflow. Neumaier
+  // compensation reduces cancellation error without another allocation.
+  let sum = 0;
+  let correction = 0;
+  for (const x of xs) {
+    const scaled = x / xs.length;
+    const next = sum + scaled;
+    correction += Math.abs(sum) >= Math.abs(scaled) ? sum - next + scaled : scaled - next + sum;
+    sum = next;
+  }
+  return sum + correction;
 }
 
 export function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);
   // Callers pass non-empty arrays, so m and m - 1 are always in range.
-  return s.length % 2 ? (s[m] as number) : ((s[m - 1] as number) + (s[m] as number)) / 2;
+  if (s.length % 2) return s[m] as number;
+  const lower = s[m - 1] as number;
+  const upper = s[m] as number;
+  // Same-sign subtraction cannot overflow and preserves tiny equal values.
+  // Opposite-sign halving avoids overflowing upper - lower.
+  return Math.sign(lower) === Math.sign(upper)
+    ? lower + (upper - lower) / 2
+    : lower / 2 + upper / 2;
 }
 
 export function trimmedMean(xs: number[], trimFraction: number): number {
   const s = [...xs].sort((a, b) => a - b);
+  if (!Number.isFinite(trimFraction) || trimFraction < 0 || trimFraction >= 0.5) return mean(s);
   const k = Math.floor(s.length * trimFraction);
   const kept = s.slice(k, s.length - k);
-  return mean(kept.length ? kept : s);
+  return mean(kept);
 }
 
 function normalize2pi(a: number): number {
@@ -88,20 +106,22 @@ function lonCircularMean(lons: number[]): number {
   return radiansToLonDegrees(Math.atan2(sumSin, sumCos));
 }
 
+function lonCircularMedoid(lons: number[]): number {
+  return radiansToLonDegrees(circularMedoid(lons.map(toRadians)));
+}
+
 export function robustCenter(kind: Kind, values: SampleValue[]): SampleValue {
   if (kind === 'position') {
     const lats = (values as LatLon[]).map((v) => v.latitude);
     const lons = (values as LatLon[]).map((v) => v.longitude);
-    return { latitude: median(lats), longitude: lonCircularMean(lons) };
+    return { latitude: median(lats), longitude: lonCircularMedoid(lons) };
   }
   if (kind === 'angular') {
-    return circularMeanRad(values as number[]).mean;
+    return circularMedoid(values as number[]);
   }
   if (kind === 'attitude') {
     const atts = values as Attitude[];
-    // The rejection center uses the circular mean per axis (method-independent),
-    // mirroring how position uses the median latitude for its center.
-    return mapAttitudeComponents((c) => circularMeanRad(atts.map((a) => a[c])).mean);
+    return mapAttitudeComponents((c) => circularMedoid(atts.map((attitude) => attitude[c])));
   }
   return median(values as number[]);
 }
@@ -125,14 +145,12 @@ export function rejectMask(
     scale = meanAbs > 0 && n >= 4 ? 1.2533 * meanAbs : 0;
   }
 
-  if (n >= 4 && scale > 0) {
-    const t = madThreshold * scale;
-    return distances.map((d) => d <= t);
-  }
-  if (rejectThreshold != null) {
-    return distances.map((d) => d <= rejectThreshold);
-  }
-  return new Array(n).fill(true);
+  let threshold = Number.POSITIVE_INFINITY;
+  if (n >= 4 && scale > 0) threshold = madThreshold * scale;
+  if (rejectThreshold != null) threshold = Math.min(threshold, rejectThreshold);
+  return Number.isFinite(threshold)
+    ? distances.map((d) => d <= threshold)
+    : new Array(n).fill(true);
 }
 
 // Single source of truth for the combine methods: the schema enum and the
@@ -207,6 +225,40 @@ function combineAngular(
   return { value: opts.method === 'mean' ? cm : circularMedoid(angles), spread };
 }
 
+function combineAttitude(
+  values: SampleValue[],
+  opts: CombineOptions
+): { value?: Attitude; outcome: Outcome; spread?: number } {
+  const attitudes = values as Attitude[];
+  const value = {} as Attitude;
+  // The attitude pairwise distance is the max per-component angular distance,
+  // so the max over the per-axis spreads is the pairwise spread.
+  let spread = 0;
+  for (const component of ATTITUDE_COMPONENTS) {
+    const result = combineAngular(
+      attitudes.map((attitude) => attitude[component]),
+      opts
+    );
+    if (result.value === undefined) return { outcome: 'diverged' };
+    value[component] = result.value;
+    if (result.spread !== undefined && result.spread > spread) spread = result.spread;
+  }
+  return { value, outcome: 'ok', spread };
+}
+
+function combinePosition(values: SampleValue[], opts: CombineOptions): LatLon {
+  const positions = values as LatLon[];
+  const latitudes = positions.map((position) => position.latitude);
+  const longitudes = positions.map((position) => position.longitude);
+  return {
+    latitude: linear(opts.method, latitudes, opts.trimFraction),
+    // The circular medoid gives median and trimmedMean the same robust,
+    // wrap-safe behavior used for angular paths. Mean still splits the
+    // difference between sources.
+    longitude: opts.method === 'mean' ? lonCircularMean(longitudes) : lonCircularMedoid(longitudes),
+  };
+}
+
 // Returns { value, outcome, spread } where value is undefined when the output
 // diverged. The union is intentional: angular, attitude, and position paths
 // may decline to produce a value. `spread` is the max pairwise distance when
@@ -224,36 +276,10 @@ function computeValue(
       : { value: r.value, outcome: 'ok', spread: r.spread };
   }
   if (opts.kind === 'attitude') {
-    const atts = values as Attitude[];
-    const out = {} as Attitude;
-    // The attitude pairwise distance is the max per-component angular
-    // distance, so the max over the per-axis spreads IS the pairwise spread.
-    let spread = 0;
-    for (const c of ATTITUDE_COMPONENTS) {
-      const r = combineAngular(
-        atts.map((a) => a[c]),
-        opts
-      );
-      // Suppress the whole attitude if any single axis is too scattered.
-      if (r.value === undefined) return { outcome: 'diverged' };
-      out[c] = r.value;
-      if (r.spread !== undefined && r.spread > spread) spread = r.spread;
-    }
-    return { value: out, outcome: 'ok', spread };
+    return combineAttitude(values, opts);
   }
   if (opts.kind === 'position') {
-    const lats = (values as LatLon[]).map((v) => v.latitude);
-    const lons = (values as LatLon[]).map((v) => v.longitude);
-    return {
-      value: {
-        latitude: linear(opts.method, lats, opts.trimFraction),
-        // Longitude always uses the circular mean: it is antimeridian-safe and
-        // has no wrap-correct median/trimmedMean analogue, so `method` applies
-        // only to latitude. Whole-source outlier rejection already ran upstream.
-        longitude: lonCircularMean(lons),
-      },
-      outcome: 'ok',
-    };
+    return { value: combinePosition(values, opts), outcome: 'ok' };
   }
   return { value: linear(opts.method, values as number[], opts.trimFraction), outcome: 'ok' };
 }
@@ -291,6 +317,14 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
   // value as a divergence.
   if (used.length === 0 || used.length < opts.minSources) {
     return { usedSources, freshCount, outcome: 'diverged' };
+  }
+  if (used.length === 1) {
+    return {
+      value: (used[0] as Sample).value,
+      usedSources,
+      freshCount,
+      outcome: 'singleSource',
+    };
   }
 
   // One values array, reused by computeValue and the disagree-spread check.

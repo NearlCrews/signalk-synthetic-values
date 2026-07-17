@@ -26,7 +26,7 @@ export function pathStatus(
     case 'ok':
       // Combining normally. The priority reminder lives here because this is the
       // only outcome where the synthetic value is actually being emitted.
-      return `Combining ${result.usedSources.length} sources on ${path}. Set this path's source priority to prefer ${sourceLabel} in Server, Data, Sources.`;
+      return `Combining ${result.usedSources.length} sources on ${path}. Set this path's source priority to prefer ${sourceLabel} in Server, Data, Priorities.`;
     default: {
       // Exhaustiveness guard: a new Outcome member surfaces here as a compile
       // error rather than silently inheriting the 'ok' message.

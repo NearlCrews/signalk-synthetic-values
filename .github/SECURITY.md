@@ -6,8 +6,8 @@ We actively support the following versions with security updates:
 
 | Version | Supported |
 | ------- | --------- |
-| 0.3.x   | Yes       |
-| < 0.3   | No        |
+| 0.4.x   | Yes       |
+| < 0.4   | No        |
 
 ## Reporting a Vulnerability
 
@@ -60,7 +60,8 @@ This project uses:
 Run a security audit:
 
 ```bash
-npm audit
+npm run security-audit
+npm run audit:runtime
 ```
 
 ## Data Handling

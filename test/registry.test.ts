@@ -65,6 +65,16 @@ describe('Registry', () => {
     const r = new Registry(c, 16);
     expect(r.fresh('p', 1000)).toEqual([]);
   });
+  it('removes one source without disturbing the others', () => {
+    const c = fakeClock(0);
+    const r = new Registry(c, 16);
+    r.update('p', 'a', 1, 0);
+    r.update('p', 'b', 2, 0);
+    r.remove('p', 'a');
+    expect(r.fresh('p', 1000).map((sample) => sample.sourceRef)).toEqual(['b']);
+    r.remove('p', 'missing');
+    expect(r.fresh('p', 1000).map((sample) => sample.sourceRef)).toEqual(['b']);
+  });
   it('setMaxSourcesPerPath takes effect on subsequent updates', () => {
     const c = fakeClock(0);
     const r = new Registry(c, 16);
@@ -78,5 +88,14 @@ describe('Registry', () => {
       .map((s) => s.sourceRef)
       .sort();
     expect(refs).toEqual(['b', 'c']);
+  });
+  it('setMaxSourcesPerPath immediately trims existing paths', () => {
+    const c = fakeClock(30);
+    const r = new Registry(c, 3);
+    r.update('p', 'a', 1, 10);
+    r.update('p', 'b', 2, 20);
+    r.update('p', 'c', 3, 30);
+    r.setMaxSourcesPerPath(2);
+    expect(r.fresh('p', 1000).map((sample) => sample.sourceRef)).toEqual(['b', 'c']);
   });
 });

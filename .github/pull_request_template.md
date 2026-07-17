@@ -15,10 +15,10 @@
 
 ## Verification
 
-- [ ] `npm test` passes
-- [ ] `npm run type-check` passes
-- [ ] `npm run lint` passes
-- [ ] `npm run build` passes
+- [ ] `npm run check` passes
+- [ ] `npm run validate` passes
+- [ ] `npm run test:browser:cross` passes for panel changes
+- [ ] `npm run test:integration` passes for Signal K integration changes
 - [ ] CHANGELOG.md updated (for user-visible changes)
 
 ## Signal K paths affected

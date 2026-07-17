@@ -5,6 +5,7 @@ import {
   DEFAULT_MAX_SOURCES_PER_PATH,
   DEFAULT_MIN_SOURCES,
   DEFAULT_STALENESS_MS,
+  MAX_SOURCES_PER_PATH,
   type PluginOptions,
   validateConfig,
 } from '../src/config';
@@ -178,6 +179,7 @@ describe('validateConfig: value hardening', () => {
   it('falls back to the default when maxSourcesPerPath is fractional', () => {
     const r = validateConfig({ ...opts([{ path: 'a' }]), maxSourcesPerPath: 2.5 });
     expect(r.config.maxSourcesPerPath).toBe(DEFAULT_MAX_SOURCES_PER_PATH);
+    expect(r.errors.some((error) => error.path === 'maxSourcesPerPath')).toBe(true);
   });
   it('falls back to shipped defaults when the top-level defaults are missing', () => {
     // A REST-written or hand-edited config can omit the globals entirely;
@@ -186,5 +188,61 @@ describe('validateConfig: value hardening', () => {
     expect(r.errors).toHaveLength(0);
     expect(r.config.paths[0].minSources).toBe(DEFAULT_MIN_SOURCES);
     expect(r.config.paths[0].stalenessTimeoutMs).toBe(DEFAULT_STALENESS_MS);
+  });
+  it('never throws for a null configuration or null path entries', () => {
+    const nullConfig = validateConfig(null);
+    expect(nullConfig.config.paths).toEqual([]);
+    expect(nullConfig.errors[0]?.path).toBe('configuration');
+
+    const nullPath = validateConfig({ ...opts([]), paths: [null] });
+    expect(nullPath.config.paths).toEqual([]);
+    expect(nullPath.errors[0]?.path).toBe('paths[0]');
+  });
+  it('rejects string values in numeric and boolean fields instead of coercing them', () => {
+    const trim = validateConfig(opts([{ path: 'a', trimFraction: '0.25' }]));
+    const outlier = validateConfig(opts([{ path: 'a', outlierRejection: 'false' }]));
+    const nullThreshold = validateConfig(opts([{ path: 'a', madThreshold: null }]));
+    expect(trim.config.paths).toHaveLength(0);
+    expect(trim.errors[0]?.message).toContain('trimFraction');
+    expect(outlier.config.paths).toHaveLength(0);
+    expect(outlier.errors[0]?.message).toContain('boolean');
+    expect(nullThreshold.config.paths).toHaveLength(0);
+    expect(nullThreshold.errors[0]?.message).toContain('madThreshold');
+  });
+  it('rejects malformed and duplicate source lists', () => {
+    const malformed = validateConfig(opts([{ path: 'a', includeSources: [1, 2] }]));
+    const duplicate = validateConfig(opts([{ path: 'a', excludeSources: ['x', 'x'] }]));
+    expect(malformed.config.paths).toHaveLength(0);
+    expect(malformed.errors[0]?.message).toContain('non-empty strings');
+    expect(duplicate.config.paths).toHaveLength(0);
+    expect(duplicate.errors[0]?.message).toContain('duplicate');
+  });
+  it('rejects paths with surrounding whitespace', () => {
+    const r = validateConfig(opts([{ path: ' navigation.position ' }]));
+    expect(r.config.paths).toHaveLength(0);
+    expect(r.errors[0]?.message).toContain('surrounding whitespace');
+  });
+  it('caps maxSourcesPerPath and rejects impossible minimums', () => {
+    const overCap = validateConfig({ ...opts([{ path: 'a' }]), maxSourcesPerPath: 65 });
+    expect(overCap.config.maxSourcesPerPath).toBe(DEFAULT_MAX_SOURCES_PER_PATH);
+    expect(overCap.errors[0]?.message).toContain(String(MAX_SOURCES_PER_PATH));
+
+    const impossible = validateConfig({
+      ...opts([{ path: 'a', minSources: 5 }]),
+      maxSourcesPerPath: 4,
+    });
+    expect(impossible.config.paths).toHaveLength(0);
+    expect(impossible.errors.some((error) => error.message.includes('cannot exceed'))).toBe(true);
+
+    const impossibleDefault = validateConfig({ ...opts([]), maxSourcesPerPath: 1 });
+    expect(impossibleDefault.errors.some((error) => error.path === 'defaultMinSources')).toBe(true);
+  });
+  it('rejects a malformed jumpRejection object and a missing maxRate', () => {
+    const wrongShape = validateConfig(opts([{ path: 'a', jumpRejection: 'fast' }]));
+    const missingRate = validateConfig(opts([{ path: 'a', jumpRejection: {} }]));
+    expect(wrongShape.config.paths).toHaveLength(0);
+    expect(wrongShape.errors[0]?.message).toContain('object');
+    expect(missingRate.config.paths).toHaveLength(0);
+    expect(missingRate.errors[0]?.message).toContain('maxRate');
   });
 });

@@ -80,6 +80,10 @@ describe('valueCategory', () => {
   it('valid lat/lon object is latlon', () => {
     expect(valueCategory({ latitude: 51.5, longitude: -0.1 })).toBe('latlon');
   });
+  it('out-of-range latitude or longitude is invalid', () => {
+    expect(valueCategory({ latitude: 90.01, longitude: 0 })).toBe('invalid');
+    expect(valueCategory({ latitude: 0, longitude: 180.01 })).toBe('invalid');
+  });
   it('partial position with NaN latitude is invalid', () => {
     expect(valueCategory({ latitude: NaN, longitude: 5 })).toBe('invalid');
   });

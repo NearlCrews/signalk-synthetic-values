@@ -1,6 +1,6 @@
 {
   "name": "signalk-synthetic-values",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Combine redundant sensors on one Signal K path into a robust median or outlier-rejected value",
   "keywords": [
     "signalk-node-server-plugin",
@@ -70,12 +70,13 @@
   },
   "scripts": {
     "clean": "node scripts/clean.mjs",
-    "build:types": "tsc --noEmit false --declaration --emitDeclarationOnly --outDir dist",
+    "build:types": "node scripts/build-types.mjs",
     "build:bundle": "node esbuild.config.js",
     "build:panel": "node scripts/build-panel.mjs",
     "check:panel": "node scripts/check-panel-bundle.mjs",
     "build": "npm run clean && npm run build:types && npm run build:bundle && npm run build:panel && npm run check:panel",
-    "type-check": "tsc --noEmit && npm run type-check:panel && npm run type-check:browser",
+    "type-check": "tsc --noEmit && npm run type-check:test && npm run type-check:panel && npm run type-check:browser",
+    "type-check:test": "tsc -p tsconfig.test.json --noEmit",
     "type-check:panel": "tsc -p tsconfig.panel.json --noEmit",
     "type-check:browser": "tsc -p tsconfig.browser.json --noEmit",
     "test": "vitest run",

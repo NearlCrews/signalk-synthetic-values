@@ -1,10 +1,12 @@
 import type { Clock } from './clock';
+import { DEFAULT_MAX_SOURCES_PER_PATH } from './config';
 import { oldestKey } from './mapUtil';
-import { ATTITUDE_COMPONENTS, type SampleValue } from './metrics';
+import { ATTITUDE_COMPONENTS, type Kind, type SampleValue } from './metrics';
 
 export interface DetectedPath {
   path: string;
   sources: string[];
+  kind?: Kind;
   /**
    * Groups of sources that currently report identical values while the value
    * is changing: the signature of one feed re-broadcast under several source
@@ -19,6 +21,7 @@ export interface DetectedPath {
 // fast sensors while still spanning several seconds of motion.
 const HISTORY = 8;
 const SAMPLE_MS = 1000;
+const PRUNE_INTERVAL_MS = 1000;
 export const DISCOVERY_SOURCE_TIMEOUT_MS = 60_000;
 
 interface SourceHist {
@@ -30,6 +33,7 @@ interface SourceHist {
 interface Entry {
   sources: Map<string, SourceHist>;
   lastSeen: number;
+  kind?: Kind;
 }
 
 function keyOf(value: SampleValue): string {
@@ -58,31 +62,48 @@ function duplicateGroups(entry: Entry): string[][] {
   }
   const groups: string[][] = [];
   for (const srcs of byValue.values()) {
-    if (srcs.length >= 2 && srcs.some((s) => varying.has(s))) groups.push(srcs);
+    if (srcs.length >= 2 && srcs.filter((source) => varying.has(source)).length >= 2) {
+      groups.push(srcs);
+    }
   }
   return groups;
 }
 
 export class Discovery {
   private store = new Map<string, Entry>();
+  private nextPruneAt = 0;
 
   constructor(
     private clock: Clock,
-    private maxPaths = 200
+    private maxPaths = 200,
+    private maxSourcesPerPath = DEFAULT_MAX_SOURCES_PER_PATH
   ) {}
 
-  observe(path: string, sourceRef: string, value?: SampleValue): void {
+  setMaxSourcesPerPath(maxSourcesPerPath: number): void {
+    this.maxSourcesPerPath = maxSourcesPerPath;
+    for (const entry of this.store.values()) this.trimSources(entry);
+  }
+
+  kind(path: string): Kind | undefined {
+    return this.store.get(path)?.kind;
+  }
+
+  observe(path: string, sourceRef: string, value?: SampleValue, kind?: Kind): boolean {
     const now = this.clock.now();
+    let membershipChanged = this.pruneIfDue(now);
     let entry = this.store.get(path);
     if (!entry) {
-      if (this.store.size >= this.maxPaths) this.evictOldest();
+      if (this.store.size >= this.maxPaths)
+        membershipChanged = this.evictOldest() || membershipChanged;
       entry = { sources: new Map(), lastSeen: now };
       this.store.set(path, entry);
     }
     let hist = entry.sources.get(sourceRef);
     if (!hist) {
+      if (entry.sources.size >= this.maxSourcesPerPath) this.evictOldestSource(entry);
       hist = { ring: [], lastSampledAt: Number.NEGATIVE_INFINITY, lastSeen: now };
       entry.sources.set(sourceRef, hist);
+      membershipChanged = true;
     }
     hist.lastSeen = now;
     // Throttle history sampling so the key string is built at most once per
@@ -91,19 +112,35 @@ export class Discovery {
       hist.ring.push(keyOf(value));
       if (hist.ring.length > HISTORY) hist.ring.shift();
       hist.lastSampledAt = now;
+    } else if (value === undefined) {
+      // A source that switches to a non-combinable value must not retain old
+      // numeric history and appear to duplicate a live numeric source.
+      hist.ring.length = 0;
+      hist.lastSampledAt = Number.NEGATIVE_INFINITY;
     }
     entry.lastSeen = now;
+    if (kind !== undefined) entry.kind = kind;
+    return membershipChanged;
   }
 
-  private evictOldest(): void {
+  private evictOldest(): boolean {
     const oldestPath = oldestKey(this.store, (entry) => entry.lastSeen);
-    if (oldestPath !== undefined) this.store.delete(oldestPath);
+    return oldestPath === undefined ? false : this.store.delete(oldestPath);
+  }
+
+  private evictOldestSource(entry: Entry): boolean {
+    const oldestSource = oldestKey(entry.sources, (history) => history.lastSeen);
+    return oldestSource === undefined ? false : entry.sources.delete(oldestSource);
+  }
+
+  private trimSources(entry: Entry): void {
+    while (entry.sources.size > this.maxSourcesPerPath) this.evictOldestSource(entry);
   }
 
   // Number of paths seen with two or more sources, without building the
   // duplicate-group analysis. Cheap enough for the status path.
   count(): number {
-    this.pruneStaleSources();
+    this.pruneStaleSources(this.clock.now());
     let n = 0;
     for (const entry of this.store.values()) {
       if (entry.sources.size >= 2) n++;
@@ -112,15 +149,17 @@ export class Discovery {
   }
 
   detected(): DetectedPath[] {
-    this.pruneStaleSources();
+    this.pruneStaleSources(this.clock.now());
     const out: DetectedPath[] = [];
     for (const [path, entry] of this.store) {
       if (entry.sources.size >= 2) {
-        out.push({
+        const detected: DetectedPath = {
           path,
           sources: [...entry.sources.keys()],
           duplicateGroups: duplicateGroups(entry),
-        });
+        };
+        if (entry.kind !== undefined) detected.kind = entry.kind;
+        out.push(detected);
       }
     }
     return out;
@@ -128,15 +167,24 @@ export class Discovery {
 
   reset(): void {
     this.store.clear();
+    this.nextPruneAt = 0;
   }
 
-  private pruneStaleSources(): void {
-    const cutoff = this.clock.now() - DISCOVERY_SOURCE_TIMEOUT_MS;
+  private pruneIfDue(now: number): boolean {
+    if (now < this.nextPruneAt) return false;
+    return this.pruneStaleSources(now);
+  }
+
+  private pruneStaleSources(now: number): boolean {
+    const cutoff = now - DISCOVERY_SOURCE_TIMEOUT_MS;
+    let changed = false;
     for (const [path, entry] of this.store) {
       for (const [sourceRef, hist] of entry.sources) {
-        if (hist.lastSeen <= cutoff) entry.sources.delete(sourceRef);
+        if (hist.lastSeen <= cutoff) changed = entry.sources.delete(sourceRef) || changed;
       }
-      if (entry.sources.size === 0) this.store.delete(path);
+      if (entry.sources.size === 0) changed = this.store.delete(path) || changed;
     }
+    this.nextPruneAt = now + PRUNE_INTERVAL_MS;
+    return changed;
   }
 }

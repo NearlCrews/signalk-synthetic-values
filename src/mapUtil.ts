@@ -9,7 +9,7 @@ export function oldestKey<V>(
   let oldestTs = Number.POSITIVE_INFINITY;
   for (const [key, value] of map) {
     const ts = timestampOf(value);
-    if (ts < oldestTs) {
+    if (oldest === undefined || ts < oldestTs) {
       oldestTs = ts;
       oldest = key;
     }

@@ -1,13 +1,13 @@
-import type { DeltaInputHandler, Plugin, ServerAPI } from '@signalk/server-api';
+import type { Plugin, ServerAPI } from '@signalk/server-api';
 import { systemClock } from './clock';
 import {
   isMeaningfulToCombine,
   NON_MEANINGFUL_ADVISORY,
   NON_NUMERIC_ADVISORY,
 } from './combinability';
-import type { CombineOptions, Outcome, Sample } from './combine';
+import type { CombineOptions, CombineResult, Outcome, Sample } from './combine';
 import { combine } from './combine';
-import type { PathConfig, PluginOptions } from './config';
+import type { PathConfig } from './config';
 import { DEFAULT_MAX_SOURCES_PER_PATH, validateConfig } from './config';
 import type { JumpConfig, JumpState, SlewState } from './damping';
 import { applyJump, applySlew } from './damping';
@@ -29,26 +29,6 @@ const OWN_SOURCE_PREFIX = `${PLUGIN_ID}.`;
 // cannot be averaged (text, object, or other non-combinable shape).
 const NON_COMBINABLE_REASON = 'non-combinable value';
 
-// A delta as observed off the wire. The Signal K Delta type uses branded path
-// and source strings; the combiner works on plain values, so this loose shape
-// captures only the fields the plugin reads.
-interface ObservedDelta {
-  context?: string;
-  updates?: {
-    $source?: string;
-    values?: { path: string; value: unknown }[];
-  }[];
-}
-
-// The published @signalk/server-api types declare registerDeltaInputHandler as
-// returning void, but signalk-server returns an unregister function at runtime
-// (relied on in stop() to detach the handler on plugin stop). Narrow the return
-// type locally to the real contract; this is the house pattern for gaps in the
-// published server types.
-interface ServerAPIWithUnregister extends ServerAPI {
-  registerDeltaInputHandler(handler: DeltaInputHandler): () => void;
-}
-
 // Minimal Express response shape for the one route this plugin serves. The
 // server injects a full Express router; @types/express is not a dependency, so
 // only the members used here are declared.
@@ -61,7 +41,7 @@ interface RouterResponse {
 interface DetectedApiRow {
   path: string;
   sources: string[];
-  kind: string;
+  kind: Kind | 'unknown';
   optedIn: boolean;
   combinable: boolean;
   recommended: boolean;
@@ -70,20 +50,17 @@ interface DetectedApiRow {
 }
 
 export default function createPlugin(appBase: ServerAPI): Plugin {
-  const app = appBase as ServerAPIWithUnregister;
-  let unregister: (() => void) | null = null;
+  const app = appBase;
+  let generation = 0;
   let selfContext = 'vessels.self';
   let byPath = new Map<string, PathConfig>();
   const registry = new Registry(systemClock, DEFAULT_MAX_SOURCES_PER_PATH);
-  const discovery = new Discovery(systemClock);
+  const discovery = new Discovery(systemClock, 200, DEFAULT_MAX_SOURCES_PER_PATH);
   const emitter = new Emitter(app, PLUGIN_ID, systemClock);
   const jumpState = new Map<string, Map<string, JumpState>>();
   const slewState = new Map<string, SlewState>();
   const classification = new Map<string, Kind>();
-  // Display kind for detected (possibly un-configured) paths, classified with
-  // the default 'auto' mode. Kept separate from `classification`, which is the
-  // combine kind for configured paths and honors a per-path angular override.
-  const detectedKind = new Map<string, Kind>();
+  const kindWarnings = new Set<string>();
   // Last combine outcome per configured path, used to build the aggregate
   // status line. Updated on each emit; never read on a hot non-emit path.
   const pathOutcome = new Map<string, Outcome>();
@@ -116,30 +93,24 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     return context === undefined || context === selfContext;
   }
 
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
   function isOwnSource(src: string): boolean {
     return src === PLUGIN_ID || src.startsWith(OWN_SOURCE_PREFIX);
   }
 
-  function classifyPath(path: string, value: SampleValue, cfg: PathConfig): Kind {
-    const cached = classification.get(path);
-    if (cached) return cached;
-    // First-sample-wins: the kind is determined from the first observed value and
-    // cached for the lifetime of the plugin run. Well-typed paths carry stable value
-    // categories, so this is correct in practice. A path that legitimately carries
-    // both a number and a position object would lock to whichever sample arrived
-    // first; that is an unusual case and does not require redesign here.
-    // `value` comes from the registry, which stores only combinable categories,
-    // so classify() never returns 'other' here.
-    const kind = classify(path, value, cfg.angular, getUnits, selfContext);
-    classification.set(path, kind);
-    return kind;
-  }
-
-  // Drop the non-combinable skip entries for a path once it recovers.
-  function clearNonCombinableSkip(path: string): void {
+  function clearSkip(path: string, reason: string): void {
     for (let i = skipped.length - 1; i >= 0; i--) {
       const s = skipped[i];
-      if (s && s.path === path && s.reason === NON_COMBINABLE_REASON) skipped.splice(i, 1);
+      if (s && s.path === path && s.reason === reason) skipped.splice(i, 1);
+    }
+  }
+
+  function addSkip(path: string, reason: string): void {
+    if (!skipped.some((entry) => entry.path === path && entry.reason === reason)) {
+      skipped.push({ path, reason });
     }
   }
 
@@ -153,7 +124,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     jumpState.clear();
     slewState.clear();
     classification.clear();
-    detectedKind.clear();
+    kindWarnings.clear();
     pathOutcome.clear();
     skipped.length = 0;
     lastStatus = '';
@@ -203,28 +174,46 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     return samples;
   }
 
-  // Apply the per-path include/exclude source filters. Returns the input
-  // unchanged when neither list is set.
-  function selectSources(samples: Sample[], cfg: PathConfig): Sample[] {
-    let result = samples;
-    const include = cfg.includeSources;
-    if (include?.length) result = result.filter((s) => include.includes(s.sourceRef));
-    const exclude = cfg.excludeSources;
-    if (exclude?.length) result = result.filter((s) => !exclude.includes(s.sourceRef));
-    return result;
+  function sourceAllowed(sourceRef: string, cfg: PathConfig): boolean {
+    if (cfg.includeSources?.length && !cfg.includeSources.includes(sourceRef)) return false;
+    if (cfg.excludeSources?.includes(sourceRef)) return false;
+    return true;
+  }
+
+  function dropSource(path: string, sourceRef: string): void {
+    registry.remove(path, sourceRef);
+    jumpState.get(path)?.delete(sourceRef);
+  }
+
+  function recordAvailability(path: string, cfg: PathConfig): void {
+    const samples = registry.fresh(path, cfg.stalenessTimeoutMs);
+    if (samples.length >= cfg.minSources) return;
+    recordOutcome(path, cfg, {
+      usedSources: samples.map((sample) => sample.sourceRef),
+      freshCount: samples.length,
+      outcome: samples.length === 0 ? 'allStale' : 'belowMin',
+    });
+  }
+
+  function recordOutcome(path: string, cfg: PathConfig, result: CombineResult): void {
+    const prevOutcome = pathOutcome.get(path);
+    pathOutcome.set(path, result.outcome);
+    // Per-path detail goes to the debug log, not the status bar, so the bar
+    // shows one stable summary. Logging only transitions avoids hot-path noise.
+    if (result.outcome !== prevOutcome) {
+      app.debug(pathStatus(path, result, PLUGIN_ID, cfg.minSources, cfg.method));
+    }
+    refreshStatus();
   }
 
   function maybeEmit(path: string, cfg: PathConfig): void {
     if (!emitter.due(path, cfg.emitMinIntervalMs)) return;
 
     let samples = registry.fresh(path, cfg.stalenessTimeoutMs);
-    const value0 = samples[0]?.value;
-    if (value0 === undefined) return;
-    const kind = classifyPath(path, value0, cfg);
-    if (kind === 'other') return;
+    const kind = classification.get(path);
+    if (!kind || kind === 'other') return;
 
     const now = systemClock.now();
-    samples = selectSources(samples, cfg);
     samples = damped(path, cfg, kind, samples);
 
     const opts: CombineOptions = {
@@ -239,25 +228,21 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       trimFraction: cfg.trimFraction,
     };
     const result = combine(samples, opts);
-    const prevOutcome = pathOutcome.get(path);
-    pathOutcome.set(path, result.outcome);
-    // Per-path detail goes to the debug log, not the status bar, so the bar
-    // shows a single stable summary instead of flashing one line per path. Log
-    // only outcome transitions worth attention, so a steady stream of healthy
-    // 'ok' emits allocates no detail string on the hot path.
-    if (result.outcome !== prevOutcome && result.outcome !== 'ok') {
-      app.debug(pathStatus(path, result, PLUGIN_ID, cfg.minSources, cfg.method));
+    if (result.value === undefined) {
+      recordOutcome(path, cfg, result);
+      return;
     }
-    refreshStatus();
-    if (result.value === undefined) return;
 
     let value = result.value;
+    let nextSlewState: SlewState | undefined;
     if (cfg.slewLimit != null) {
       const r = applySlew(kind, slewState.get(path), value, now, cfg.slewLimit);
-      slewState.set(path, r.state);
+      nextSlewState = r.state;
       value = r.value;
     }
-    emitter.emit(path, value, PLUGIN_ID);
+    emitter.emit(path, value);
+    if (nextSlewState) slewState.set(path, nextSlewState);
+    recordOutcome(path, cfg, result);
   }
 
   // Record discovery for every fresh combinable value seen from any self-context
@@ -270,18 +255,77 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   ): void {
     if (cat === 'invalid') return;
     const combinable = isCombinableCategory(cat);
-    discovery.observe(pv.path, src, combinable ? (pv.value as SampleValue) : undefined);
-    if (!combinable) {
-      detectedKind.set(pv.path, 'other');
-    } else if (!detectedKind.has(pv.path) || detectedKind.get(pv.path) === 'other') {
-      detectedKind.set(
-        pv.path,
-        classify(pv.path, pv.value as SampleValue, 'auto', getUnits, selfContext)
-      );
-    }
+    const knownKind = discovery.kind(pv.path);
+    const kind = combinable
+      ? knownKind === undefined || knownKind === 'other'
+        ? classify(pv.path, pv.value as SampleValue, 'auto', getUnits, selfContext)
+        : undefined
+      : 'other';
+    const discoveryChanged = discovery.observe(
+      pv.path,
+      src,
+      combinable ? (pv.value as SampleValue) : undefined,
+      kind
+    );
     // Source membership can change the "N detected" count shown while no paths
     // are configured; refresh (deduped) so that message stays current.
-    if (byPath.size === 0) refreshStatus();
+    if (byPath.size === 0 && discoveryChanged) refreshStatus();
+  }
+
+  function unavailableConfiguredValue(
+    path: string,
+    src: string,
+    cat: ValueCategory,
+    cfg: PathConfig
+  ): boolean {
+    if (cat === 'invalid') {
+      dropSource(path, src);
+      recordAvailability(path, cfg);
+      return true;
+    }
+    if (cat !== 'nonCombinable') return false;
+    dropSource(path, src);
+    if (!classification.has(path)) {
+      addSkip(path, NON_COMBINABLE_REASON);
+      recordOutcome(path, cfg, {
+        usedSources: [],
+        freshCount: 0,
+        outcome: 'skipped',
+      });
+    } else {
+      recordAvailability(path, cfg);
+    }
+    return true;
+  }
+
+  function kindMatchesCategory(kind: Kind, cat: ValueCategory): boolean {
+    if (kind === 'position') return cat === 'latlon';
+    if (kind === 'attitude') return cat === 'attitude';
+    return (kind === 'scalar' || kind === 'angular') && cat === 'number';
+  }
+
+  function acceptConfiguredKind(
+    path: string,
+    src: string,
+    value: SampleValue,
+    cfg: PathConfig,
+    cat: ValueCategory
+  ): boolean {
+    const configuredKind = classification.get(path);
+    if (!configuredKind) {
+      classification.set(path, classify(path, value, cfg.angular, getUnits, selfContext));
+      return true;
+    }
+    if (kindMatchesCategory(configuredKind, cat)) return true;
+    dropSource(path, src);
+    recordAvailability(path, cfg);
+    if (!kindWarnings.has(path)) {
+      kindWarnings.add(path);
+      app.debug(
+        `${path}: ignored ${src} because its value shape does not match the ${configuredKind} path`
+      );
+    }
+    return false;
   }
 
   function observeValue(pv: { path: string; value: unknown }, src: string): void {
@@ -289,35 +333,51 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     recordDiscovery(pv, src, cat);
     const cfg = byPath.get(pv.path);
     if (!cfg) return;
-    if (cat === 'invalid') return;
-    if (cat === 'nonCombinable') {
-      if (!classification.has(pv.path)) {
-        classification.set(pv.path, 'other');
-        skipped.push({ path: pv.path, reason: NON_COMBINABLE_REASON });
-        refreshStatus();
-      }
-      return;
-    }
-    if (classification.get(pv.path) === 'other') {
-      // A combinable value arrived on a path locked 'other' by an earlier
-      // non-combinable sample. Unlock it so the next emit reclassifies from
-      // live data instead of the path staying dead until a plugin restart.
-      classification.delete(pv.path);
-      clearNonCombinableSkip(pv.path);
-    }
-    registry.update(pv.path, src, pv.value as SampleValue, systemClock.now());
+    if (!sourceAllowed(src, cfg)) return;
+    if (unavailableConfiguredValue(pv.path, src, cat, cfg)) return;
+
+    const value = pv.value as SampleValue;
+    if (!acceptConfiguredKind(pv.path, src, value, cfg, cat)) return;
+    clearSkip(pv.path, NON_COMBINABLE_REASON);
+    registry.update(pv.path, src, value, systemClock.now());
     maybeEmit(pv.path, cfg);
   }
 
-  function observe(delta: ObservedDelta | undefined): void {
-    if (!delta || !isSelf(delta.context)) return;
-    for (const update of delta.updates ?? []) {
-      const src = update.$source;
-      if (!src || isOwnSource(src) || !Array.isArray(update.values)) continue;
-      for (const pv of update.values) {
-        observeValue(pv, src);
-      }
+  function logObserveError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    app.error(message);
+    app.debug(`observe error: ${message}`);
+  }
+
+  function observePathValue(value: unknown, src: string): void {
+    if (!isRecord(value)) return;
+    const path = value.path;
+    if (typeof path !== 'string' || !path || path !== path.trim()) return;
+    try {
+      observeValue({ path, value: value.value }, src);
+    } catch (error) {
+      logObserveError(error);
     }
+  }
+
+  function observeUpdate(update: unknown): void {
+    if (!isRecord(update)) return;
+    const src = update.$source;
+    if (typeof src !== 'string' || !src || isOwnSource(src) || !Array.isArray(update.values)) {
+      return;
+    }
+    for (const value of update.values) observePathValue(value, src);
+  }
+
+  function isObservedContext(context: unknown): boolean {
+    return context === undefined || (typeof context === 'string' && isSelf(context));
+  }
+
+  function observe(delta: unknown): void {
+    if (!isRecord(delta)) return;
+    if (!isObservedContext(delta.context)) return;
+    if (!Array.isArray(delta.updates)) return;
+    for (const update of delta.updates) observeUpdate(update);
   }
 
   // Build the /api/detected row for a path. `combinable` is whether the value
@@ -326,8 +386,8 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   // explains either negative case for the panel. `duplicateGroups` flags sources
   // that look like the same feed re-broadcast.
   function detectedRow(d: DetectedPath): DetectedApiRow {
-    const kind = detectedKind.get(d.path) ?? classification.get(d.path) ?? 'unknown';
-    const combinable = kind !== 'other';
+    const kind = d.kind ?? classification.get(d.path) ?? 'unknown';
+    const combinable = kind !== 'other' && kind !== 'unknown';
     const meaningful = isMeaningfulToCombine(d.path);
     let advisory: string | undefined;
     if (!combinable) advisory = NON_NUMERIC_ADVISORY;
@@ -350,49 +410,46 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     schema: () => buildSchema(() => discovery.detected()),
 
     start(options) {
-      // Detach a prior handler if start() is ever called without an intervening
-      // stop() (error-recovery reboot), so the old handler cannot run in parallel.
-      if (unregister) {
-        unregister();
-        unregister = null;
-      }
-      const { config, errors, advisories } = validateConfig(options as PluginOptions);
-      registry.setMaxSourcesPerPath(config.maxSourcesPerPath);
-      byPath = new Map(config.paths.map((p) => [p.path, p]));
-      selfContext = app.selfContext ?? 'vessels.self';
+      generation++;
+      const activeGeneration = generation;
       resetRuntimeState();
+      const { config, errors, advisories } = validateConfig(options);
+      registry.setMaxSourcesPerPath(config.maxSourcesPerPath);
+      discovery.setMaxSourcesPerPath(config.maxSourcesPerPath);
+      byPath = new Map(config.paths.map((p) => [p.path, p]));
+      for (const path of byPath.keys()) pathOutcome.set(path, 'allStale');
+      selfContext = app.selfContext ?? 'vessels.self';
       // Errors drop the path entry, so they surface in the status bar as
       // skipped. Advisories describe a path that still combines normally, so
       // they go to the debug log only; listing them as skipped would call a
       // working path dead.
       for (const e of errors) {
-        skipped.push({ path: e.path, reason: e.message });
+        addSkip(e.path, e.message);
         app.debug(`config ${e.path}: ${e.message}`);
       }
       for (const a of advisories) {
         app.debug(`config ${a.path}: ${a.message}`);
       }
-      unregister = app.registerDeltaInputHandler((delta, next) => {
+      app.registerDeltaInputHandler((delta, next) => {
         try {
-          observe(delta as unknown as ObservedDelta);
-        } catch (err) {
+          // The server owns handler unregistration. The generation check also
+          // makes an old callback inert if a host calls start twice directly.
+          if (activeGeneration === generation) observe(delta);
+        } catch (error) {
           // Per-delta errors are transient: log but do not promote to a sticky
           // plugin fault via setPluginError, which would flap the status bar on
           // every misbehaving source delta.
-          const msg = err instanceof Error ? err.message : String(err);
-          app.error(msg);
-          app.debug?.(`observe error: ${msg}`);
+          logObserveError(error);
+        } finally {
+          next(delta);
         }
-        next(delta);
       });
       refreshStatus();
     },
 
     stop() {
-      if (unregister) {
-        unregister();
-        unregister = null;
-      }
+      generation++;
+      byPath = new Map();
       resetRuntimeState();
     },
 

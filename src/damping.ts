@@ -1,5 +1,5 @@
 import type { Attitude, Kind, LatLon, SampleValue } from './metrics';
-import { distance, mapAttitudeComponents } from './metrics';
+import { distance, EARTH_RADIUS_M, mapAttitudeComponents, toDegrees, toRadians } from './metrics';
 
 function signedAngularDelta(a: number, b: number): number {
   return Math.atan2(Math.sin(b - a), Math.cos(b - a));
@@ -16,6 +16,11 @@ function stepAngle(a: number, b: number, maxStep: number): number {
   return stepToward(a, signedAngularDelta(a, b), maxStep);
 }
 
+function normalizeAngle(angle: number): number {
+  const fullCircle = 2 * Math.PI;
+  return ((angle % fullCircle) + fullCircle) % fullCircle;
+}
+
 export interface JumpConfig {
   maxRate: number;
   persistSamples: number;
@@ -24,10 +29,6 @@ export interface JumpConfig {
 
 export interface JumpState {
   lastAccepted: { value: SampleValue; ts: number };
-  // Receipt time of the last source observation processed. Cached registry
-  // values are revisited whenever another source triggers a combine, and must
-  // not count again toward persistence.
-  lastProcessedTs: number;
   lastProcessedObservationId?: number;
   // `ts` is the cluster origin (drives the persistMs check); `lastTs` is the
   // most recent pending sample's timestamp (drives the per-step near check).
@@ -47,11 +48,11 @@ export function applyJump(
   cfg: JumpConfig
 ): { accepted: SampleValue; state: JumpState } {
   if (!state) {
-    return { accepted: value, state: { lastAccepted: { value, ts }, lastProcessedTs: ts } };
+    return { accepted: value, state: { lastAccepted: { value, ts } } };
   }
   const r = rate(kind, state.lastAccepted.value, value, ts - state.lastAccepted.ts);
   if (r <= cfg.maxRate) {
-    return { accepted: value, state: { lastAccepted: { value, ts }, lastProcessedTs: ts } };
+    return { accepted: value, state: { lastAccepted: { value, ts } } };
   }
   // Candidate jump: track a pending level that must persist before acceptance.
   // The near check uses the per-step rate: distance from the last pending
@@ -67,11 +68,11 @@ export function applyJump(
       : { value, ts, lastTs: ts, count: 1 };
   const persisted = pending.count >= cfg.persistSamples || ts - pending.ts >= cfg.persistMs;
   if (persisted) {
-    return { accepted: value, state: { lastAccepted: { value, ts }, lastProcessedTs: ts } };
+    return { accepted: value, state: { lastAccepted: { value, ts } } };
   }
   return {
     accepted: state.lastAccepted.value,
-    state: { lastAccepted: state.lastAccepted, lastProcessedTs: ts, pending },
+    state: { lastAccepted: state.lastAccepted, pending },
   };
 }
 
@@ -87,6 +88,38 @@ function clampScalar(prev: number, next: number, maxStep: number): number {
   return stepToward(prev, delta, maxStep);
 }
 
+function normalizeLongitude(longitude: number): number {
+  return ((((longitude + 180) % 360) + 360) % 360) - 180;
+}
+
+// Follow the initial great-circle bearing for exactly maxStep meters. Linear
+// latitude/longitude interpolation can exceed the requested rate near the
+// poles and on long legs.
+function stepPosition(a: LatLon, b: LatLon, maxStep: number): LatLon {
+  const lat1 = toRadians(a.latitude);
+  const lat2 = toRadians(b.latitude);
+  const dLon = toRadians(normalizeLongitude(b.longitude - a.longitude));
+  const bearing = Math.atan2(
+    Math.sin(dLon) * Math.cos(lat2),
+    Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
+  );
+  const angularStep = maxStep / EARTH_RADIUS_M;
+  const steppedLat = Math.asin(
+    Math.sin(lat1) * Math.cos(angularStep) +
+      Math.cos(lat1) * Math.sin(angularStep) * Math.cos(bearing)
+  );
+  const steppedLon =
+    toRadians(a.longitude) +
+    Math.atan2(
+      Math.sin(bearing) * Math.sin(angularStep) * Math.cos(lat1),
+      Math.cos(angularStep) - Math.sin(lat1) * Math.sin(steppedLat)
+    );
+  return {
+    latitude: toDegrees(steppedLat),
+    longitude: normalizeLongitude(toDegrees(steppedLon)),
+  };
+}
+
 export function applySlew(
   kind: Kind,
   state: SlewState | undefined,
@@ -97,6 +130,7 @@ export function applySlew(
   if (!state) return { value, state: { value, ts } };
   const dtSec = Math.max(0, ts - state.ts) / 1000;
   const maxStep = maxRatePerSec * dtSec;
+  if (maxStep === 0) return { value: state.value, state: { value: state.value, ts } };
   const d = distance(kind, state.value, value);
   if (d <= maxStep) {
     return { value, state: { value, ts } };
@@ -105,20 +139,9 @@ export function applySlew(
   if (kind === 'position') {
     const a = state.value as LatLon;
     const b = value as LatLon;
-    // a === state.value and b === value, so the over-limit distance is `d`; reuse it.
-    const f = maxStep / d;
-    // Wrap the longitude delta into [-180, 180) so a step across the
-    // antimeridian moves the short way around. The lat/lon-space lerp is an
-    // approximation of the geodesic; per-second slew steps are small, so the
-    // error only matters within a fraction of a degree of the poles.
-    const dLon = (((b.longitude - a.longitude + 540) % 360) + 360) % 360;
-    const lon = a.longitude + f * (dLon - 180);
-    limited = {
-      latitude: a.latitude + f * (b.latitude - a.latitude),
-      longitude: ((((lon + 540) % 360) + 360) % 360) - 180,
-    };
+    limited = stepPosition(a, b, maxStep);
   } else if (kind === 'angular') {
-    limited = stepAngle(state.value as number, value as number, maxStep);
+    limited = normalizeAngle(stepAngle(state.value as number, value as number, maxStep));
   } else if (kind === 'attitude') {
     const a = state.value as Attitude;
     const b = value as Attitude;

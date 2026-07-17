@@ -10,6 +10,7 @@ import {
   DEFAULT_MIN_SOURCES,
   DEFAULT_STALENESS_MS,
   DEFAULT_TRIM_FRACTION,
+  MAX_SOURCES_PER_PATH,
 } from './config';
 import type { DetectedPath } from './discovery';
 
@@ -45,6 +46,7 @@ export function buildSchema(detected: () => DetectedPath[]): object {
         type: 'integer',
         title: 'Maximum sources tracked per path',
         minimum: 1,
+        maximum: MAX_SOURCES_PER_PATH,
         default: DEFAULT_MAX_SOURCES_PER_PATH,
       },
       paths: {
@@ -56,7 +58,13 @@ export function buildSchema(detected: () => DetectedPath[]): object {
           type: 'object',
           required: ['path'],
           properties: {
-            path: { type: 'string', title: 'Signal K path', examples },
+            path: {
+              type: 'string',
+              title: 'Signal K path',
+              minLength: 1,
+              pattern: '^\\S(?:.*\\S)?$',
+              examples,
+            },
             method: {
               type: 'string',
               title: 'Combine method',
@@ -141,6 +149,7 @@ export function buildSchema(detected: () => DetectedPath[]): object {
               title: 'Jump rejection',
               description:
                 'Hold back a sudden spike from a source and re-accept it only after a genuine step is confirmed.',
+              required: ['maxRate'],
               properties: {
                 maxRate: {
                   type: 'number',
@@ -164,12 +173,14 @@ export function buildSchema(detected: () => DetectedPath[]): object {
             includeSources: {
               type: 'array',
               title: 'Include only these sources (cannot combine with excludeSources)',
-              items: { type: 'string' },
+              uniqueItems: true,
+              items: { type: 'string', minLength: 1 },
             },
             excludeSources: {
               type: 'array',
               title: 'Exclude these sources (cannot combine with includeSources)',
-              items: { type: 'string' },
+              uniqueItems: true,
+              items: { type: 'string', minLength: 1 },
             },
           },
         },

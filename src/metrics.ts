@@ -18,7 +18,7 @@ export const ATTITUDE_COMPONENTS = ['roll', 'pitch', 'yaw'] as const;
 export type SampleValue = number | LatLon | Attitude;
 
 // Mean radius of the Earth in meters; sufficient for haversine at navigation scales.
-const EARTH_RADIUS_M = 6371000;
+export const EARTH_RADIUS_M = 6371000;
 
 // Degree/radian conversions, in one place so the inline `* Math.PI / 180`
 // spelling does not get repeated across the distance and combine paths.

@@ -1,6 +1,7 @@
 // test/index.test.ts
+import type { Plugin, ServerAPI } from '@signalk/server-api';
 import { describe, expect, it, vi } from 'vitest';
-import PluginFactory from '../src/index';
+import createPlugin from '../src/index';
 
 type Handler = (delta: unknown, next: (d: unknown) => void) => void;
 
@@ -11,6 +12,7 @@ interface EmittedDelta {
 interface DetectedApiResponse {
   paths: {
     path: string;
+    sources: string[];
     optedIn: boolean;
     kind: string;
     combinable: boolean;
@@ -24,6 +26,15 @@ type RouteHandler = (req: unknown, res: { json(x: unknown): void }) => void;
 interface FakeRouter {
   get(path: string, handler: RouteHandler): void;
   routes: Map<string, RouteHandler>;
+}
+
+type TestPlugin = Omit<Plugin, 'registerWithRouter' | 'start'> & {
+  start(options: unknown): void;
+  registerWithRouter?: (router: FakeRouter) => void;
+};
+
+function PluginFactory(app: unknown): TestPlugin {
+  return createPlugin(app as ServerAPI) as TestPlugin;
 }
 
 function makeFakeRouter(): FakeRouter {
@@ -45,11 +56,8 @@ function makeApp() {
     selfId: 'urn:mrn:imo:mmsi:123',
     registerDeltaInputHandler: (h: Handler) => {
       handler = h;
-      return () => {
-        handler = null;
-      };
     },
-    handleMessage: (_id: string, delta: unknown) => emitted.push(delta as EmittedDelta),
+    handleMessage: vi.fn((_id: string, message: unknown) => emitted.push(message as EmittedDelta)),
     getMetadata: () => undefined,
     setPluginStatus: vi.fn(),
     setPluginError: vi.fn(),
@@ -75,7 +83,11 @@ function makeApp() {
   }
   return {
     app,
-    fire: (d: unknown) => handler?.(d, () => {}),
+    fire: (d: unknown, next: (value: unknown) => void = () => {}) => handler?.(d, next),
+    serverStop(plugin: ReturnType<typeof PluginFactory>) {
+      handler = null;
+      void plugin.stop();
+    },
     emitted,
     isRegistered: () => handler !== null,
     captureRouter,
@@ -106,6 +118,7 @@ describe('plugin integration', () => {
     const last = h.emitted[h.emitted.length - 1];
     expect(last.updates[0].values[0].value).toBe(11);
     expect(last.updates[0].$source).toBe('signalk-synthetic-values');
+    expect(h.app.debug).toHaveBeenCalledWith(expect.stringContaining('Data, Priorities'));
   });
 
   it('ignores its own emitted source (no feedback amplification)', () => {
@@ -151,8 +164,7 @@ describe('plugin integration', () => {
       maxSourcesPerPath: 16,
       paths: [{ path: 'p' }],
     });
-    // simulate the server auto-unregistering on stop
-    void plugin.stop();
+    h.serverStop(plugin);
     h.fire(delta(h.app.selfContext, 'a', 'p', 10)); // handler gone; nothing happens
     plugin.start({
       defaultStalenessTimeoutMs: 10000,
@@ -319,10 +331,9 @@ describe('plugin integration', () => {
   });
 
   it('a partial jumpRejection (maxRate only) still re-accepts a persisted step', () => {
-    // The plugin reads systemClock (Date.now), so fake timers space the samples.
+    // Fake timers advance the plugin's monotonic performance clock.
     vi.useFakeTimers();
     try {
-      vi.setSystemTime(0);
       const h = makeApp();
       const plugin = PluginFactory(h.app);
       plugin.start({
@@ -337,11 +348,11 @@ describe('plugin integration', () => {
       h.fire(delta(h.app.selfContext, 'a', 'p', 0));
       // A genuine step: rejected at first, then re-accepted once it persists
       // for DEFAULT_JUMP_PERSIST_SAMPLES near samples.
-      vi.setSystemTime(1000);
+      vi.advanceTimersByTime(1000);
       h.fire(delta(h.app.selfContext, 'a', 'p', 800));
-      vi.setSystemTime(2000);
+      vi.advanceTimersByTime(1000);
       h.fire(delta(h.app.selfContext, 'a', 'p', 805));
-      vi.setSystemTime(3000);
+      vi.advanceTimersByTime(1000);
       h.fire(delta(h.app.selfContext, 'a', 'p', 810));
       const last = h.emitted[h.emitted.length - 1];
       expect(last.updates[0].values[0].value).toBeGreaterThan(700);
@@ -422,6 +433,7 @@ describe('plugin integration', () => {
     const res = h.routerGet(router, '/api/detected');
     expect(res.paths.map((p) => p.path)).toContain('navigation.position');
     const posRow = res.paths.find((p) => p.path === 'navigation.position');
+    if (!posRow) throw new Error('navigation.position was not detected');
     expect(posRow.optedIn).toBe(false);
     // The detected kind is reported even for an un-configured path, not 'unknown'.
     expect(posRow.kind).toBe('position');
@@ -448,7 +460,7 @@ describe('plugin integration', () => {
     const router = h.captureRouter(plugin);
     const res = h.routerGet(router, '/api/detected');
     const satRow = res.paths.find((p) => p.path === 'navigation.gnss.satellites');
-    expect(satRow).toBeDefined();
+    if (!satRow) throw new Error('navigation.gnss.satellites was not detected');
     // It is a number (combinable), but averaging it across receivers is not
     // meaningful, so it is not recommended and carries an advisory.
     expect(satRow.kind).toBe('scalar');
@@ -524,7 +536,6 @@ describe('plugin integration', () => {
   it('jumpRejection does not count cached values replayed by other source updates', () => {
     vi.useFakeTimers();
     try {
-      vi.setSystemTime(0);
       const h = makeApp();
       const plugin = PluginFactory(h.app);
       plugin.start({
@@ -541,14 +552,14 @@ describe('plugin integration', () => {
         ],
       });
       h.fire(delta(h.app.selfContext, 'a', 'p', 0));
-      vi.setSystemTime(1000);
+      vi.advanceTimersByTime(1000);
       h.fire(delta(h.app.selfContext, 'a', 'p', 100));
-      vi.setSystemTime(2000);
+      vi.advanceTimersByTime(1000);
       h.fire(delta(h.app.selfContext, 'excluded', 'p', 1));
-      vi.setSystemTime(3000);
+      vi.advanceTimersByTime(1000);
       h.fire(delta(h.app.selfContext, 'excluded', 'p', 2));
       const values = h.emitted.map((d) => d.updates[0]?.values[0]?.value);
-      expect(values).toEqual([0, 0, 0, 0]);
+      expect(values).toEqual([0, 0]);
     } finally {
       vi.useRealTimers();
     }
@@ -592,7 +603,7 @@ describe('plugin integration', () => {
     h.fire(delta(h.app.selfContext, 'b', 'p', 20));
     expect(h.emitted.length).toBeGreaterThan(0);
 
-    void plugin.stop();
+    h.serverStop(plugin);
     plugin.start({
       defaultStalenessTimeoutMs: 10000,
       defaultEmitMinIntervalMs: 0,
@@ -605,5 +616,151 @@ describe('plugin integration', () => {
     h.fire(delta(h.app.selfContext, 'a', 'p', 99));
     // State was reset, so 'b' from the first run is gone; no combine with just 'a'.
     expect(h.emitted.length).toBe(countAfterRestart);
+  });
+
+  it('starts configured paths in a waiting state', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p' }, { path: 'q' }],
+    });
+    expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(
+      expect.stringContaining('2 waiting for sources')
+    );
+  });
+
+  it('skips malformed delta pieces, processes later values, and always calls next', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p' }],
+    });
+    const next = vi.fn();
+    h.fire(
+      {
+        context: h.app.selfContext,
+        updates: [
+          null,
+          { $source: 42, values: [{ path: 'p', value: 999 }] },
+          {
+            $source: 'a',
+            values: [null, { path: 7, value: 999 }, { path: 'p', value: 10 }],
+          },
+          { $source: 'b', values: [{ path: 'p', value: 20 }] },
+        ],
+      },
+      next
+    );
+    expect(next).toHaveBeenCalledOnce();
+    expect(h.emitted.at(-1)?.updates[0]?.values[0]?.value).toBe(15);
+  });
+
+  it('rejects a mixed combinable shape without corrupting the sample set', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p' }],
+    });
+    h.fire(delta(h.app.selfContext, 'a', 'p', 10));
+    h.fire(delta(h.app.selfContext, 'wrong-shape', 'p', { latitude: 1, longitude: 2 }));
+    expect(h.emitted).toHaveLength(0);
+    h.fire(delta(h.app.selfContext, 'b', 'p', 20));
+    expect(h.emitted.at(-1)?.updates[0]?.values[0]?.value).toBe(15);
+    expect(JSON.stringify(h.emitted)).not.toContain('null');
+    expect(h.app.debug).toHaveBeenCalledWith(expect.stringContaining('ignored wrong-shape'));
+  });
+
+  it('applies source filters before configured classification and storage', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 2,
+      paths: [{ path: 'p', includeSources: ['a', 'b'] }],
+    });
+    h.fire(delta(h.app.selfContext, 'excluded', 'p', { latitude: 1, longitude: 2 }));
+    h.fire(delta(h.app.selfContext, 'a', 'p', 10));
+    h.fire(delta(h.app.selfContext, 'b', 'p', 20));
+    expect(h.emitted.at(-1)?.updates[0]?.values[0]?.value).toBe(15);
+  });
+
+  it('removes a source from the live registry when it reports an invalid value', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p' }],
+    });
+    h.fire(delta(h.app.selfContext, 'a', 'p', 10));
+    h.fire(delta(h.app.selfContext, 'b', 'p', 20));
+    const emittedBeforeInvalid = h.emitted.length;
+    h.fire(delta(h.app.selfContext, 'a', 'p', null));
+    expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(
+      expect.stringContaining('waiting for sources')
+    );
+    h.fire(delta(h.app.selfContext, 'b', 'p', 22));
+    expect(h.emitted).toHaveLength(emittedBeforeInvalid);
+    expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(
+      expect.stringContaining('waiting for sources')
+    );
+  });
+
+  it('keeps a failed output retryable and does not report it as emitting', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 10000,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p', slewLimit: 1 }],
+    });
+    h.fire(delta(h.app.selfContext, 'a', 'p', 10));
+    h.app.handleMessage.mockImplementationOnce(() => {
+      throw new Error('send failed');
+    });
+    const next = vi.fn();
+    h.fire(delta(h.app.selfContext, 'b', 'p', 20), next);
+    expect(next).toHaveBeenCalledOnce();
+    expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(
+      expect.stringContaining('waiting for sources')
+    );
+    h.fire(delta(h.app.selfContext, 'b', 'p', 22));
+    expect(h.emitted).toHaveLength(1);
+    expect(h.emitted[0]?.updates[0]?.values[0]?.value).toBe(16);
+  });
+
+  it('caps discovered sources using maxSourcesPerPath', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    const router = h.captureRouter(plugin);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 2,
+      paths: [],
+    });
+    h.fire(delta(h.app.selfContext, 'a', 'p', 1));
+    h.fire(delta(h.app.selfContext, 'b', 'p', 2));
+    h.fire(delta(h.app.selfContext, 'c', 'p', 3));
+    expect(h.routerGet(router, '/api/detected').paths[0]?.sources).toEqual(['b', 'c']);
   });
 });

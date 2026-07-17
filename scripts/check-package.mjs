@@ -17,7 +17,7 @@ for (const requiredPath of [
   'CHANGELOG.md',
   'LICENSE',
   'README.md',
-  'dist/index.d.ts.map',
+  'dist/index.d.ts',
   'dist/index.js',
   'dist/index.js.map',
   'package.json',
@@ -26,6 +26,17 @@ for (const requiredPath of [
   if (!files.has(requiredPath)) {
     throw new Error(`Packed package is missing ${requiredPath}.`);
   }
+}
+
+const expectedDistFiles = new Set(['dist/index.d.ts', 'dist/index.js', 'dist/index.js.map']);
+for (const file of files) {
+  if (file.startsWith('dist/') && !expectedDistFiles.has(file)) {
+    throw new Error(`Packed package contains an unsupported internal build artifact ${file}.`);
+  }
+}
+const rootDeclaration = await readFile('dist/index.d.ts', 'utf8');
+if (/\bfrom\s+['"]\.\//.test(rootDeclaration) || /\bimport\(['"]\.\//.test(rootDeclaration)) {
+  throw new Error('dist/index.d.ts references an internal declaration that is not exported.');
 }
 
 const rootExport = packageJson.exports?.['.'];

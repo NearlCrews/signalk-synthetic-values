@@ -11,46 +11,20 @@ const config = {
   target: 'node20.18',
   format: 'esm',
   sourcemap: true,
-  // Whitespace and syntax minification are always on (cheap, no debug cost).
-  // Identifier mangling only in production so dev sourcemaps stay readable.
-  minifyWhitespace: true,
-  minifySyntax: true,
-  minifyIdentifiers: process.env.NODE_ENV === 'production',
+  minify: true,
   treeShaking: true,
   splitting: false,
   metafile: true,
   legalComments: 'none',
 
-  // External dependencies - don't bundle these. @signalk/server-api is provided
-  // by the host server at runtime, so it must not be bundled into the plugin.
-  external: [
-    ...Object.keys(packageJson.dependencies || {}),
-    ...Object.keys(packageJson.peerDependencies || {}),
-    // Node.js built-ins
-    'node:*',
-    'fs',
-    'path',
-    'url',
-    'events',
-    'util',
-    'stream',
-    'crypto',
-    'os',
-    'http',
-    'https',
-  ],
-
-  // Define globals for better error messages
-  define: {
-    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
-    'process.env.PKG_NAME': JSON.stringify(packageJson.name),
-    'process.env.PKG_VERSION': JSON.stringify(packageJson.version),
-  },
+  // Runtime packages are installed by Signal K and remain external to the
+  // single plugin bundle. Node built-ins are external for platform=node.
+  packages: 'external',
 
   // Banner for Signal K plugin compatibility
   banner: {
     js: `
-// signalk-synthetic-values - Signal K Synthetic Values Plugin
+// ${packageJson.name} - Signal K Synthetic Values Plugin
 // Version: ${packageJson.version}
 // Target: Node.js 20.18+
 `.trim(),
@@ -58,11 +32,10 @@ const config = {
 
   // Better error reporting
   logLevel: 'info',
-  color: true,
+  color: process.stdout.isTTY,
 
-  // Performance optimizations
+  // Preserve readable non-ASCII Signal K metadata and messages.
   charset: 'utf8',
-  keepNames: false,
 };
 
 try {
@@ -71,28 +44,12 @@ try {
 
   const result = await build(config);
 
-  if (result.errors.length > 0) {
-    console.error('Build failed with errors:');
-    for (const error of result.errors) {
-      console.error(error);
-    }
-    process.exit(1);
-  }
-
-  if (result.warnings.length > 0) {
-    console.warn('Build completed with warnings:');
-    for (const warning of result.warnings) {
-      console.warn(warning);
-    }
-  }
-
   // Analyze bundle size
   if (result.metafile) {
-    const outputSize = Object.values(result.metafile.outputs).reduce(
-      (acc, output) => acc + output.bytes,
-      0
-    );
-    console.log(`Bundle size: ${(outputSize / 1024).toFixed(2)} KB`);
+    const outputSize = result.metafile.outputs[config.outfile]?.bytes;
+    if (outputSize !== undefined) {
+      console.log(`JavaScript bundle size: ${(outputSize / 1024).toFixed(2)} KB`);
+    }
   }
 
   console.log('Build completed successfully.');

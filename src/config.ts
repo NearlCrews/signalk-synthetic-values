@@ -89,6 +89,7 @@ export interface ValidationResult {
 }
 
 export const DEFAULT_MAX_SOURCES_PER_PATH = 16;
+export const MAX_SOURCES_PER_PATH = 64;
 
 const METHODS: ReadonlySet<string> = new Set(COMBINE_METHODS);
 const ANGULAR_MODES: ReadonlySet<string> = new Set(ANGULAR_MODES_LIST);
@@ -120,155 +121,388 @@ interface ResolvedScalars {
   minSources: number;
 }
 
-function validateScalars(
-  id: string,
-  raw: RawPathConfig,
-  options: PluginOptions
-): { scalars: ResolvedScalars } | { error: ConfigError } {
-  if (raw.includeSources?.length && raw.excludeSources?.length) {
-    return {
-      error: { path: id, message: 'set either includeSources or excludeSources, not both' },
-    };
-  }
-  const method = raw.method ?? 'median';
-  if (!METHODS.has(method)) {
-    return { error: { path: id, message: `unknown method ${method}` } };
-  }
-  const angular = raw.angular ?? 'auto';
-  if (!ANGULAR_MODES.has(angular)) {
-    return { error: { path: id, message: `unknown angular mode ${angular}` } };
-  }
-  const trimFraction = raw.trimFraction ?? DEFAULT_TRIM_FRACTION;
-  if (!(trimFraction >= 0 && trimFraction < 0.5)) {
-    return { error: { path: id, message: 'trimFraction must be in [0, 0.5)' } };
-  }
-  // Fall back to the shipped defaults when the top-level default is missing
-  // (REST-written or hand-edited configs may omit the globals entirely), the
-  // same way maxSourcesPerPath falls back in validateConfig.
-  const staleness =
-    raw.stalenessTimeoutMs ?? options.defaultStalenessTimeoutMs ?? DEFAULT_STALENESS_MS;
-  const emitInterval =
-    raw.emitMinIntervalMs ?? options.defaultEmitMinIntervalMs ?? DEFAULT_EMIT_INTERVAL_MS;
-  const minSources = raw.minSources ?? options.defaultMinSources ?? DEFAULT_MIN_SOURCES;
-  if (!positive(staleness)) {
-    return { error: { path: id, message: 'stalenessTimeoutMs must be a positive number' } };
-  }
-  if (!nonNegative(emitInterval)) {
-    return { error: { path: id, message: 'emitMinIntervalMs must be a non-negative number' } };
-  }
-  if (!positiveInt(minSources)) {
-    return { error: { path: id, message: 'minSources must be a positive integer' } };
-  }
-  return { scalars: { method, angular, trimFraction, staleness, emitInterval, minSources } };
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// Validate the optional threshold and damping fields. Split from
-// validatePathEntry to keep each function's branch count readable.
-function validateThresholds(id: string, raw: RawPathConfig): ConfigError[] {
-  const errors: ConfigError[] = [];
-  for (const [k, v] of [
-    ['rejectThreshold', raw.rejectThreshold],
-    ['disagreeThreshold', raw.disagreeThreshold],
-    ['angularSpreadThreshold', raw.angularSpreadThreshold],
-    ['slewLimit', raw.slewLimit],
-  ] as const) {
-    if (v != null && !positive(v)) {
-      errors.push({ path: id, message: `${k} must be positive when set` });
-    }
+function readSourceList(
+  id: string,
+  raw: UnknownRecord,
+  key: 'includeSources' | 'excludeSources',
+  errors: ConfigError[]
+): string[] | undefined {
+  const value = raw[key];
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.some((source) => typeof source !== 'string' || !source.trim())
+  ) {
+    errors.push({ path: id, message: `${key} must contain only non-empty strings` });
+    return undefined;
   }
-  if (raw.madThreshold != null && !nonNegative(raw.madThreshold)) {
+  if (new Set(value).size !== value.length) {
+    errors.push({ path: id, message: `${key} must not contain duplicate sources` });
+    return undefined;
+  }
+  return [...value];
+}
+
+function readJumpConfig(id: string, value: unknown, errors: ConfigError[]): JumpConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    errors.push({ path: id, message: 'jumpRejection must be an object' });
+    return undefined;
+  }
+  const maxRate = value.maxRate;
+  const persistSamples = value.persistSamples;
+  const persistMs = value.persistMs;
+  if (!positive(maxRate)) {
+    errors.push({ path: id, message: 'jumpRejection.maxRate must be positive' });
+  }
+  if (persistSamples !== undefined && !positiveInt(persistSamples)) {
+    errors.push({ path: id, message: 'jumpRejection.persistSamples must be a positive integer' });
+  }
+  if (persistMs !== undefined && !nonNegative(persistMs)) {
+    errors.push({ path: id, message: 'jumpRejection.persistMs must be a non-negative number' });
+  }
+  if (!positive(maxRate)) return undefined;
+  if (persistSamples !== undefined && !positiveInt(persistSamples)) return undefined;
+  if (persistMs !== undefined && !nonNegative(persistMs)) return undefined;
+  return {
+    maxRate,
+    persistSamples: persistSamples ?? DEFAULT_JUMP_PERSIST_SAMPLES,
+    persistMs: persistMs ?? DEFAULT_JUMP_PERSIST_MS,
+  };
+}
+
+function readOptionalNumber(
+  id: string,
+  raw: UnknownRecord,
+  key: 'rejectThreshold' | 'disagreeThreshold' | 'angularSpreadThreshold' | 'slewLimit',
+  errors: ConfigError[]
+): number | undefined {
+  const value = raw[key];
+  if (value === undefined) return undefined;
+  if (!positive(value)) {
+    errors.push({ path: id, message: `${key} must be positive when set` });
+    return undefined;
+  }
+  return value;
+}
+
+function readMethod(
+  id: string,
+  value: unknown,
+  fallback: CombineMethod,
+  errors: ConfigError[]
+): CombineMethod {
+  if (value === undefined) return fallback;
+  if (typeof value === 'string' && METHODS.has(value)) return value as CombineMethod;
+  errors.push({ path: id, message: `unknown method ${String(value)}` });
+  return fallback;
+}
+
+function readAngularMode(
+  id: string,
+  value: unknown,
+  fallback: AngularMode,
+  errors: ConfigError[]
+): AngularMode {
+  if (value === undefined) return fallback;
+  if (typeof value === 'string' && ANGULAR_MODES.has(value)) return value as AngularMode;
+  errors.push({ path: id, message: `unknown angular mode ${String(value)}` });
+  return fallback;
+}
+
+function readPathNumber(
+  id: string,
+  raw: UnknownRecord,
+  key: 'trimFraction' | 'stalenessTimeoutMs' | 'emitMinIntervalMs' | 'minSources',
+  fallback: number,
+  valid: (value: unknown) => value is number,
+  message: string,
+  errors: ConfigError[]
+): number {
+  const value = raw[key];
+  if (value === undefined) return fallback;
+  if (valid(value)) return value;
+  errors.push({ path: id, message });
+  return fallback;
+}
+
+function validTrimFraction(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < 0.5;
+}
+
+function resolveScalars(
+  id: string,
+  raw: UnknownRecord,
+  defaults: ResolvedScalars,
+  maxSourcesPerPath: number,
+  errors: ConfigError[]
+): ResolvedScalars {
+  const method = readMethod(id, raw.method, defaults.method, errors);
+  const angular = readAngularMode(id, raw.angular, defaults.angular, errors);
+  const trimFraction = readPathNumber(
+    id,
+    raw,
+    'trimFraction',
+    defaults.trimFraction,
+    validTrimFraction,
+    'trimFraction must be in [0, 0.5)',
+    errors
+  );
+  const staleness = readPathNumber(
+    id,
+    raw,
+    'stalenessTimeoutMs',
+    defaults.staleness,
+    positive,
+    'stalenessTimeoutMs must be a positive number',
+    errors
+  );
+  const emitInterval = readPathNumber(
+    id,
+    raw,
+    'emitMinIntervalMs',
+    defaults.emitInterval,
+    nonNegative,
+    'emitMinIntervalMs must be a non-negative number',
+    errors
+  );
+  const minSources = readPathNumber(
+    id,
+    raw,
+    'minSources',
+    defaults.minSources,
+    positiveInt,
+    'minSources must be a positive integer',
+    errors
+  );
+  if (minSources > maxSourcesPerPath) {
+    errors.push({
+      path: id,
+      message: `minSources cannot exceed maxSourcesPerPath (${maxSourcesPerPath})`,
+    });
+  }
+
+  return {
+    method,
+    angular,
+    trimFraction,
+    staleness,
+    emitInterval,
+    minSources,
+  };
+}
+
+function validatePathEntry(
+  id: string,
+  raw: UnknownRecord,
+  defaults: ResolvedScalars,
+  maxSourcesPerPath: number
+): PathValidation {
+  const errors: ConfigError[] = [];
+  const scalars = resolveScalars(id, raw, defaults, maxSourcesPerPath, errors);
+  const includeSources = readSourceList(id, raw, 'includeSources', errors);
+  const excludeSources = readSourceList(id, raw, 'excludeSources', errors);
+  if (includeSources?.length && excludeSources?.length) {
+    errors.push({ path: id, message: 'set either includeSources or excludeSources, not both' });
+  }
+
+  const outlierValue = raw.outlierRejection;
+  if (outlierValue !== undefined && typeof outlierValue !== 'boolean') {
+    errors.push({ path: id, message: 'outlierRejection must be a boolean' });
+  }
+  const outlierRejection = typeof outlierValue === 'boolean' ? outlierValue : true;
+
+  const madThreshold = raw.madThreshold === undefined ? DEFAULT_MAD_THRESHOLD : raw.madThreshold;
+  if (!nonNegative(madThreshold)) {
     errors.push({ path: id, message: 'madThreshold must be a non-negative number' });
   }
-  if (raw.jumpRejection) {
-    if (!positive(raw.jumpRejection.maxRate)) {
-      errors.push({ path: id, message: 'jumpRejection.maxRate must be positive' });
-    }
-    const { persistSamples, persistMs } = raw.jumpRejection;
-    if (persistSamples != null && !positiveInt(persistSamples)) {
-      errors.push({ path: id, message: 'jumpRejection.persistSamples must be a positive integer' });
-    }
-    if (persistMs != null && !nonNegative(persistMs)) {
-      errors.push({ path: id, message: 'jumpRejection.persistMs must be a non-negative number' });
-    }
-  }
-  return errors;
-}
 
-function validatePathEntry(id: string, raw: RawPathConfig, options: PluginOptions): PathValidation {
-  const scalarsResult = validateScalars(id, raw, options);
-  if ('error' in scalarsResult) {
-    return { errors: [scalarsResult.error], advisories: [] };
-  }
-  const { method, angular, trimFraction, staleness, emitInterval, minSources } =
-    scalarsResult.scalars;
+  const rejectThreshold = readOptionalNumber(id, raw, 'rejectThreshold', errors);
+  const disagreeThreshold = readOptionalNumber(id, raw, 'disagreeThreshold', errors);
+  const angularSpreadThreshold =
+    readOptionalNumber(id, raw, 'angularSpreadThreshold', errors) ??
+    DEFAULT_ANGULAR_SPREAD_THRESHOLD;
+  const slewLimit = readOptionalNumber(id, raw, 'slewLimit', errors);
+  const jumpRejection = readJumpConfig(id, raw.jumpRejection, errors);
 
-  const errors = validateThresholds(id, raw);
   if (errors.length > 0) return { errors, advisories: [] };
 
   const advisories: ConfigError[] = [];
-  // Defaults to true: outlier rejection is on unless the user explicitly disables it.
-  const outlierRejection = raw.outlierRejection ?? true;
-  if (!outlierRejection && raw.madThreshold != null) {
+  if (!outlierRejection && raw.madThreshold !== undefined) {
     advisories.push({ path: id, message: 'madThreshold ignored while outlierRejection is off' });
   }
   return {
     path: {
       path: id,
-      method,
-      trimFraction,
+      method: scalars.method,
+      trimFraction: scalars.trimFraction,
       outlierRejection,
-      madThreshold: raw.madThreshold ?? DEFAULT_MAD_THRESHOLD,
-      rejectThreshold: raw.rejectThreshold,
-      disagreeThreshold: raw.disagreeThreshold,
-      angularSpreadThreshold: raw.angularSpreadThreshold ?? DEFAULT_ANGULAR_SPREAD_THRESHOLD,
-      angular,
-      includeSources: raw.includeSources,
-      excludeSources: raw.excludeSources,
-      minSources,
-      stalenessTimeoutMs: staleness,
-      emitMinIntervalMs: emitInterval,
-      // Normalize to a complete JumpConfig: damping's persistence check reads
-      // both persist fields, and an undefined there would never satisfy it,
-      // freezing the accepted value after the first rate-exceeding sample.
-      jumpRejection: raw.jumpRejection
-        ? {
-            maxRate: raw.jumpRejection.maxRate,
-            persistSamples: raw.jumpRejection.persistSamples ?? DEFAULT_JUMP_PERSIST_SAMPLES,
-            persistMs: raw.jumpRejection.persistMs ?? DEFAULT_JUMP_PERSIST_MS,
-          }
-        : undefined,
-      slewLimit: raw.slewLimit,
+      madThreshold: madThreshold as number,
+      rejectThreshold,
+      disagreeThreshold,
+      angularSpreadThreshold,
+      angular: scalars.angular,
+      includeSources,
+      excludeSources,
+      minSources: scalars.minSources,
+      stalenessTimeoutMs: scalars.staleness,
+      emitMinIntervalMs: scalars.emitInterval,
+      jumpRejection,
+      slewLimit,
     },
     errors: [],
     advisories,
   };
 }
 
-export function validateConfig(options: PluginOptions): ValidationResult {
-  const errors: ConfigError[] = [];
-  const advisories: ConfigError[] = [];
+function readTopLevelNumber(
+  root: UnknownRecord,
+  key: 'defaultStalenessTimeoutMs' | 'defaultEmitMinIntervalMs' | 'defaultMinSources',
+  fallback: number,
+  valid: (value: unknown) => value is number,
+  message: string,
+  errors: ConfigError[]
+): number {
+  const value = root[key];
+  if (value === undefined) return fallback;
+  if (valid(value)) return value;
+  errors.push({ path: key, message });
+  return fallback;
+}
+
+function readRoot(input: unknown, errors: ConfigError[]): UnknownRecord {
+  if (isRecord(input)) return input;
+  errors.push({ path: 'configuration', message: 'configuration must be an object' });
+  return {};
+}
+
+function readMaxSources(root: UnknownRecord, errors: ConfigError[]): number {
+  const value = root.maxSourcesPerPath;
+  if (value === undefined) return DEFAULT_MAX_SOURCES_PER_PATH;
+  if (positiveInt(value) && value <= MAX_SOURCES_PER_PATH) return value;
+  errors.push({
+    path: 'maxSourcesPerPath',
+    message: `maxSourcesPerPath must be an integer from 1 to ${MAX_SOURCES_PER_PATH}`,
+  });
+  return DEFAULT_MAX_SOURCES_PER_PATH;
+}
+
+function readDefaults(
+  root: UnknownRecord,
+  maxSourcesPerPath: number,
+  errors: ConfigError[]
+): ResolvedScalars {
+  const defaults: ResolvedScalars = {
+    method: 'median',
+    angular: 'auto',
+    trimFraction: DEFAULT_TRIM_FRACTION,
+    staleness: readTopLevelNumber(
+      root,
+      'defaultStalenessTimeoutMs',
+      DEFAULT_STALENESS_MS,
+      positive,
+      'defaultStalenessTimeoutMs must be a positive number',
+      errors
+    ),
+    emitInterval: readTopLevelNumber(
+      root,
+      'defaultEmitMinIntervalMs',
+      DEFAULT_EMIT_INTERVAL_MS,
+      nonNegative,
+      'defaultEmitMinIntervalMs must be a non-negative number',
+      errors
+    ),
+    minSources: readTopLevelNumber(
+      root,
+      'defaultMinSources',
+      DEFAULT_MIN_SOURCES,
+      positiveInt,
+      'defaultMinSources must be a positive integer',
+      errors
+    ),
+  };
+  if (defaults.minSources > maxSourcesPerPath) {
+    errors.push({
+      path: 'defaultMinSources',
+      message: `defaultMinSources cannot exceed maxSourcesPerPath (${maxSourcesPerPath})`,
+    });
+  }
+  return defaults;
+}
+
+function readRawPaths(root: UnknownRecord, errors: ConfigError[]): unknown[] {
+  if (root.paths === undefined) return [];
+  if (Array.isArray(root.paths)) return root.paths;
+  errors.push({ path: 'paths', message: 'paths must be an array' });
+  return [];
+}
+
+function readPathEntry(
+  value: unknown,
+  index: number,
+  errors: ConfigError[]
+): { id: string; raw: UnknownRecord } | undefined {
+  if (!isRecord(value)) {
+    errors.push({ path: `paths[${index}]`, message: 'path entry must be an object' });
+    return undefined;
+  }
+  const path = value.path;
+  if (typeof path !== 'string' || !path.trim()) {
+    errors.push({ path: String(path), message: 'missing path' });
+    return undefined;
+  }
+  if (path !== path.trim()) {
+    errors.push({ path, message: 'path must not have surrounding whitespace' });
+    return undefined;
+  }
+  return { id: path, raw: value };
+}
+
+function validatePathEntries(
+  rawPaths: unknown[],
+  defaults: ResolvedScalars,
+  maxSourcesPerPath: number,
+  errors: ConfigError[],
+  advisories: ConfigError[]
+): PathConfig[] {
   const paths: PathConfig[] = [];
   const seen = new Set<string>();
-
-  for (const raw of options.paths ?? []) {
-    const id = raw.path;
-    if (!id || typeof id !== 'string') {
-      errors.push({ path: String(id), message: 'missing path' });
-      continue;
-    }
+  for (const [index, value] of rawPaths.entries()) {
+    const entry = readPathEntry(value, index, errors);
+    if (!entry) continue;
+    const { id, raw } = entry;
     if (seen.has(id)) {
       errors.push({ path: id, message: 'duplicate path entry ignored' });
       continue;
     }
     seen.add(id);
-    const result = validatePathEntry(id, raw, options);
+    const result = validatePathEntry(id, raw, defaults, maxSourcesPerPath);
     errors.push(...result.errors);
     advisories.push(...result.advisories);
     if (result.path) paths.push(result.path);
   }
+  return paths;
+}
 
-  const maxSourcesPerPath = positiveInt(options.maxSourcesPerPath)
-    ? options.maxSourcesPerPath
-    : DEFAULT_MAX_SOURCES_PER_PATH;
+export function validateConfig(input: unknown): ValidationResult {
+  const errors: ConfigError[] = [];
+  const advisories: ConfigError[] = [];
+  const root = readRoot(input, errors);
+  const maxSourcesPerPath = readMaxSources(root, errors);
+  const defaults = readDefaults(root, maxSourcesPerPath, errors);
+  const paths = validatePathEntries(
+    readRawPaths(root, errors),
+    defaults,
+    maxSourcesPerPath,
+    errors,
+    advisories
+  );
+
   return { config: { maxSourcesPerPath, paths }, errors, advisories };
 }

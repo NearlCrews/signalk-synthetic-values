@@ -46,11 +46,15 @@ const ANGULAR_ALLOWLIST: ReadonlySet<string> = new Set([
 ]);
 
 function isLatLon(v: unknown): v is LatLon {
+  if (typeof v !== 'object' || v === null) return false;
+  const { latitude, longitude } = v as LatLon;
   return (
-    typeof v === 'object' &&
-    v !== null &&
-    Number.isFinite((v as LatLon).latitude) &&
-    Number.isFinite((v as LatLon).longitude)
+    Number.isFinite(latitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    Number.isFinite(longitude) &&
+    longitude >= -180 &&
+    longitude <= 180
   );
 }
 

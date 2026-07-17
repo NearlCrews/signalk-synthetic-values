@@ -23,6 +23,13 @@ export class Registry {
 
   setMaxSourcesPerPath(n: number): void {
     this.maxSources = n;
+    for (const bySource of this.store.values()) {
+      while (bySource.size > this.maxSources) {
+        const oldestRef = oldestKey(bySource, (entry) => entry.receiptTs);
+        if (oldestRef === undefined) break;
+        bySource.delete(oldestRef);
+      }
+    }
   }
 
   update(path: string, sourceRef: string, value: SampleValue, ts: number): void {
@@ -36,6 +43,13 @@ export class Registry {
       if (oldestRef !== undefined) bySource.delete(oldestRef);
     }
     bySource.set(sourceRef, { value, receiptTs: ts, observationId: this.nextObservationId++ });
+  }
+
+  remove(path: string, sourceRef: string): void {
+    const bySource = this.store.get(path);
+    if (!bySource) return;
+    bySource.delete(sourceRef);
+    if (bySource.size === 0) this.store.delete(path);
   }
 
   fresh(path: string, stalenessMs: number): Sample[] {

@@ -60,6 +60,17 @@ describe('combine outlier rejection empties the source set', () => {
     expect(r.freshCount).toBe(5);
     expect(r.usedSources).toEqual(['a', 'b', 'c']);
   });
+  it('reports a lone post-rejection survivor as single-source operation', () => {
+    const r = combine([s('a', 0), s('b', 100), s('c', 200), s('d', 300), s('e', 400)], {
+      ...base,
+      kind: 'scalar',
+      minSources: 1,
+      madThreshold: 0,
+    });
+    expect(r.outcome).toBe('singleSource');
+    expect(r.value).toBe(200);
+    expect(r.usedSources).toEqual(['c']);
+  });
 });
 
 describe('combine scalar', () => {
@@ -176,6 +187,17 @@ describe('combine position', () => {
     );
     const v = r.value as LatLon;
     expect(Math.abs(v.longitude)).toBeGreaterThan(179);
+  });
+  it('uses a robust longitude for median with three sources', () => {
+    const r = combine(
+      [
+        s('a', { latitude: 10, longitude: 20 }),
+        s('b', { latitude: 10, longitude: 20 }),
+        s('c', { latitude: 10, longitude: 100 }),
+      ],
+      { ...base, kind: 'position' }
+    );
+    expect((r.value as { longitude: number }).longitude).toBeCloseTo(20, 9);
   });
   it('rejects a far position whole-source and lands on the cluster', () => {
     const r = combine(

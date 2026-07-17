@@ -58,6 +58,22 @@ for (const keyword of ['signalk-node-server-plugin', 'signalk-plugin-configurato
   }
 }
 
+const detectedResponse = await fetch(
+  new URL(`/plugins/${packageJson.name}/api/detected`, baseUrl),
+  requestOptions()
+);
+if (!detectedResponse.ok) {
+  throw new Error(`The detected-path API failed with HTTP ${detectedResponse.status}.`);
+}
+const detectedBody = await detectedResponse.json();
+if (
+  typeof detectedBody !== 'object' ||
+  detectedBody === null ||
+  !Array.isArray(detectedBody.paths)
+) {
+  throw new Error('The detected-path API did not return a paths array.');
+}
+
 const remoteResponse = await fetch(new URL(remotePath, baseUrl), requestOptions());
 if (!remoteResponse.ok) {
   throw new Error(`The installed configuration remote failed with HTTP ${remoteResponse.status}.`);
@@ -68,5 +84,5 @@ if (!remoteSource.includes('export')) {
 }
 
 console.log(
-  `Signal K registered the plugin and served ${panelAssetNames.length} panel assets from ${baseUrl.origin}.`
+  `Signal K registered the plugin, served its detected-path API, and served ${panelAssetNames.length} panel assets from ${baseUrl.origin}.`
 );
