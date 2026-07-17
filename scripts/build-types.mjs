@@ -1,16 +1,17 @@
 import { spawn } from 'node:child_process';
 import { copyFile, mkdir, readdir, rm } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 const temporaryDirectory = '.tmp/types';
-const executable =
-  process.platform === 'win32' ? 'node_modules/.bin/tsc.cmd' : 'node_modules/.bin/tsc';
+const typescriptCli = fileURLToPath(new URL('../node_modules/typescript/bin/tsc', import.meta.url));
 
 await rm(temporaryDirectory, { recursive: true, force: true });
 
 const exitCode = await new Promise((resolve, reject) => {
   const child = spawn(
-    executable,
+    process.execPath,
     [
+      typescriptCli,
       '--noEmit',
       'false',
       '--declaration',

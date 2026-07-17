@@ -31,6 +31,7 @@ saved configurations remain compatible.
 - Repeated row controls now include the Signal K path in their accessible names, while visible labels and layout remain unchanged.
 - Browser fixtures now use the runtime's real default values instead of stale hardcoded placeholders.
 - Builds no longer delete coverage output, CI and prepublish checks avoid a redundant browser-test rebuild, and package validation covers every declared JavaScript and type entrypoint plus the runtime source map.
+- Declaration generation now invokes the TypeScript CLI through Node so official Windows plugin builds work alongside Linux and macOS builds.
 - Successful refreshes now update the last-checked time, and manual refreshes announce completion even when the detected paths are unchanged.
 - Source-filter checkboxes now use collision-safe IDs, clear the opposite filter model, and keep every live source excluded when the final include-only source is unchecked.
 - Removed duplicated screen-reader row details and empty source groups, preserved complete source and kind labels, and aligned form controls' accessible names with their visible labels.
