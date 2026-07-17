@@ -1,9 +1,13 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 
 const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
+const pluginId = 'signalk-synthetic-values';
+if (packageJson.name !== pluginId) {
+  throw new Error(`Expected package.json name ${pluginId}.`);
+}
 const baseUrl = new URL(process.env.SIGNALK_URL ?? 'http://127.0.0.1:3000');
 const authorization = process.env.SIGNALK_AUTHORIZATION?.trim();
-const remotePath = `/${packageJson.name}/remoteEntry.js`;
+const remotePath = `/${pluginId}/remoteEntry.js`;
 const requestTimeoutMs = 10_000;
 const requestOptions = () => ({
   ...(authorization ? { headers: { Authorization: authorization } } : {}),
@@ -13,24 +17,6 @@ const requestOptions = () => ({
 const serverResponse = await fetch(new URL('/signalk', baseUrl), requestOptions());
 if (!serverResponse.ok) {
   throw new Error(`Signal K discovery failed with HTTP ${serverResponse.status}.`);
-}
-
-const panelAssetNames = (await readdir('public')).filter((name) => /\.(?:css|js|mjs)$/.test(name));
-for (const assetName of panelAssetNames) {
-  const assetPath = `/${packageJson.name}/${assetName}`;
-  const assetResponse = await fetch(new URL(assetPath, baseUrl), requestOptions());
-  if (!assetResponse.ok) {
-    throw new Error(
-      `The installed panel asset ${assetPath} failed with HTTP ${assetResponse.status}.`
-    );
-  }
-  const contentType = assetResponse.headers.get('content-type') ?? '';
-  const expectedType = assetName.endsWith('.css') ? 'text/css' : 'javascript';
-  if (!contentType.includes(expectedType)) {
-    throw new Error(
-      `The installed panel asset ${assetPath} used unexpected content type ${contentType || '(missing)'}.`
-    );
-  }
 }
 
 const pluginsResponse = await fetch(new URL('/skServer/plugins', baseUrl), requestOptions());
@@ -44,13 +30,13 @@ if (!pluginsResponse.ok) {
 }
 const plugins = await pluginsResponse.json();
 const installedPlugin = Array.isArray(plugins)
-  ? plugins.find((plugin) => plugin.packageName === packageJson.name)
+  ? plugins.find((plugin) => plugin.packageName === pluginId)
   : undefined;
 if (!installedPlugin) {
-  throw new Error(`Signal K did not load ${packageJson.name}.`);
+  throw new Error(`Signal K did not load ${pluginId}.`);
 }
 if (installedPlugin.data?.enabled !== true) {
-  throw new Error(`Signal K did not enable ${packageJson.name}.`);
+  throw new Error(`Signal K did not enable ${pluginId}.`);
 }
 for (const keyword of ['signalk-node-server-plugin', 'signalk-plugin-configurator']) {
   if (!installedPlugin.keywords?.includes(keyword)) {
@@ -59,7 +45,7 @@ for (const keyword of ['signalk-node-server-plugin', 'signalk-plugin-configurato
 }
 
 const detectedResponse = await fetch(
-  new URL(`/plugins/${packageJson.name}/api/detected`, baseUrl),
+  new URL(`/plugins/${pluginId}/api/detected`, baseUrl),
   requestOptions()
 );
 if (!detectedResponse.ok) {
@@ -84,5 +70,5 @@ if (!remoteSource.includes('export')) {
 }
 
 console.log(
-  `Signal K registered the plugin, served its detected-path API, and served ${panelAssetNames.length} panel assets from ${baseUrl.origin}.`
+  `Signal K registered the plugin and served its detected-path API and configuration remote from ${baseUrl.origin}.`
 );

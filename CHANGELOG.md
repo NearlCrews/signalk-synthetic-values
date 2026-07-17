@@ -51,6 +51,7 @@ saved configurations remain compatible.
 - Finite extreme scalar values no longer overflow mean or median calculations, absolute rejection remains a ceiling while MAD is active, and a one-source post-rejection result reports lost redundancy.
 - Position slew limiting now follows a distance-capped great-circle step, position coordinates are range-checked, and robust methods use a circular longitude medoid instead of allowing one longitude outlier to drag the result.
 - Plugin status starts configured paths as waiting, points to the current Data, Priorities workflow, and updates an outcome only after a successful synthetic send.
+- Live integration checks now validate package identity and keep file-derived values out of authenticated request URLs.
 
 ### Changed
 
