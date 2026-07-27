@@ -11,7 +11,8 @@ test.beforeEach(async ({ page }) => {
 test('loads the production remote and completes combine, tune, and remove flows', async ({
   page,
 }) => {
-  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-version', '0.2.0');
+  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-version', '0.3.0');
+  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-theme', 'light');
 
   const headingRow = page.locator('[data-detected-path-row]', {
     hasText: 'navigation.headingTrue',

@@ -135,13 +135,13 @@ describe('PluginConfigurationPanel', () => {
     });
   });
 
-  it('renders the theme toggle', async () => {
+  it('renders the theme toggle with the fresh Light default', async () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
 
     await waitFor(() => {
       expect(screen.getByRole('radiogroup', { name: /panel theme/i })).toBeInTheDocument();
-      expect(screen.getByRole('radio', { name: /auto/i })).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByRole('radio', { name: /light/i })).toHaveAttribute('aria-checked', 'true');
     });
   });
 
