@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import '@testing-library/jest-dom';
+
 import { fireEvent, render, screen } from '@testing-library/react';
 import { createElement } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KindBadge } from '../../src/configpanel/components/KindBadge';
 import { PriorityBanner } from '../../src/configpanel/components/PriorityBanner';
 import { SourceChips } from '../../src/configpanel/components/SourceChips';

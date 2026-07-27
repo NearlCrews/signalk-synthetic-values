@@ -60,6 +60,12 @@ module.exports = {
     chunkFormat: 'module',
     uniqueName: containerName,
   },
+  optimization: {
+    // Keep the exposed panel and bundled UI in one async chunk. The remote
+    // still loads lazily, while one chunk avoids duplicate compression
+    // dictionaries and wrappers across consumer and shared UI code.
+    splitChunks: false,
+  },
   module: {
     rules: [
       {

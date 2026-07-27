@@ -8,11 +8,19 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByText('navigation.headingTrue', { exact: true })).toBeVisible();
 });
 
+test('uses the fresh Light default without persisting an implicit preference', async ({ page }) => {
+  const root = page.locator('[data-snui-root]');
+  await expect(root).toHaveAttribute('data-snui-theme', 'light');
+  await expect(page.getByRole('radio', { name: 'Light' })).toHaveAttribute('aria-checked', 'true');
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('signalk-nearlcrews-ui.theme.v1')))
+    .toBeNull();
+});
+
 test('loads the production remote and completes combine, tune, and remove flows', async ({
   page,
 }) => {
-  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-version', '0.3.0');
-  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-theme', 'light');
+  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-version', '0.4.1');
 
   const headingRow = page.locator('[data-detected-path-row]', {
     hasText: 'navigation.headingTrue',

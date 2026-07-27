@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<a id="v050"></a>
+
+## [0.5.0] - 2026-07-27
+
+This release updates the shared configuration-panel library and development
+toolchain without changing the Signal K configuration schema, runtime API, or
+stored values. Existing saved configurations and theme preferences remain
+compatible.
+
+### Changed
+
+- Updated `signalk-nearlcrews-ui` to 0.4.1. Fresh profiles now start in
+  Light without persisting an implicit preference, while existing Light, Dark,
+  Night, Auto, shared, and migrated legacy preferences remain unchanged.
+- Refreshed every direct development dependency to its latest release and
+  raised the development toolchain floor to Node
+  `^22.22.2 || ^24.15.0 || >=26.0.0`. The published plugin still supports
+  Node 20.18 or newer at runtime.
+- Kept the exposed panel and bundled shared UI in one lazy chunk, reducing the
+  production panel to 22,805 gzip bytes while retaining the approved
+  24,000-byte ceiling.
+
+### Fixed
+
+- Updated the transitive `fast-uri` dependency to a release that fixes its
+  authority-delimiter host-confusion vulnerability.
+
 <a id="v040"></a>
 
 ## [0.4.0] - 2026-07-16

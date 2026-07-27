@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import '@testing-library/jest-dom';
+
 import { fireEvent, render } from '@testing-library/react';
 import { createElement } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RawPathConfig, RawPathConfigPatch } from '../../src/config.js';
 import {
   DEFAULT_JUMP_PERSIST_MS,

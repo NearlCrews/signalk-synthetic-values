@@ -9,18 +9,27 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.4.0
+## What's new in 0.5.0
 
-Version 0.4.0 modernizes the configuration panel and its validation while
-keeping existing saved configurations compatible.
+Version 0.5.0 refreshes the shared configuration-panel library and development
+toolchain while keeping runtime behavior and saved configurations compatible.
 
-- **Shared marine UI.** The panel now uses `signalk-nearlcrews-ui` for accessible controls, consistent auto, light, dark, and night themes, and isolated responsive styling.
-- **Safer configuration workflow.** Detected-path responses are validated before use, refresh and bulk actions resist duplicate activation, and current Signal K priority guidance links directly to group and path-level settings.
-- **Hardened runtime.** Strict configuration and delta validation, bounded source tracking, monotonic timing, safer emission retries, and kind checks keep malformed or changing feeds from corrupting synthetic values.
-- **Production-remote testing.** Browser coverage loads the built Module Federation remote through a host-equivalent React share scope across Chromium, Firefox, WebKit, and mobile Chromium.
-- **Stronger release checks.** Validation now covers dead code, generated panel boundaries, package contents, runtime dependencies, accessibility, narrow layouts, and refreshed App Store screenshots.
+- **Shared marine UI 0.4.1.** Fresh profiles start in Light without persisting
+  an implicit choice, existing theme preferences remain authoritative, and
+  Dark and Night interaction feedback is clearer.
+- **Current development toolchain.** Every direct development dependency is at
+  its latest release, with Node 22.22.2 or newer required for development.
+  The published plugin still supports Node 20.18 or newer at runtime.
+- **Clean dependency tree.** Full and runtime dependency audits report no
+  known vulnerabilities.
+- **Smaller production remote.** The host-shared React panel and bundled UI
+  load through one lazy chunk and total 22,805 gzip bytes, below the existing
+  24,000-byte ceiling.
+- **Refreshed browser evidence.** Production-remote coverage and App Store
+  screenshots reflect the Light default across Chromium, Firefox, WebKit,
+  and mobile Chromium.
 
-See the [0.4.0 changelog](CHANGELOG.md#v040) for the complete list.
+See the [0.5.0 changelog](CHANGELOG.md#v050) for the complete list.
 
 ## Why you'd want this
 
@@ -57,7 +66,7 @@ npm install signalk-synthetic-values
 From source:
 
 The published plugin supports Node 20.18 or newer at runtime. Building from
-source requires Node `^22.18.0 || >=24.11.0`; the checked-in `.node-version`
+source requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`; the checked-in `.node-version`
 selects Node 22.23.1.
 
 ```bash
@@ -76,7 +85,7 @@ In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic V
 
 Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, a kind badge, and the source names as chips. Combinable values are classified as scalar, angular, attitude, or position; unsupported values show as other, and configured paths awaiting live data show as unknown.
 
-The panel uses `signalk-nearlcrews-ui` for accessible controls, shared marine
+The panel uses `signalk-nearlcrews-ui` 0.4.1 for accessible controls, shared marine
 theming, and isolated styles. Auto, light, dark, and night themes share the
 same preference with other panels that use the library. An existing
 Synthetic Values `skn-theme` preference is migrated automatically.
@@ -166,13 +175,9 @@ For the per-path detail behind those counts (which path is waiting, the exact sp
 ## Development
 
 The published plugin targets Node 20.18 or newer. The development toolchain
-requires Node `^22.18.0 || >=24.11.0`; `.node-version` selects Node 22.23.1.
+requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`; `.node-version` selects Node 22.23.1.
 It uses TypeScript 7 with `@signalk/server-api` 2.30. The published peer
 dependency supports `@signalk/server-api` 2.24 or newer.
-
-Biome is intentionally pinned to 2.5.2. Versions 2.5.3 and 2.5.4 can panic
-while resolving the type-aware panel module graph, so they are not safe
-validation gates for this repository.
 
 ```bash
 git clone https://github.com/NearlCrews/signalk-synthetic-values.git

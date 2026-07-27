@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import '@testing-library/jest-dom';
+
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createElement } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PluginOptions } from '../../src/config.js';
 import PluginConfigurationPanel from '../../src/configpanel/PluginConfigurationPanel.js';
 
@@ -135,13 +135,14 @@ describe('PluginConfigurationPanel', () => {
     });
   });
 
-  it('renders the theme toggle with the fresh Light default', async () => {
+  it('starts a fresh profile in Light without persisting an implicit preference', async () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
 
     await waitFor(() => {
       expect(screen.getByRole('radiogroup', { name: /panel theme/i })).toBeInTheDocument();
       expect(screen.getByRole('radio', { name: /light/i })).toHaveAttribute('aria-checked', 'true');
+      expect(localStorage.getItem('signalk-nearlcrews-ui.theme.v1')).toBeNull();
     });
   });
 
