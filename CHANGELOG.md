@@ -38,6 +38,8 @@ stored values.
 
 - Corrected an asynchronous hook test that left its refresh promise floating
   under the current Biome correctness rules.
+- Restored jsdom's browser storage in configuration-panel tests when Node 26
+  exposes its own file-backed `localStorage` global.
 
 <a id="v050"></a>
 

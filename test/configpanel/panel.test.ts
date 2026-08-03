@@ -62,7 +62,7 @@ function mockFetch(): void {
 describe('PluginConfigurationPanel', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-    localStorage.clear();
+    window.localStorage.clear();
     Object.defineProperty(window, 'CSSScopeRule', {
       configurable: true,
       value: class CSSScopeRule {},
@@ -145,12 +145,12 @@ describe('PluginConfigurationPanel', () => {
       expect(screen.getByRole('radiogroup', { name: /panel theme/i })).toBeInTheDocument();
       expect(screen.getByRole('radio', { name: /auto/i })).toHaveAttribute('aria-checked', 'true');
       expect(container.querySelector('[data-snui-root]')).not.toHaveAttribute('data-snui-theme');
-      expect(localStorage.getItem('signalk-nearlcrews-ui.theme.v1')).toBeNull();
+      expect(window.localStorage.getItem('signalk-nearlcrews-ui.theme.v1')).toBeNull();
     });
   });
 
   it('ignores the retired plugin-specific theme preference', async () => {
-    localStorage.setItem('skn-theme', 'night');
+    window.localStorage.setItem('skn-theme', 'night');
     const mockSave = vi.fn().mockResolvedValue(undefined);
     const { container } = render(
       createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
@@ -159,8 +159,8 @@ describe('PluginConfigurationPanel', () => {
     await waitFor(() => {
       expect(screen.getByRole('radio', { name: /auto/i })).toHaveAttribute('aria-checked', 'true');
       expect(container.querySelector('[data-snui-root]')).not.toHaveAttribute('data-snui-theme');
-      expect(localStorage.getItem('signalk-nearlcrews-ui.theme.v1')).toBeNull();
-      expect(localStorage.getItem('skn-theme')).toBe('night');
+      expect(window.localStorage.getItem('signalk-nearlcrews-ui.theme.v1')).toBeNull();
+      expect(window.localStorage.getItem('skn-theme')).toBe('night');
     });
   });
 
