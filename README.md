@@ -9,27 +9,25 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.5.0
+## What's new in 0.5.1
 
-Version 0.5.0 refreshes the shared configuration-panel library and development
-toolchain while keeping runtime behavior and saved configurations compatible.
+Version 0.5.1 refreshes the shared configuration-panel library, dependencies,
+and project quality gates while keeping runtime behavior and saved
+configurations compatible.
 
-- **Shared marine UI 0.4.1.** Fresh profiles start in Light without persisting
-  an implicit choice, existing theme preferences remain authoritative, and
-  Dark and Night interaction feedback is clearer.
-- **Current development toolchain.** Every direct development dependency is at
-  its latest release, with Node 22.22.2 or newer required for development.
+- **Shared marine UI 0.6.1.** Fresh profiles follow the shared Auto theme, and
+  obsolete plugin-specific theme storage is no longer read or migrated.
+- **Current development toolchain.** Direct development dependencies are at
+  their latest compatible releases, with Node 22.22.2 or newer required for development.
   The published plugin still supports Node 20.18 or newer at runtime.
-- **Clean dependency tree.** Full and runtime dependency audits report no
-  known vulnerabilities.
-- **Smaller production remote.** The host-shared React panel and bundled UI
-  load through one lazy chunk and total 22,805 gzip bytes, below the existing
-  24,000-byte ceiling.
-- **Refreshed browser evidence.** Production-remote coverage and App Store
-  screenshots reflect the Light default across Chromium, Firefox, WebKit,
-  and mobile Chromium.
+- **Stronger project gates.** Markdown linting, spelling, workflow syntax,
+  workflow security, complete release verification, and verified-artifact npm
+  publishing now complement the existing tests and audits.
+- **Documented production remote.** The host-shared React panel and bundled UI
+  load through one lazy chunk and total 29,660 gzip bytes, below the revised
+  30,000-byte ceiling.
 
-See the [0.5.0 changelog](CHANGELOG.md#v050) for the complete list.
+See the [0.5.1 changelog](CHANGELOG.md#v051) for the complete list.
 
 ## Why you'd want this
 
@@ -85,10 +83,10 @@ In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic V
 
 Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, a kind badge, and the source names as chips. Combinable values are classified as scalar, angular, attitude, or position; unsupported values show as other, and configured paths awaiting live data show as unknown.
 
-The panel uses `signalk-nearlcrews-ui` 0.4.1 for accessible controls, shared marine
+The panel uses `signalk-nearlcrews-ui` 0.6.1 for accessible controls, shared marine
 theming, and isolated styles. Auto, light, dark, and night themes share the
-same preference with other panels that use the library. An existing
-Synthetic Values `skn-theme` preference is migrated automatically.
+same preference with other panels that use the library. The retired Synthetic
+Values `skn-theme` preference is intentionally ignored.
 
 The shared UI requires native CSS `@scope`: Chromium and Edge 118 or newer,
 Firefox 146 or newer, or Safari 17.4 or newer. Older browsers and embedded
@@ -115,7 +113,7 @@ The runtime honors the top-level options below. The current custom panel
 preserves existing values but does not edit them.
 
 | Option | Default | Description |
-|--------|---------|-------------|
+| ------ | ------- | ----------- |
 | `defaultStalenessTimeoutMs` | `1000` | A source whose last receipt is older than this is excluded from combining. Override per path with `stalenessTimeoutMs`. |
 | `defaultEmitMinIntervalMs` | `1000` | Minimum interval in milliseconds between synthetic emits for a path. Override per path with `emitMinIntervalMs`. |
 | `defaultMinSources` | `2` | Minimum fresh sources required to emit a combined value. Set to `1` to pass through a single-source path without combining. Override per path with `minSources`. |
@@ -130,7 +128,7 @@ the panel preserves rather than edits `outlierRejection`,
 `jumpRejection.persistSamples`, and `jumpRejection.persistMs`.
 
 | Option | Default | Description |
-|--------|---------|-------------|
+| ------ | ------- | ----------- |
 | `path` | required | The Signal K path to combine. |
 | `method` | `median` | Combining method: `median`, `trimmedMean`, or `mean`. For angular paths and position longitudes, `mean` uses the circular mean; `median` and `trimmedMean` use the circular medoid (the reading closest to the others). |
 | `trimFraction` | `0.25` | Fraction in the range `[0, 0.5)` trimmed from each end when using `trimmedMean`. The count trimmed from each end is `floor(N * trimFraction)`, so small sets may remain untrimmed. |
@@ -185,17 +183,20 @@ cd signalk-synthetic-values
 npm ci                       # install the locked dependencies
 npm run build                # build and verify dist/ and the panel remote
 npm test                     # Vitest suite, single run
-npm run check                # local pre-commit type, lint, dead-code, and unit checks
+npm run check                # local lint, workflow, dead-code, type, and unit checks
 npm run test:browser         # Chromium production-remote tests
 npm run test:browser:cross   # Chromium, Firefox, WebKit, and mobile Chromium
 npm run type-check           # runtime, backend tests, panel, and browser-fixture type checks
-npm run lint                 # Biome check
+npm run lint                 # source, Markdown, and spelling checks
 npm run lint:fix             # lint and auto-fix
+npm run ci:workflows         # validate GitHub Actions syntax and pinned actions
 npm run knip                 # dead files, exports, and dependencies
 npm run package:check        # inspect the files included by npm pack
-npm run security-audit       # audit all dependencies at moderate severity
+npm run audit:runtime        # audit production dependencies
+npm run audit:full           # audit the complete dependency tree
 npm run screenshots          # refresh the configuration-panel screenshots
-npm run validate             # full non-browser validation
+npm run verify               # complete non-browser validation
+npm run verify:release       # release validation, browser matrix, and full audit
 ```
 
 Install the browser engines once before running browser tests:
@@ -214,7 +215,7 @@ SIGNALK_AUTHORIZATION='Bearer <token>' \
 npm run test:integration
 ```
 
-Run `npm run validate` and `npm run test:browser:cross` before pushing. See
+Run `npm run verify:release` before preparing a release. See
 [CONTRIBUTING.md](.github/CONTRIBUTING.md) for the pull request process.
 
 ## License

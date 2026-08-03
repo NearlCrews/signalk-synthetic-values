@@ -8,10 +8,10 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByText('navigation.headingTrue', { exact: true })).toBeVisible();
 });
 
-test('uses the fresh Light default without persisting an implicit preference', async ({ page }) => {
+test('uses the fresh Auto default without persisting an implicit preference', async ({ page }) => {
   const root = page.locator('[data-snui-root]');
-  await expect(root).toHaveAttribute('data-snui-theme', 'light');
-  await expect(page.getByRole('radio', { name: 'Light' })).toHaveAttribute('aria-checked', 'true');
+  await expect(root).not.toHaveAttribute('data-snui-theme');
+  await expect(page.getByRole('radio', { name: 'Auto' })).toHaveAttribute('aria-checked', 'true');
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('signalk-nearlcrews-ui.theme.v1')))
     .toBeNull();
@@ -20,7 +20,7 @@ test('uses the fresh Light default without persisting an implicit preference', a
 test('loads the production remote and completes combine, tune, and remove flows', async ({
   page,
 }) => {
-  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-version', '0.4.1');
+  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-version', '0.6.1');
 
   const headingRow = page.locator('[data-detected-path-row]', {
     hasText: 'navigation.headingTrue',
@@ -109,17 +109,18 @@ test('announces an unchanged manual refresh', async ({ page }) => {
   await expect(page.getByRole('status')).toHaveText('Detected paths refreshed.');
 });
 
-test('migrates the legacy preference and supports every theme', async ({ page }) => {
+test('ignores the retired legacy preference and supports every theme', async ({ page }) => {
   await page.evaluate(() => {
     localStorage.removeItem('signalk-nearlcrews-ui.theme.v1');
     localStorage.setItem('skn-theme', 'night');
   });
   await page.reload();
   await expect(page.locator('body')).toHaveAttribute('data-fixture-ready', 'true');
-  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-theme', 'night');
+  await expect(page.locator('[data-snui-root]')).not.toHaveAttribute('data-snui-theme');
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('signalk-nearlcrews-ui.theme.v1')))
-    .toBe('night');
+    .toBeNull();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('skn-theme'))).toBe('night');
 
   const themeGroup = page.getByRole('radiogroup', { name: 'Panel theme' });
   for (const [label, value] of [

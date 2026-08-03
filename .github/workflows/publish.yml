@@ -6,71 +6,87 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag to publish (e.g. v1.4.2)
+        description: Tag to publish, for example v1.4.2
         required: true
+        type: string
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: publish-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
-  publish:
+  build:
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.x
-          cache: npm
-          registry-url: https://registry.npmjs.org
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Verify tag is reachable from main
+          node-version: 22.22.2
+          package-manager-cache: false
+      - name: Verify the release tag and package.json version
         env:
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          TAG_NAME: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
-          git fetch origin main --depth=200
-          if ! git merge-base --is-ancestor "$TAG" origin/main; then
-            echo "::error::Tag $TAG is not reachable from origin/main; refusing to publish."
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_TAG="v${PKG_VERSION}"
+          if [ "$TAG_NAME" != "$EXPECTED_TAG" ]; then
+            echo "Release tag ($TAG_NAME) does not match expected tag ($EXPECTED_TAG)" >&2
             exit 1
           fi
-
-      - name: Type check
-        run: npm run type-check
-
-      - name: Run tests
-        run: npm run test
-
-      - name: Verify tag matches package.json version
-        env:
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION=${TAG#v}
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::package.json version $PKG_VERSION does not match release tag $TAG"
+          TAG_COMMIT="$(git rev-parse "refs/tags/${TAG_NAME}^{commit}")"
+          CHECKED_OUT_COMMIT="$(git rev-parse HEAD)"
+          if [ "$TAG_COMMIT" != "$CHECKED_OUT_COMMIT" ]; then
+            echo "Checked-out commit does not match release tag $TAG_NAME" >&2
             exit 1
           fi
+      - name: Verify the release commit is on main
+        run: |
+          git fetch origin main --no-tags
+          git merge-base --is-ancestor HEAD origin/main
+      - run: npx --yes npm@11.18.0 ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npx --yes npm@11.18.0 run verify:release
+      - name: Pack the verified plugin
+        run: |
+          mkdir artifacts
+          npx --yes npm@11.18.0 pack \
+            --ignore-scripts \
+            --pack-destination artifacts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-package
+          path: artifacts/*.tgz
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Build
-        run: npm run build
-
-      - name: Install browser engines required by prepublish validation
-        run: npx --no-install playwright install --with-deps chromium firefox webkit
-
-      - name: Publish to npm
-        run: npm publish --provenance --access public
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-package
+          path: artifacts
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.22.2
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org/
+      - run: >-
+          npx --yes npm@11.18.0 publish ./artifacts/*.tgz
+          --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

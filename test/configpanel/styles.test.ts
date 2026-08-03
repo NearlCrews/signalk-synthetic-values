@@ -40,6 +40,7 @@ describe('panel styling boundary', () => {
   it('imports the shared UI package from the panel composition root', () => {
     const source = readFileSync(join(panelDirectory, 'PluginConfigurationPanel.tsx'), 'utf8');
     expect(source).toContain("from 'signalk-nearlcrews-ui'");
-    expect(source).toContain("legacyThemeStorageKeys={['skn-theme']}");
+    expect(source).toContain('<PanelRoot>');
+    expect(source).not.toContain('legacyThemeStorageKeys');
   });
 });

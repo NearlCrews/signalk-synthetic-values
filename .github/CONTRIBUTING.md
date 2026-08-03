@@ -27,7 +27,7 @@ serves, and any implementation ideas you have.
 ## Development requirements
 
 The published plugin supports Node 20.18 or newer at runtime. The development
-and build toolchain requires Node `^22.18.0 || >=24.11.0`. The checked-in
+and build toolchain requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`. The checked-in
 `.node-version` selects Node 22.23.1. Use `npm ci` to install the exact dependency
 tree recorded in `package-lock.json`.
 
@@ -40,7 +40,7 @@ tree recorded in `package-lock.json`.
    matrix remain required before pushing.
 3. Make focused commits with clear messages (see below).
 4. Add tests for any new functionality and keep the existing suite green.
-5. Run `npm run validate` and `npm run test:browser:cross` before pushing.
+5. Run `npm run verify:release` before preparing a release.
 6. Update documentation (`README.md` and `CHANGELOG.md`) as needed.
 7. Open a pull request with a clear description of the change. For changes that
    touch the Signal K paths the plugin reads or emits, note the affected paths
@@ -53,8 +53,8 @@ tree recorded in `package-lock.json`.
   by webpack as an ESM Module Federation remote with JavaScript and CSS assets.
 - Keep modules focused and small. Each module owns its own types alongside the
   code that uses them.
-- Lint and format with Biome (`npm run lint`, or `npm run lint:fix` to
-  auto-fix).
+- Run source, Markdown, and spelling checks with `npm run lint`. Use
+  `npm run lint:fix` to apply safe source fixes.
 - Run `npm run knip` when adding or removing modules, exports, scripts, or
   dependencies.
 - Do not edit `dist/` or `public/`; both are generated build output.
@@ -82,7 +82,7 @@ and the build, test, and release commands.
 
 Use conventional-commit prefixes that match the actual diff scope:
 
-```
+```text
 feat: add weighted-mean strategy for sensor fusion
 fix: clamp outlier window when fewer than three sources are active
 docs: update configuration table for the new default strategy

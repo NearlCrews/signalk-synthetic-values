@@ -162,10 +162,11 @@ describe('DetectedPathList: loading state', () => {
       })
     );
     const refresh = screen.getByRole('button', {
-      name: /checking: refresh detected paths/i,
+      name: /refresh detected paths/i,
     });
     expect(refresh).toHaveAttribute('aria-busy', 'true');
     expect(refresh).toHaveAttribute('aria-disabled', 'true');
+    expect(refresh).toHaveAccessibleDescription('Checking');
     fireEvent.click(refresh);
     expect(onRefresh).not.toHaveBeenCalled();
   });
@@ -317,10 +318,10 @@ describe('DetectedPathList: sort order', () => {
         onRefresh: vi.fn(),
       })
     );
-    const title = screen.getByText(/detected but not recommended/i);
-    const disclosure = title.closest('details');
-    expect(disclosure).toBeInTheDocument();
-    expect(disclosure).not.toHaveAttribute('open');
+    const disclosure = screen.getByRole('button', {
+      name: /detected but not recommended/i,
+    });
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('groups a recommended:false GNSS path under not-recommended and out of Combine all', () => {

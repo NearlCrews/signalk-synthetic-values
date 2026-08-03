@@ -135,18 +135,21 @@ describe('PluginConfigurationPanel', () => {
     });
   });
 
-  it('starts a fresh profile in Light without persisting an implicit preference', async () => {
+  it('starts a fresh profile in Auto without persisting an implicit preference', async () => {
     const mockSave = vi.fn().mockResolvedValue(undefined);
-    render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
+    const { container } = render(
+      createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
+    );
 
     await waitFor(() => {
       expect(screen.getByRole('radiogroup', { name: /panel theme/i })).toBeInTheDocument();
-      expect(screen.getByRole('radio', { name: /light/i })).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByRole('radio', { name: /auto/i })).toHaveAttribute('aria-checked', 'true');
+      expect(container.querySelector('[data-snui-root]')).not.toHaveAttribute('data-snui-theme');
       expect(localStorage.getItem('signalk-nearlcrews-ui.theme.v1')).toBeNull();
     });
   });
 
-  it('migrates the legacy theme preference to the shared key', async () => {
+  it('ignores the retired plugin-specific theme preference', async () => {
     localStorage.setItem('skn-theme', 'night');
     const mockSave = vi.fn().mockResolvedValue(undefined);
     const { container } = render(
@@ -154,11 +157,10 @@ describe('PluginConfigurationPanel', () => {
     );
 
     await waitFor(() => {
-      expect(container.querySelector('[data-snui-root]')).toHaveAttribute(
-        'data-snui-theme',
-        'night'
-      );
-      expect(localStorage.getItem('signalk-nearlcrews-ui.theme.v1')).toBe('night');
+      expect(screen.getByRole('radio', { name: /auto/i })).toHaveAttribute('aria-checked', 'true');
+      expect(container.querySelector('[data-snui-root]')).not.toHaveAttribute('data-snui-theme');
+      expect(localStorage.getItem('signalk-nearlcrews-ui.theme.v1')).toBeNull();
+      expect(localStorage.getItem('skn-theme')).toBe('night');
     });
   });
 

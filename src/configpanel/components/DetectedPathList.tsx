@@ -4,7 +4,7 @@ import {
   Banner,
   Button,
   Cluster,
-  Disclosure,
+  CollapsibleSection,
   InlineConfirm,
   Section,
   Stack,
@@ -91,7 +91,9 @@ function NotRecommendedGroup({
   if (rows.length === 0) return null;
 
   return (
-    <Disclosure
+    <CollapsibleSection
+      headingLevel={3}
+      mountStrategy="lazy-retain"
       title={`Detected but not recommended (${rows.length})`}
       open={open}
       onOpenChange={setOpen}
@@ -109,7 +111,7 @@ function NotRecommendedGroup({
           />
         ))}
       </Stack>
-    </Disclosure>
+    </CollapsibleSection>
   );
 }
 

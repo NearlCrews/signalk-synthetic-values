@@ -244,7 +244,7 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
 
   return (
     <PanelDefaultsContext.Provider value={panelDefaults}>
-      <PanelRoot legacyThemeStorageKeys={['skn-theme']}>
+      <PanelRoot>
         <Stack gap={4}>
           <Cluster justify="between">
             <h1 className={styles.title}>Synthetic Values</h1>

@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<a id="v051"></a>
+
+## [0.5.1] - 2026-08-02
+
+This patch release updates the shared configuration panel and development
+toolchain without changing the Signal K configuration schema, runtime API, or
+stored values.
+
+### Changed
+
+- Updated the bundled `signalk-nearlcrews-ui` package to 0.6.1 and replaced the
+  removed disclosure API with `CollapsibleSection`. Fresh profiles now follow
+  the shared Auto theme, and the retired plugin-specific `skn-theme` key is
+  ignored instead of being migrated.
+- Refreshed direct development dependencies to their latest compatible
+  releases while retaining Node 20.18 or newer for the published plugin.
+- Added Markdown linting, spelling checks, local workflow validation, and a
+  single release-verification command to the documented development toolchain.
+- Hardened GitHub workflows with immutable action references, least-privilege
+  credentials, cache protections, dependency-update cooldowns, and automated
+  workflow security analysis.
+- Split npm publication into verification and trusted-publication jobs. The
+  exact tarball that passes the complete release gate is now the artifact sent
+  to npm.
+- Recalibrated the documented configuration-panel ceiling to 30,000 gzip bytes
+  for shared UI 0.6.1. The current production assets total 29,660 gzip bytes.
+
+### Fixed
+
+- Corrected an asynchronous hook test that left its refresh promise floating
+  under the current Biome correctness rules.
+
 <a id="v050"></a>
 
 ## [0.5.0] - 2026-07-27

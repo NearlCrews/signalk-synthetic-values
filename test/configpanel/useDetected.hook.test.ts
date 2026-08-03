@@ -100,9 +100,9 @@ describe('useDetected hook', () => {
     expect(result.current.loading).toBe(true);
 
     resolveRefresh(jsonResponse({ paths: [row('refreshed.path')] }));
-    await act(async () => {
-      await refreshPromise;
-    });
+    if (refreshPromise === undefined)
+      throw new Error('refresh did not return its completion promise');
+    await act(() => refreshPromise);
     expect(result.current.loading).toBe(false);
     expect(result.current.paths.map((item) => item.path)).toEqual(['refreshed.path']);
   });

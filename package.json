@@ -1,6 +1,6 @@
 {
   "name": "signalk-synthetic-values",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Combine redundant sensors on one Signal K path into a robust median or outlier-rejected value",
   "keywords": [
     "signalk-node-server-plugin",
@@ -65,6 +65,19 @@
   "engines": {
     "node": ">=20.18"
   },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^22.22.2 || ^24.15.0 || >=26.0.0",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": ">=10.9.3",
+      "onFail": "error"
+    }
+  },
+  "packageManager": "npm@11.18.0",
   "peerDependencies": {
     "@signalk/server-api": ">=2.24.0"
   },
@@ -82,7 +95,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "check": "npm run type-check && npm run lint && npm run knip && npm test",
+    "check": "npm run verify:fast && npm test",
     "pretest:browser": "npm run build",
     "test:browser": "playwright test --project=chromium",
     "pretest:browser:cross": "npm run build",
@@ -90,14 +103,23 @@
     "test:browser:cross:built": "node scripts/run-browser-matrix.mjs",
     "test:integration": "node scripts/check-signalk-integration.mjs",
     "screenshots": "npm run build && node scripts/capture-screenshots.mjs",
-    "lint": "biome check .",
+    "lint": "npm run lint:code && npm run lint:docs && npm run spellcheck",
+    "lint:code": "biome check .",
+    "lint:docs": "markdownlint-cli2 \"README.md\" \"CHANGELOG.md\" \"assets/*.md\" \".github/*.md\"",
     "lint:fix": "biome check --write .",
+    "spellcheck": "cspell --no-progress --show-suggestions README.md CHANGELOG.md assets/*.md \".github/**/*.{md,yml,yaml}\"",
+    "ci:workflows": "node scripts/check-workflows.mjs",
     "format": "biome format --write .",
     "knip": "knip",
     "package:check": "node scripts/check-package.mjs",
     "audit:runtime": "npm audit --omit=dev --audit-level=high",
-    "validate": "npm run type-check && npm run lint && npm run knip && npm run build && npm run test:coverage && npm run package:check && npm run audit:runtime",
-    "prepublishOnly": "npm run validate && npm run test:browser:cross:built",
+    "audit:full": "npm audit --audit-level=moderate",
+    "verify:commit": "npm run lint && npm run ci:workflows && npm run knip",
+    "verify:fast": "npm run verify:commit && npm run type-check",
+    "verify": "npm run verify:fast && npm run test:coverage && npm run build && npm run package:check && npm run audit:runtime",
+    "verify:release": "npm run verify && npm run test:browser:cross:built && npm run audit:full",
+    "validate": "npm run verify",
+    "prepublishOnly": "npm run verify:release",
     "hooks": "husky",
     "security-audit": "npm audit --audit-level=moderate",
     "dev": "tsx watch src/index.ts"
@@ -107,31 +129,33 @@
     "@babel/core": "^8.0.1",
     "@babel/preset-react": "^8.0.1",
     "@babel/preset-typescript": "^8.0.1",
-    "@biomejs/biome": "2.5.5",
-    "@playwright/test": "^1.62.0",
+    "@biomejs/biome": "2.5.6",
+    "@playwright/test": "^1.62.1",
     "@signalk/server-api": "^2.30.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^26.1.2",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.4",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "@vitest/coverage-v8": "^4.1.10",
     "babel-loader": "^10.1.1",
+    "cspell": "10.0.1",
     "esbuild": "^0.28.1",
     "husky": "^9.1.7",
-    "jsdom": "^30.0.0",
-    "knip": "^6.29.0",
+    "jsdom": "^30.0.1",
+    "knip": "^6.31.0",
+    "markdownlint-cli2": "0.23.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "signalk-nearlcrews-ui": "0.4.1",
-    "tsx": "^4.23.1",
+    "signalk-nearlcrews-ui": "0.6.1",
+    "tsx": "^4.23.5",
     "typescript": "^7.0.2",
-    "vite": "^8.1.5",
+    "vite": "^8.2.0",
     "vitest": "^4.1.10",
-    "webpack": "^5.109.0",
-    "webpack-cli": "^7.2.1"
+    "webpack": "^5.109.2",
+    "webpack-cli": "^7.2.2"
   },
   "allowScripts": {
     "esbuild@0.28.1": true
