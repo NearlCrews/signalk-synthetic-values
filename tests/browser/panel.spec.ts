@@ -20,7 +20,7 @@ test('uses the fresh Auto default without persisting an implicit preference', as
 test('loads the production remote and completes combine, tune, and remove flows', async ({
   page,
 }) => {
-  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-version', '0.6.1');
+  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-version', '0.6.2');
 
   const headingRow = page.locator('[data-detected-path-row]', {
     hasText: 'navigation.headingTrue',

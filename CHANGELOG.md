@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<a id="v052"></a>
+
+## [0.5.2] - 2026-08-04
+
+### Fixed
+
+- A one-second availability sweep now moves a configured path to the waiting
+  state when all of its sources go stale, without re-emitting the last combined
+  value. Non-combinable paths remain classified as skipped during the sweep.
+- Bus-provided source labels are now escaped before interpolation into debug
+  logs.
+- README references to repository-only files now remain useful in Signal K App
+  Store and npm package views.
+
+### Changed
+
+- The bounded discovery table now evicts an older single-source path before a
+  multi-source path that is ready to combine.
+- The panel now bundles `signalk-nearlcrews-ui` 0.6.2.
+
 <a id="v051"></a>
 
 ## [0.5.1] - 2026-08-02

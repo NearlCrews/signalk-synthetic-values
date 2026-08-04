@@ -307,6 +307,59 @@ describe('plugin integration', () => {
     expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(expect.stringContaining('skipped: p'));
   });
 
+  it('moves a quiet path to waiting without periodically re-emitting it', () => {
+    vi.useFakeTimers();
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    try {
+      plugin.start({
+        defaultStalenessTimeoutMs: 1000,
+        defaultEmitMinIntervalMs: 0,
+        defaultMinSources: 2,
+        maxSourcesPerPath: 16,
+        paths: [{ path: 'p' }],
+      });
+      h.fire(delta(h.app.selfContext, 'a', 'p', 10));
+      h.fire(delta(h.app.selfContext, 'b', 'p', 20));
+      const emittedBeforeSweep = h.emitted.length;
+
+      vi.advanceTimersByTime(1000);
+
+      expect(h.emitted).toHaveLength(emittedBeforeSweep);
+      expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(
+        expect.stringContaining('waiting for sources')
+      );
+    } finally {
+      void plugin.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a non-combinable path skipped during availability sweeps', () => {
+    vi.useFakeTimers();
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    try {
+      plugin.start({
+        defaultStalenessTimeoutMs: 1000,
+        defaultEmitMinIntervalMs: 0,
+        defaultMinSources: 2,
+        maxSourcesPerPath: 16,
+        paths: [{ path: 'p' }],
+      });
+      h.fire(delta(h.app.selfContext, 'a', 'p', 'bad'));
+
+      vi.advanceTimersByTime(2000);
+
+      const lastStatus = String(h.app.setPluginStatus.mock.calls.at(-1)?.[0] ?? '');
+      expect(lastStatus).toContain('skipped: p');
+      expect(lastStatus).not.toContain('waiting for sources');
+    } finally {
+      void plugin.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it('config advisories do not mark the path as skipped in the status line', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
@@ -679,7 +732,25 @@ describe('plugin integration', () => {
     h.fire(delta(h.app.selfContext, 'b', 'p', 20));
     expect(h.emitted.at(-1)?.updates[0]?.values[0]?.value).toBe(15);
     expect(JSON.stringify(h.emitted)).not.toContain('null');
-    expect(h.app.debug).toHaveBeenCalledWith(expect.stringContaining('ignored wrong-shape'));
+    expect(h.app.debug).toHaveBeenCalledWith(expect.stringContaining('ignored "wrong-shape"'));
+  });
+
+  it('escapes a bus-supplied source label before logging it', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p' }],
+    });
+    h.fire(delta(h.app.selfContext, 'good-source', 'p', 10));
+    h.fire(delta(h.app.selfContext, 'forged\nsource', 'p', { latitude: 1, longitude: 2 }));
+
+    const message = String(h.app.debug.mock.calls.at(-1)?.[0] ?? '');
+    expect(message).toContain('"forged\\nsource"');
+    expect(message).not.toContain('forged\nsource');
   });
 
   it('applies source filters before configured classification and storage', () => {

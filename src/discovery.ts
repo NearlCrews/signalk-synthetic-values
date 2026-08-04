@@ -124,7 +124,14 @@ export class Discovery {
   }
 
   private evictOldest(): boolean {
-    const oldestPath = oldestKey(this.store, (entry) => entry.lastSeen);
+    let oldestSingleSourcePath: string | undefined;
+    let oldestSingleSourceTs = Number.POSITIVE_INFINITY;
+    for (const [path, entry] of this.store) {
+      if (entry.sources.size >= 2 || entry.lastSeen >= oldestSingleSourceTs) continue;
+      oldestSingleSourcePath = path;
+      oldestSingleSourceTs = entry.lastSeen;
+    }
+    const oldestPath = oldestSingleSourcePath ?? oldestKey(this.store, (entry) => entry.lastSeen);
     return oldestPath === undefined ? false : this.store.delete(oldestPath);
   }
 

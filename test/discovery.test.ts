@@ -139,6 +139,24 @@ describe('Discovery bounded store', () => {
       .sort();
     expect(paths).toEqual(['a', 'c']);
   });
+  it('evicts an older single-source path before a combinable path', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c, 2);
+    d.observe('combinable', 's1');
+    d.observe('combinable', 's2');
+    c.set(10);
+    d.observe('single', 's1');
+    c.set(20);
+    d.observe('new-combinable', 's1');
+    d.observe('new-combinable', 's2');
+
+    expect(
+      d
+        .detected()
+        .map((path) => path.path)
+        .sort()
+    ).toEqual(['combinable', 'new-combinable']);
+  });
   it('caps sources per path and evicts the least recently seen source', () => {
     const c = fakeClock(0);
     const d = new Discovery(c, 200, 2);

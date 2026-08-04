@@ -28,6 +28,7 @@ const OWN_SOURCE_PREFIX = `${PLUGIN_ID}.`;
 // Reason recorded in `skipped` when a configured path carries a value that
 // cannot be averaged (text, object, or other non-combinable shape).
 const NON_COMBINABLE_REASON = 'non-combinable value';
+const AVAILABILITY_SWEEP_MS = 1000;
 
 // Minimal Express response shape for the one route this plugin serves. The
 // server injects a full Express router; @types/express is not a dependency, so
@@ -68,6 +69,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   // often but only published when it actually changes, so the status bar does
   // not flash through per-path messages on every emit cycle.
   let lastStatus = '';
+  let availabilitySweep: ReturnType<typeof setInterval> | undefined;
   const skipped: { path: string; reason: string }[] = [];
 
   function refreshStatus(): void {
@@ -118,6 +120,10 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   // (which then repopulates `skipped` from config issues) and stop(), so the
   // two cannot drift on which state they clear.
   function resetRuntimeState(): void {
+    if (availabilitySweep !== undefined) {
+      clearInterval(availabilitySweep);
+      availabilitySweep = undefined;
+    }
     registry.reset();
     emitter.reset();
     discovery.reset();
@@ -322,7 +328,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     if (!kindWarnings.has(path)) {
       kindWarnings.add(path);
       app.debug(
-        `${path}: ignored ${src} because its value shape does not match the ${configuredKind} path`
+        `${path}: ignored ${JSON.stringify(src)} because its value shape does not match the ${configuredKind} path`
       );
     }
     return false;
@@ -444,6 +450,14 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
           next(delta);
         }
       });
+      availabilitySweep = setInterval(() => {
+        if (activeGeneration !== generation) return;
+        for (const [path, cfg] of byPath) {
+          if (pathOutcome.get(path) === 'skipped') continue;
+          recordAvailability(path, cfg);
+        }
+      }, AVAILABILITY_SWEEP_MS);
+      availabilitySweep.unref();
       refreshStatus();
     },
 

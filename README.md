@@ -9,25 +9,20 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.5.1
+## What's new in 0.5.2
 
-Version 0.5.1 refreshes the shared configuration-panel library, dependencies,
-and project quality gates while keeping runtime behavior and saved
-configurations compatible.
+Version 0.5.2 makes stale-source status self-correcting and hardens discovery
+and diagnostics while keeping saved configurations compatible.
 
-- **Shared marine UI 0.6.1.** Fresh profiles follow the shared Auto theme, and
-  obsolete plugin-specific theme storage is no longer read or migrated.
-- **Current development toolchain.** Direct development dependencies are at
-  their latest compatible releases, with Node 22.22.2 or newer required for development.
-  The published plugin still supports Node 20.18 or newer at runtime.
-- **Stronger project gates.** Markdown linting, spelling, workflow syntax,
-  workflow security, complete release verification, and verified-artifact npm
-  publishing now complement the existing tests and audits.
-- **Documented production remote.** The host-shared React panel and bundled UI
-  load through one lazy chunk and total 29,660 gzip bytes, below the revised
-  30,000-byte ceiling.
+- **Accurate quiet-source status.** A lightweight one-second sweep marks paths
+  waiting when every source goes stale without re-emitting unchanged values.
+- **Protected detection.** When the bounded discovery table fills, it prefers
+  evicting single-source paths before paths that are ready to combine.
+- **Safer diagnostics.** Bus-provided source labels are escaped before they
+  reach debug logs.
+- **Shared marine UI 0.6.2.** The panel bundles the current exact shared UI.
 
-See the [0.5.1 changelog](CHANGELOG.md#v051) for the complete list.
+See the changelog in the repository for the complete list.
 
 ## Why you'd want this
 
@@ -50,7 +45,7 @@ The plugin handles four value kinds:
 - **Position:** latitude/longitude pairs. Combines latitude with the selected linear statistic and longitude with an antimeridian-safe circular statistic. `mean` uses the circular mean, while `median` and `trimmedMean` use the robust circular medoid. Per-source geodesic-distance rejection keeps a phantom GPS fix from dragging the result.
 - **Attitude:** the `navigation.attitude` object, with roll, pitch, and yaw combined independently as angular components. A source whose attitude is off on any axis is rejected, and the synthetic value is suppressed if any axis is too scattered. This is the Signal K way to fuse several motion sensors into one attitude, then prefer it by source priority, the same outcome as selecting a source on a Garmin display.
 
-A staleness timeout excludes sources that have not sent a fresh reading within the configured window, so a sensor that goes quiet does not silently anchor the average.
+A staleness timeout excludes sources that have not sent a fresh reading within the configured window. A one-second availability sweep updates status when every source goes quiet without periodically re-emitting the last combined value.
 
 ## Installation
 
@@ -83,7 +78,7 @@ In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic V
 
 Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, a kind badge, and the source names as chips. Combinable values are classified as scalar, angular, attitude, or position; unsupported values show as other, and configured paths awaiting live data show as unknown.
 
-The panel uses `signalk-nearlcrews-ui` 0.6.1 for accessible controls, shared marine
+The panel uses `signalk-nearlcrews-ui` 0.6.2 for accessible controls, shared marine
 theming, and isolated styles. Auto, light, dark, and night themes share the
 same preference with other panels that use the library. The retired Synthetic
 Values `skn-theme` preference is intentionally ignored.
@@ -215,9 +210,9 @@ SIGNALK_AUTHORIZATION='Bearer <token>' \
 npm run test:integration
 ```
 
-Run `npm run verify:release` before preparing a release. See
-[CONTRIBUTING.md](.github/CONTRIBUTING.md) for the pull request process.
+Run `npm run verify:release` before preparing a release. See `CONTRIBUTING.md`
+in the repository for the pull request process.
 
 ## License
 
-Apache-2.0: see [LICENSE](LICENSE) for the full text.
+Apache-2.0: see the `LICENSE` file in the repository for the full text.
