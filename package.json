@@ -151,7 +151,7 @@
     "markdownlint-cli2": "0.23.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "signalk-nearlcrews-ui": "0.7.0",
+    "signalk-nearlcrews-ui": "0.7.1",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2",
     "vite": "^8.2.1",
