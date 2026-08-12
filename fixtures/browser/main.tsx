@@ -1,4 +1,5 @@
 import * as React from 'react';
+import * as ReactDOM from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
   DEFAULT_EMIT_INTERVAL_MS,
@@ -15,11 +16,12 @@ interface PanelConfiguration {
   defaultMinSources: number;
   maxSourcesPerPath: number;
   paths: Array<Record<string, unknown> & { path: string }>;
+  futureFixtureSetting?: { enabled: boolean };
 }
 
 interface PanelProps {
   configuration?: Partial<PanelConfiguration>;
-  save: (configuration: PanelConfiguration) => unknown;
+  save: (configuration: PanelConfiguration) => void;
 }
 
 interface RemoteContainer {
@@ -34,6 +36,15 @@ interface ShareScope {
       readonly eager: boolean;
       readonly from: string;
       readonly get: () => Promise<() => typeof React>;
+      readonly loaded: boolean;
+    }
+  >;
+  readonly 'react-dom': Record<
+    string,
+    {
+      readonly eager: boolean;
+      readonly from: string;
+      readonly get: () => Promise<() => typeof ReactDOM>;
       readonly loaded: boolean;
     }
   >;
@@ -115,6 +126,14 @@ const shareScope: ShareScope = {
       loaded: true,
     },
   },
+  'react-dom': {
+    [ReactDOM.version]: {
+      eager: true,
+      from: 'synthetic-values-browser-fixture',
+      get: () => Promise.resolve(() => ReactDOM),
+      loaded: true,
+    },
+  },
 };
 
 try {
@@ -131,6 +150,7 @@ try {
     defaultMinSources: DEFAULT_MIN_SOURCES,
     maxSourcesPerPath: DEFAULT_MAX_SOURCES_PER_PATH,
     paths: [{ path: 'navigation.speedOverGround' }],
+    futureFixtureSetting: { enabled: true },
   };
 
   function HostFixture(): React.ReactElement {
@@ -139,7 +159,7 @@ try {
     );
     const saveAttempts = React.useRef(0);
 
-    const save = async (nextConfiguration: PanelConfiguration): Promise<void> => {
+    const save = (nextConfiguration: PanelConfiguration): void => {
       saveAttempts.current += 1;
       document.body.dataset.saveAttemptCount = String(saveAttempts.current);
       if (failFirstSave && saveAttempts.current === 1) {
@@ -161,7 +181,10 @@ try {
   document.body.dataset.fixtureReady = 'true';
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  const errorElement = document.querySelector('#fixture-error');
-  if (errorElement) errorElement.textContent = message;
+  const errorElement = document.querySelector<HTMLElement>('#fixture-error');
+  if (errorElement) {
+    errorElement.hidden = false;
+    errorElement.textContent = message;
+  }
   document.body.dataset.fixtureReady = 'false';
 }

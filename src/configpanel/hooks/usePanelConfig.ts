@@ -9,6 +9,12 @@ import {
 import { jsonEqual } from '../api-base.js';
 import { type DetectedRow, isRecommendedCombinable } from './useDetected.js';
 
+function isRawPathConfig(value: unknown): value is RawPathConfig {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const path = Reflect.get(value, 'path');
+  return typeof path === 'string' && path.trim().length > 0;
+}
+
 /**
  * Normalize the host-supplied configuration into a complete PluginOptions.
  * The Signal K admin UI passes whatever is currently saved, which on a fresh
@@ -16,14 +22,32 @@ import { type DetectedRow, isRecommendedCombinable } from './useDetected.js';
  * defaulted here to the same values the schema and validateConfig use, so the
  * panel never reads `paths` off undefined.
  */
-export function normalizeOptions(configuration?: Partial<PluginOptions> | null): PluginOptions {
+export function normalizeOptions(configuration?: unknown): PluginOptions {
+  const source =
+    typeof configuration === 'object' && configuration !== null && !Array.isArray(configuration)
+      ? (configuration as Record<string, unknown>)
+      : {};
   return {
-    defaultStalenessTimeoutMs: configuration?.defaultStalenessTimeoutMs ?? DEFAULT_STALENESS_MS,
-    defaultEmitMinIntervalMs: configuration?.defaultEmitMinIntervalMs ?? DEFAULT_EMIT_INTERVAL_MS,
-    defaultMinSources: configuration?.defaultMinSources ?? DEFAULT_MIN_SOURCES,
-    maxSourcesPerPath: configuration?.maxSourcesPerPath ?? DEFAULT_MAX_SOURCES_PER_PATH,
-    paths: configuration?.paths ?? [],
-  };
+    // Preserve fields added by a newer plugin or hand-maintained config. The
+    // panel owns only the fields below and must not erase unknown settings when
+    // it writes an edited path list back through Signal K Admin.
+    ...source,
+    defaultStalenessTimeoutMs:
+      typeof source.defaultStalenessTimeoutMs === 'number'
+        ? source.defaultStalenessTimeoutMs
+        : DEFAULT_STALENESS_MS,
+    defaultEmitMinIntervalMs:
+      typeof source.defaultEmitMinIntervalMs === 'number'
+        ? source.defaultEmitMinIntervalMs
+        : DEFAULT_EMIT_INTERVAL_MS,
+    defaultMinSources:
+      typeof source.defaultMinSources === 'number' ? source.defaultMinSources : DEFAULT_MIN_SOURCES,
+    maxSourcesPerPath:
+      typeof source.maxSourcesPerPath === 'number'
+        ? source.maxSourcesPerPath
+        : DEFAULT_MAX_SOURCES_PER_PATH,
+    paths: Array.isArray(source.paths) ? source.paths.filter(isRawPathConfig) : [],
+  } as PluginOptions;
 }
 
 // -- Pure state transitions ---------------------------------------------------
@@ -116,14 +140,15 @@ export interface UsePanelConfigResult {
  * preserved on every save. The pure transitions (`applyAddPath`, etc.) are
  * exported separately for unit testing without a DOM renderer.
  *
- * `lastSavedRef` is the panel's last-saved baseline. The admin host echoes a
- * panel save back as a fresh `configuration` object; comparing the incoming
+ * `lastRequestedRef` is the panel's last-requested baseline. The admin host
+ * immediately echoes a panel save request back as a fresh `configuration`
+ * object; comparing the incoming
  * prop against the baseline tells a self-save echo (skip, keep local edits)
  * apart from a genuine external change (resync).
  */
 export function usePanelConfig(
-  configuration: Partial<PluginOptions> | null | undefined,
-  lastSavedRef: { current: PluginOptions }
+  configuration: unknown,
+  lastRequestedRef: { current: PluginOptions }
 ): UsePanelConfigResult {
   const [options, setOptions] = useState<PluginOptions>(() => normalizeOptions(configuration));
 
@@ -133,8 +158,8 @@ export function usePanelConfig(
   if (prevConfiguration !== configuration) {
     setPrevConfiguration(configuration);
     const normalized = normalizeOptions(configuration);
-    if (!jsonEqual(normalized, lastSavedRef.current)) {
-      lastSavedRef.current = normalized;
+    if (!jsonEqual(normalized, lastRequestedRef.current)) {
+      lastRequestedRef.current = normalized;
       setOptions(normalized);
     }
   }

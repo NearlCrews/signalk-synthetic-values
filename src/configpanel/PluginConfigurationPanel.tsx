@@ -8,6 +8,7 @@ import {
   Stack,
   supportsNativeCssScope,
   ThemeToggle,
+  UnsupportedBrowserNotice,
 } from 'signalk-nearlcrews-ui';
 import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../config.js';
 import { jsonEqual, PLUGIN_SOURCE_LABEL } from './api-base.js';
@@ -28,10 +29,13 @@ import styles from './PluginConfigurationPanel.module.css';
 
 interface Props {
   // The Signal K admin UI passes whatever is saved, which on a fresh install is
-  // undefined or an empty object, so this is treated as a partial.
-  configuration?: Partial<PluginOptions> | null;
-  save: (config: PluginOptions) => unknown;
+  // undefined or an empty object. Treat it as an open record so a panel save
+  // can preserve fields introduced by newer plugin versions.
+  configuration?: unknown;
+  save: (config: PluginOptions) => void;
 }
+
+const SAVE_COALESCE_MS = 300;
 
 /**
  * Composition root for the synthetic-values config panel.
@@ -40,37 +44,30 @@ interface Props {
  * component styling, while this component wires the form-state hook
  * (usePanelConfig) to the live-detection hook (useDetected).
  *
- * Every write action (add, add-all, remove) immediately commits so the panel
- * matches the spec: "clicking Combine writes config immediately; the row flips
- * to Combined in place."
+ * Write actions update locally at once, then send the latest complete snapshot
+ * after a short coalescing window. Signal K Admin's save callback is
+ * fire-and-forget, so the panel reports a request instead of claiming that an
+ * asynchronous server write completed.
  */
 const PluginConfigurationPanel: React.FC<Props> = (props) => {
   if (typeof window === 'undefined' || !supportsNativeCssScope(window)) {
-    return (
-      <div className={styles.compatibility} data-browser-compatibility-message="" role="alert">
-        <h2>Browser update required</h2>
-        <p>
-          This panel requires native CSS @scope. Update the browser or embedded WebView before
-          reopening Signal K Admin.
-        </p>
-      </div>
-    );
+    return <UnsupportedBrowserNotice />;
   }
 
   return <SupportedPluginConfigurationPanel {...props} />;
 };
 
 const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
-  // Ref that always holds the last successfully saved options, used by the
-  // no-op save gate and by the hook's self-save echo detection. Normalized so
+  // Ref that always holds the last configuration requested from the host, used
+  // by the no-op gate and by the hook's self-save echo detection. Normalized so
   // a fresh install (undefined or empty configuration) starts from a complete
   // options object.
-  const savedOptionsRef = useRef<PluginOptions>(normalizeOptions(configuration));
+  const requestedOptionsRef = useRef<PluginOptions>(normalizeOptions(configuration));
 
   // Form state: holds the full PluginOptions being edited.
   const { options, addPath, addAllCombinable, removePath, updatePath } = usePanelConfig(
     configuration,
-    savedOptionsRef
+    requestedOptionsRef
   );
 
   // Live detection: polls /api/detected every 10 s.
@@ -91,70 +88,118 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
     [options.paths]
   );
 
-  // Always-current ref to options, so the debounced save callback reads the
+  // Always-current ref to options, so the coalesced save callback reads the
   // latest state rather than a stale closure.
   const optionsRef = useRef<PluginOptions>(options);
   optionsRef.current = options;
 
-  // Debounce timer ref for tuning saves (handleUpdate).
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const pendingOptionsRef = useRef<PluginOptions | null>(null);
+  const pendingBaseOptionsRef = useRef<PluginOptions | null>(null);
+  const pendingRefreshRef = useRef(false);
 
-  // Clear the debounce timer on unmount so no stale save fires.
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current !== null) clearTimeout(debounceRef.current);
-    };
-  }, []);
-
-  // Save failure surface: null while saves succeed, a message after a failure.
+  // Save-request surfaces. Signal K Admin returns before its network write
+  // settles, so neither state claims that configuration persistence completed.
   const [saveError, setSaveError] = useState<string | null>(null);
-  // Serialize writes so an older request can never finish after a newer one and
-  // overwrite its configuration or saved-state baseline.
-  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
-  // Write actions: mutate form state then immediately persist.
+  // Write actions update form state immediately, then queue one host request.
   // React state updates are asynchronous, so next-state is computed
-  // synchronously via the pure transitions to call save immediately.
+  // synchronously before it enters the coalescing window.
 
-  // Record `next` as the saved baseline and save it. On failure, roll the
-  // baseline back so the change is not masked as already saved (the no-op
-  // gate would otherwise swallow the retry), and surface the error.
-  const saveWithBaseline = useCallback(
-    (next: PluginOptions, onSaved?: () => void): void => {
-      const run = async (): Promise<void> => {
-        const prevSaved = savedOptionsRef.current;
-        // Advance optimistically so a host echo delivered before save() settles
-        // is recognized as our own write and does not wipe newer local edits.
-        savedOptionsRef.current = next;
-        try {
-          await save(next);
-          setSaveError(null);
-          onSaved?.();
-        } catch {
-          savedOptionsRef.current = prevSaved;
-          setSaveError('Could not save the configuration.');
+  const flushSaveRequest = useCallback((): void => {
+    saveTimerRef.current = null;
+    const next = pendingOptionsRef.current;
+    const refreshAfterRequest = pendingRefreshRef.current;
+    pendingOptionsRef.current = null;
+    pendingBaseOptionsRef.current = null;
+    pendingRefreshRef.current = false;
+    if (next === null) return;
+
+    const previousRequested = requestedOptionsRef.current;
+    // Advance before invoking the host because Admin synchronously echoes the
+    // requested object as a fresh configuration prop.
+    requestedOptionsRef.current = next;
+    try {
+      save(next);
+      setSaveError(null);
+      setSaveNotice('Configuration update requested from Signal K Admin.');
+      if (refreshAfterRequest) void refresh();
+    } catch {
+      requestedOptionsRef.current = previousRequested;
+      setSaveNotice(null);
+      setSaveError('Could not request the configuration update.');
+    }
+  }, [refresh, save]);
+
+  const scheduleSaveRequest = useCallback(
+    (next: PluginOptions, refreshAfterRequest = false, force = false): void => {
+      if (!force && jsonEqual(next, requestedOptionsRef.current)) {
+        pendingOptionsRef.current = null;
+        pendingBaseOptionsRef.current = null;
+        pendingRefreshRef.current = false;
+        if (saveTimerRef.current !== null) {
+          clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
         }
-      };
-      saveQueueRef.current = saveQueueRef.current.then(run, run);
+        setSaveNotice(null);
+        return;
+      }
+
+      pendingOptionsRef.current = next;
+      pendingBaseOptionsRef.current ??= requestedOptionsRef.current;
+      pendingRefreshRef.current ||= refreshAfterRequest;
+      if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
+      setSaveError(null);
+      setSaveNotice('Configuration changes queued.');
+      saveTimerRef.current = setTimeout(flushSaveRequest, SAVE_COALESCE_MS);
     },
-    [save]
+    [flushSaveRequest]
   );
 
-  // Commit a new options object: save it, then refresh detection once the save
-  // settles. Shared by every immediate-write action so the save-then-refresh
-  // sequence lives in one place.
-  const persist = useCallback(
-    (next: PluginOptions): void => {
-      saveWithBaseline(next, () => {
-        void refresh();
-      });
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
+      // An explicit edit must not disappear when Admin unmounts the panel
+      // during the coalescing window. Send the latest snapshot without
+      // scheduling post-unmount UI work or a detection refresh.
+      const pending = pendingOptionsRef.current;
+      pendingOptionsRef.current = null;
+      pendingBaseOptionsRef.current = null;
+      pendingRefreshRef.current = false;
+      if (pending !== null) {
+        try {
+          saveRef.current(pending);
+        } catch {
+          // The panel is gone, so there is no safe status surface to update.
+        }
+      }
     },
-    [saveWithBaseline, refresh]
+    []
   );
+
+  // A genuine external edit wins over a queued local snapshot. A normal host
+  // echo matches the baseline captured when coalescing began, so newer local
+  // edits remain queued through that echo.
+  const previousConfigurationRef = useRef(configuration);
+  useEffect(() => {
+    if (previousConfigurationRef.current === configuration) return;
+    previousConfigurationRef.current = configuration;
+    const pendingBase = pendingBaseOptionsRef.current;
+    if (pendingBase === null || jsonEqual(normalizeOptions(configuration), pendingBase)) return;
+    if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    pendingOptionsRef.current = null;
+    pendingBaseOptionsRef.current = null;
+    pendingRefreshRef.current = false;
+    setSaveNotice('Queued changes were canceled because the configuration changed elsewhere.');
+  }, [configuration]);
 
   const handleRetrySave = useCallback((): void => {
-    persist(optionsRef.current);
-  }, [persist]);
+    scheduleSaveRequest(optionsRef.current, true, true);
+  }, [scheduleSaveRequest]);
 
   const handleAdd = useCallback(
     (path: string): void => {
@@ -163,9 +208,9 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
       // React re-renders reads this change instead of the stale snapshot.
       optionsRef.current = next;
       addPath(path);
-      persist(next);
+      scheduleSaveRequest(next, true);
     },
-    [persist, addPath]
+    [scheduleSaveRequest, addPath]
   );
 
   const handleAddAll = useCallback(
@@ -173,9 +218,9 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
       const next = applyAddAllCombinable(optionsRef.current, rows);
       optionsRef.current = next;
       addAllCombinable(rows);
-      persist(next);
+      scheduleSaveRequest(next, true);
     },
-    [persist, addAllCombinable]
+    [scheduleSaveRequest, addAllCombinable]
   );
 
   const handleRemove = useCallback(
@@ -183,50 +228,37 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
       const next = applyRemovePath(optionsRef.current, path);
       optionsRef.current = next;
       removePath(path);
-      persist(next);
+      scheduleSaveRequest(next, true);
     },
-    [persist, removePath]
+    [scheduleSaveRequest, removePath]
   );
 
-  // handleUpdate updates local state immediately so the input feels responsive,
-  // then coalesces rapid edits (e.g. typing a number digit by digit) into a
-  // single save call after the user pauses. This avoids restarting the plugin
-  // on every keystroke, which would disrupt live data collection.
+  // Every edit shares the same latest-snapshot coalescer, so rapid tuning and
+  // nearby row actions produce one deterministic request after 300 ms.
   const handleUpdate = useCallback(
     (path: string, patch: RawPathConfigPatch): void => {
-      // Update local state immediately for responsive UI.
+      const next = applyUpdatePath(optionsRef.current, path, patch);
+      if (jsonEqual(next, optionsRef.current)) return;
+      optionsRef.current = next;
       updatePath(path, patch);
-      // Debounce the persist call so rapid number-input keystrokes do not
-      // trigger a plugin restart on every character.
-      if (debounceRef.current !== null) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
-        debounceRef.current = null;
-        // optionsRef.current is always the latest React state, avoiding a
-        // stale closure. Apply the patch and persist the full PluginOptions.
-        const next = applyUpdatePath(optionsRef.current, path, patch);
-        // Skip saving when nothing actually changed to avoid a pointless
-        // plugin restart.
-        if (jsonEqual(next, savedOptionsRef.current)) return;
-        optionsRef.current = next;
-        saveWithBaseline(next);
-      }, 500);
+      scheduleSaveRequest(next);
     },
-    [saveWithBaseline, updatePath]
+    [scheduleSaveRequest, updatePath]
   );
 
   // A plugin with no saved configuration is "Unconfigured" and disabled. Since
   // this custom configurator replaces the Signal K admin form (including its
   // enable and submit chrome), the only way to enable the plugin is to save a
   // configuration from here. With no detected paths to opt in, there would be
-  // nothing to click, so an explicit "Enable plugin" action saves a default
+  // nothing to click, so an explicit "Enable plugin" action requests a default
   // empty config, which enables the plugin and starts detection. `enabledHere`
   // hides the prompt immediately after the click, before the host re-supplies
   // the configuration prop.
   const [enabledHere, setEnabledHere] = useState(false);
   const handleEnable = useCallback((): void => {
     setEnabledHere(true);
-    persist(optionsRef.current);
-  }, [persist]);
+    scheduleSaveRequest(optionsRef.current, true, true);
+  }, [scheduleSaveRequest]);
   const unconfigured = configuration == null && !enabledHere;
 
   const showBanner = options.paths.length > 0 && !bannerDismissed;
@@ -251,15 +283,21 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
             <ThemeToggle />
           </Cluster>
 
-          {/* Save failure: baseline already rolled back, retry re-sends the form state. */}
+          {/* Request failure: baseline already rolled back, retry re-sends the form state. */}
           {saveError !== null && (
             <Banner
               tone="danger"
               live="assertive"
-              title="Configuration save failed"
+              title="Configuration request failed"
               actions={<Button onClick={handleRetrySave}>Retry</Button>}
             >
               {saveError}
+            </Banner>
+          )}
+
+          {saveError === null && saveNotice !== null && (
+            <Banner tone="info" live="polite" title="Configuration update">
+              {saveNotice}
             </Banner>
           )}
 
@@ -274,7 +312,7 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
                 </Button>
               }
             >
-              Enabling it saves a default configuration and starts watching your data for paths
+              Enabling it requests a default configuration and starts watching your data for paths
               reported by two or more sources. Nothing is combined until you opt a path in.
             </Banner>
           )}

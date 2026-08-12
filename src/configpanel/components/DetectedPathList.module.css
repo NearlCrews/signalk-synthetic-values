@@ -13,7 +13,7 @@
 
 .timestamp {
   color: var(--snui-color-text-muted);
-  font-size: 0.8125rem;
+  font-size: var(--snui-font-size-xs);
   white-space: nowrap;
 }
 

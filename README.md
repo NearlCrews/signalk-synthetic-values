@@ -24,6 +24,17 @@ and diagnostics while keeping saved configurations compatible.
 
 See the changelog in the repository for the complete list.
 
+## Screenshots
+
+> The hero below is generated for the next release and may be unavailable in
+> the current npm package until that release is published.
+
+[![Synthetic Values inside the current Signal K Admin plugin configuration screen](assets/screenshots/00-admin-hero.png)](assets/screenshots/00-admin-hero.png)
+
+The App Store hero shows the production panel inside current Signal K Admin
+chrome. Detailed configuration, not-recommended-path, tuning, and Data Browser
+captures follow in the package screenshot gallery.
+
 ## Why you'd want this
 
 Many boats carry more than one of the same instrument: two or three GPS receivers, a backup depth sounder, a couple of compasses. Signal K can only show one of them at a time for each reading, and it simply uses whichever sensor reported most recently. If that one happens to be drifting, noisy, or briefly wrong, your position jumps, your heading wanders, or your depth reads badly, even though a perfectly good sensor is sitting right next to it.
@@ -49,7 +60,7 @@ A staleness timeout excludes sources that have not sent a fresh reading within t
 
 ## Installation
 
-Install from the Signal K admin UI under **Appstore, then Available**, or from npm:
+Install from the Signal K admin UI under **Apps and Plugins, then Store**, or from npm:
 
 ```bash
 cd ~/.signalk
@@ -59,8 +70,8 @@ npm install signalk-synthetic-values
 From source:
 
 The published plugin supports Node 20.18 or newer at runtime. Building from
-source requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`; the checked-in `.node-version`
-selects Node 22.23.1.
+source requires Node `^22.22.2 || ^24.15.0 || ^26.0.0` and npm 12.0.2; the
+checked-in `.node-version` selects Node 22.23.1.
 
 ```bash
 git clone https://github.com/NearlCrews/signalk-synthetic-values.git
@@ -78,10 +89,13 @@ In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic V
 
 Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, a kind badge, and the source names as chips. Combinable values are classified as scalar, angular, attitude, or position; unsupported values show as other, and configured paths awaiting live data show as unknown.
 
-The panel uses `signalk-nearlcrews-ui` 0.6.2 for accessible controls, shared marine
-theming, and isolated styles. Auto, light, dark, and night themes share the
-same preference with other panels that use the library. The retired Synthetic
-Values `skn-theme` preference is intentionally ignored.
+The panel uses `signalk-nearlcrews-ui` for accessible controls, shared marine
+theming, and isolated styles. Auto follows a host theme when one is published
+and otherwise stays Light to match the current Signal K Admin shell. System
+explicitly follows the operating-system preference. Light, Dark, and Night
+remain direct choices, and all five choices are shared with other panels that
+use the library. Night changes this panel, not the surrounding Admin chrome.
+The retired Synthetic Values `skn-theme` preference is intentionally ignored.
 
 The shared UI requires native CSS `@scope`: Chromium and Edge 118 or newer,
 Firefox 146 or newer, or Safari 17.4 or newer. Older browsers and embedded
@@ -89,10 +103,16 @@ WebViews receive a browser-update message instead of an unstyled panel.
 
 Sources that stop reporting age out of the detected list after one minute. Configured paths remain visible while offline, so they can still be tuned or removed while discovery is rebuilding.
 
-- **Combine** opts a single path in immediately with default settings.
-- **Combine all** opts in every recommended path at once, with a confirmation step before writing. It skips paths that are detected but not meaningful to average (see below).
-- **Remove** takes a path back out of combining.
+- **Combine** updates the panel immediately and queues one path with default settings.
+- **Combine all** queues every recommended path at once after a confirmation step. It skips paths that are detected but not meaningful to average (see below).
+- **Remove** updates the panel immediately and queues removal from combining.
 - **Tune** (per opted-in path) opens a settings panel with: the combining method (median, trimmed mean, or mean), minimum sources, and a per-source include/exclude checklist. An **Advanced** sub-section exposes MAD threshold, reject threshold, disagree threshold, angular spread threshold, trim fraction, angular override, jump rejection max rate, slew limit, staleness timeout, and emit interval.
+
+Panel edits are coalesced for 300 milliseconds and sent as the newest complete
+snapshot. Signal K Admin's panel callback only acknowledges that a save was
+requested, so the panel does not claim persistence from that return value.
+Unknown top-level and per-path configuration fields are retained when the panel
+writes known settings, which keeps configurations forward compatible.
 
 Paths that are detected but not meaningful to average are grouped under **Detected but not recommended**. This covers two cases: values that are not supported combinable shapes (text and other objects, which cannot be averaged), and numeric GNSS fix metadata that describes a single receiver's solution rather than a measured quantity (the satellite count, dilution of precision, and differential-correction age and reference). A plotter shows GNSS metadata so you can judge the fix it is using, but averaging it across receivers is not meaningful, so it is kept out of "Combine all". You can still combine numeric GNSS metadata by hand if you have a reason to; text and unsupported objects remain disabled.
 
@@ -168,8 +188,9 @@ For the per-path detail behind those counts (which path is waiting, the exact sp
 ## Development
 
 The published plugin targets Node 20.18 or newer. The development toolchain
-requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`; `.node-version` selects Node 22.23.1.
-It uses TypeScript 7 with `@signalk/server-api` 2.30. The published peer
+requires Node `^22.22.2 || ^24.15.0 || >=26.0.0` and npm 12.0.2;
+`.node-version` selects Node 22.23.1.
+It uses TypeScript 7 with `@signalk/server-api` 2.31. The published peer
 dependency supports `@signalk/server-api` 2.24 or newer.
 
 ```bash

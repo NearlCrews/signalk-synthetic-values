@@ -150,9 +150,9 @@ export function useDetected(): UseDetectedResult {
     error: null,
   });
   const cancelled = useRef(false);
-  // Monotonic fetch sequence: interval ticks, visibility restores, and the
-  // refresh fired after every save can overlap, and a slower older response
-  // must not overwrite the state a newer one already wrote.
+  // Monotonic fetch sequence: interval ticks, visibility restores, and manual
+  // or post-action refreshes can overlap. A slower older response must not
+  // overwrite the state a newer one already wrote.
   const fetchSeq = useRef(0);
 
   const doFetch = useCallback(async (): Promise<boolean> => {

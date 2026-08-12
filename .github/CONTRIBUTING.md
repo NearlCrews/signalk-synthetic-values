@@ -65,6 +65,8 @@ tree recorded in `package-lock.json`.
   Firefox, and WebKit with
   `npx --no-install playwright install chromium firefox webkit`, then run
   `npm run test:browser:cross`.
+- Browser tests start an isolated fixture server. If port 4175 is occupied, set
+  `SYNTHETIC_VALUES_BROWSER_PORT` to an unused port from 1024 through 65535.
 - Default to no comments. Add one only when the WHY is non-obvious (a hidden
   constraint, a subtle invariant, or a workaround).
 
@@ -89,6 +91,22 @@ docs: update configuration table for the new default strategy
 test: cover the single-source passthrough path
 chore: update dependencies
 ```
+
+## Release verification
+
+Publishing requires explicit final approval. The publish workflow verifies the
+release tag, runs `npm run verify:release`, injects the release commit as the
+packed manifest's `gitHead`, and publishes that exact tarball with provenance.
+After publishing, verify the registry artifact against the approved commit:
+
+```bash
+npm view signalk-synthetic-values@VERSION version gitHead dist.integrity dist.shasum --json
+```
+
+Confirm that `gitHead` equals the release commit, the npm version matches the
+GitHub Release tag, the App Store hero is the first packaged screenshot, the
+official Signal K plugin workflow is green on that commit, and a clean
+temporary Signal K install can load the plugin and its panel remote.
 
 ## License and attribution
 

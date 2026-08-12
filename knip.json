@@ -5,6 +5,7 @@
     "fixtures/browser/main.tsx",
     "fixtures/browser/vite.config.ts"
   ],
+  "ignoreDependencies": ["@types/express"],
   "project": [
     "src/**/*.{ts,tsx}",
     "test/**/*.ts",

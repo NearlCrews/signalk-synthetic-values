@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
+import { browserFixturePort } from './server-port.js';
 
 const repositoryRoot = resolve(import.meta.dirname, '../..');
 const panelOutput = resolve(repositoryRoot, 'public');
@@ -44,7 +45,7 @@ export default defineConfig({
   },
   server: {
     host: '127.0.0.1',
-    port: 4175,
+    port: browserFixturePort,
     strictPort: true,
   },
 });

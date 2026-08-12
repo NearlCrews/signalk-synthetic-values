@@ -12,16 +12,16 @@ interface HookProps {
 }
 
 function setup() {
-  const lastSavedRef = { current: normalizeOptions(undefined) };
-  const rendered = renderHook(({ cfg }: HookProps) => usePanelConfig(cfg, lastSavedRef), {
+  const lastRequestedRef = { current: normalizeOptions(undefined) };
+  const rendered = renderHook(({ cfg }: HookProps) => usePanelConfig(cfg, lastRequestedRef), {
     initialProps: { cfg: undefined as HookProps['cfg'] },
   });
-  return { lastSavedRef, ...rendered };
+  return { lastRequestedRef, ...rendered };
 }
 
 describe('usePanelConfig resync guard', () => {
   it('resyncs on a genuine external configuration change and advances the baseline', () => {
-    const { result, rerender, lastSavedRef } = setup();
+    const { result, rerender, lastRequestedRef } = setup();
     act(() => {
       result.current.addPath('local.edit');
     });
@@ -36,24 +36,24 @@ describe('usePanelConfig resync guard', () => {
     };
     rerender({ cfg: external });
     expect(result.current.options.paths.map((p) => p.path)).toEqual(['external.path']);
-    expect(lastSavedRef.current).toEqual(normalizeOptions(external));
+    expect(lastRequestedRef.current).toEqual(normalizeOptions(external));
   });
 
   it('ignores a self-save echo so an in-flight edit survives', () => {
-    const { result, rerender, lastSavedRef } = setup();
-    // The panel saves: the baseline advances to the saved options.
+    const { result, rerender, lastRequestedRef } = setup();
+    // The panel requests an update: the baseline advances to that snapshot.
     act(() => {
       result.current.addPath('saved.path');
     });
-    const saved = result.current.options;
-    lastSavedRef.current = saved;
+    const requested = result.current.options;
+    lastRequestedRef.current = requested;
     // An edit lands while the save is in flight.
     act(() => {
       result.current.addPath('in.flight.edit');
     });
     expect(result.current.options.paths).toHaveLength(2);
     // The host echoes the earlier save back as a NEW object reference.
-    rerender({ cfg: JSON.parse(JSON.stringify(saved)) as PluginOptions });
+    rerender({ cfg: JSON.parse(JSON.stringify(requested)) as PluginOptions });
     // The echo matches the baseline, so the resync is skipped: the edit survives.
     expect(result.current.options.paths.map((p) => p.path)).toEqual([
       'saved.path',

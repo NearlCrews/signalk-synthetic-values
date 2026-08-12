@@ -36,7 +36,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npx --yes npm@11.18.0 ci
+        run: npx --yes npm@12.0.2 ci
 
       - name: Run linter
         run: npm run lint
@@ -85,7 +85,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npx --yes npm@11.18.0 ci
+        run: npx --yes npm@12.0.2 ci
 
       - name: Build project
         run: npm run build

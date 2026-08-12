@@ -3,6 +3,6 @@
   "rawBytes": 48842,
   "gzipBytes": 16357,
   "maximumIncreasePercent": 5,
-  "approvedCeilingGzipBytes": 30000,
-  "approval": "Recalibrated for the signalk-nearlcrews-ui 0.6.1 migration in version 0.5.1."
+  "approvedCeilingGzipBytes": 32000,
+  "approval": "Recalibrated for the signalk-nearlcrews-ui 0.7.0 migration after measuring the shared compatibility notice, relative-age helper, and typography token integrations."
 }

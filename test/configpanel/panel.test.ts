@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PluginOptions } from '../../src/config.js';
@@ -71,13 +71,14 @@ describe('PluginConfigurationPanel', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
   it('renders without crashing when the host passes no saved configuration', async () => {
     // A fresh install: the Signal K admin UI mounts the panel with an undefined
     // configuration (nothing saved yet). The panel must not read paths off undefined.
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: undefined, save: mockSave }));
     expect(screen.getByText('Synthetic Values')).toBeInTheDocument();
     await waitFor(() => {
@@ -87,7 +88,7 @@ describe('PluginConfigurationPanel', () => {
 
   it('renders without crashing when configuration is an empty object', async () => {
     // Some server versions pass an empty object rather than undefined.
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: {}, save: mockSave }));
     expect(screen.getByText('Synthetic Values')).toBeInTheDocument();
     await waitFor(() => {
@@ -95,10 +96,10 @@ describe('PluginConfigurationPanel', () => {
     });
   });
 
-  it('shows an Enable button when unconfigured and saves a config on click to enable', async () => {
+  it('shows an Enable button when unconfigured and requests a config on click', async () => {
     // Unconfigured (no saved config) is the only state where the user cannot
     // reach a save trigger via detected paths, so the panel must offer one.
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: undefined, save: mockSave }));
     const enableBtn = screen.getByRole('button', { name: /enable plugin/i });
     expect(enableBtn).toBeInTheDocument();
@@ -106,13 +107,13 @@ describe('PluginConfigurationPanel', () => {
     await waitFor(() => {
       expect(mockSave).toHaveBeenCalled();
     });
-    // Saving a configuration is what enables the plugin server-side.
-    const saved = mockSave.mock.calls[0][0] as PluginOptions;
-    expect(Array.isArray(saved.paths)).toBe(true);
+    // Requesting a configuration write is what enables the plugin server-side.
+    const requested = mockSave.mock.calls[0][0] as PluginOptions;
+    expect(Array.isArray(requested.paths)).toBe(true);
   });
 
   it('does not show the Enable button when a configuration is already present', async () => {
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
     expect(screen.queryByRole('button', { name: /enable plugin/i })).not.toBeInTheDocument();
     await waitFor(() => {
@@ -120,23 +121,33 @@ describe('PluginConfigurationPanel', () => {
     });
   });
 
-  it('surfaces a failed save and retries it from the banner', async () => {
-    const mockSave = vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue(undefined);
+  it('surfaces a failed request and retries it from the banner', async () => {
+    const mockSave = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('boom');
+      })
+      .mockImplementation(() => undefined);
     render(createElement(PluginConfigurationPanel, { configuration: undefined, save: mockSave }));
     fireEvent.click(screen.getByRole('button', { name: /enable plugin/i }));
-    // The rejection must surface instead of silently marking the write saved.
+    // A synchronous host rejection must surface without claiming persistence.
     await waitFor(() => {
-      expect(screen.getByText(/could not save the configuration/i)).toBeInTheDocument();
+      expect(screen.getByText(/could not request the configuration update/i)).toBeInTheDocument();
     });
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
     await waitFor(() => {
       expect(mockSave).toHaveBeenCalledTimes(2);
-      expect(screen.queryByText(/could not save the configuration/i)).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/could not request the configuration update/i)
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByText(/configuration update requested from Signal K Admin/i)
+      ).toBeInTheDocument();
     });
   });
 
   it('starts a fresh profile in Auto without persisting an implicit preference', async () => {
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const mockSave = vi.fn();
     const { container } = render(
       createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
     );
@@ -151,7 +162,7 @@ describe('PluginConfigurationPanel', () => {
 
   it('ignores the retired plugin-specific theme preference', async () => {
     window.localStorage.setItem('skn-theme', 'night');
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const mockSave = vi.fn();
     const { container } = render(
       createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
     );
@@ -169,7 +180,7 @@ describe('PluginConfigurationPanel', () => {
       configurable: true,
       value: undefined,
     });
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const mockSave = vi.fn();
     const { container } = render(
       createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
     );
@@ -179,7 +190,7 @@ describe('PluginConfigurationPanel', () => {
   });
 
   it('renders both detected rows after the fetch resolves', async () => {
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
 
     await waitFor(() => {
@@ -190,7 +201,7 @@ describe('PluginConfigurationPanel', () => {
   });
 
   it('renders the priority banner because a path is already combined', async () => {
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
 
     // The banner shows when paths.length > 0
@@ -200,7 +211,7 @@ describe('PluginConfigurationPanel', () => {
   });
 
   it('moves focus to the detected-paths heading when the priority banner is dismissed', async () => {
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+    const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
     await waitFor(() => {
       expect(screen.getByRole('region', { name: /source priority/i })).toBeInTheDocument();
@@ -214,8 +225,8 @@ describe('PluginConfigurationPanel', () => {
     });
   });
 
-  it('calls save with the new path appended when Combine is clicked on the available row', async () => {
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+  it('requests the new path when Combine is clicked on the available row', async () => {
+    const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
 
     // Wait for the detected rows to appear, then find the Combine button
@@ -232,14 +243,14 @@ describe('PluginConfigurationPanel', () => {
       expect(mockSave).toHaveBeenCalled();
     });
 
-    // The save argument should include the new path appended to the existing ones.
-    const savedConfig = mockSave.mock.calls[0][0] as PluginOptions;
-    const savedPaths = savedConfig.paths.map((p) => p.path);
-    expect(savedPaths).toContain(combinedPath);
-    expect(savedPaths).toContain(availablePath);
+    // The request should include the new path appended to the existing ones.
+    const requestedConfig = mockSave.mock.calls[0][0] as PluginOptions;
+    const requestedPaths = requestedConfig.paths.map((p) => p.path);
+    expect(requestedPaths).toContain(combinedPath);
+    expect(requestedPaths).toContain(availablePath);
 
-    // Top-level defaults must be preserved in the saved payload.
-    expect(savedConfig).toMatchObject({
+    // Top-level defaults must be preserved in the requested payload.
+    expect(requestedConfig).toMatchObject({
       defaultStalenessTimeoutMs: baseConfig.defaultStalenessTimeoutMs,
       defaultEmitMinIntervalMs: baseConfig.defaultEmitMinIntervalMs,
       defaultMinSources: baseConfig.defaultMinSources,
@@ -247,30 +258,107 @@ describe('PluginConfigurationPanel', () => {
     });
   });
 
-  it('serializes saves so a newer write cannot complete before an older one', async () => {
-    let resolveFirst: (() => void) | undefined;
-    const first = new Promise<void>((resolve) => {
-      resolveFirst = resolve;
-    });
-    const mockSave = vi
-      .fn()
-      .mockImplementationOnce(() => first)
-      .mockResolvedValue(undefined);
+  it('coalesces nearby writes into the latest snapshot after exactly 300 ms', async () => {
+    const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
     await waitFor(() => expect(screen.getByTitle(availablePath)).toBeInTheDocument());
 
+    vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
-    await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: `Remove ${combinedPath}` }));
-    await Promise.resolve();
-    expect(mockSave).toHaveBeenCalledTimes(1);
+    expect(mockSave).not.toHaveBeenCalled();
 
-    resolveFirst?.();
-    await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(2));
+    act(() => {
+      vi.advanceTimersByTime(299);
+    });
+    expect(mockSave).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    const requested = mockSave.mock.calls[0]?.[0] as PluginOptions;
+    expect(requested.paths.map((path) => path.path)).toEqual([availablePath]);
+    vi.useRealTimers();
   });
 
-  it('a no-change tuning edit does not call save after the debounce fires', async () => {
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+  it('requests the latest queued snapshot before the panel unmounts', async () => {
+    const mockSave = vi.fn();
+    const { unmount } = render(
+      createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
+    );
+    await waitFor(() => expect(screen.getByTitle(availablePath)).toBeInTheDocument());
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
+    fireEvent.click(screen.getByRole('button', { name: `Remove ${combinedPath}` }));
+    expect(mockSave).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    const requested = mockSave.mock.calls[0]?.[0] as PluginOptions;
+    expect(requested.paths.map((path) => path.path)).toEqual([availablePath]);
+    vi.useRealTimers();
+  });
+
+  it('cancels a queued snapshot when a genuine external configuration arrives', async () => {
+    const mockSave = vi.fn();
+    const { rerender } = render(
+      createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
+    );
+    await waitFor(() => expect(screen.getByTitle(availablePath)).toBeInTheDocument());
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
+    const external = {
+      ...baseConfig,
+      defaultMinSources: 3,
+      paths: [{ path: 'external.path' }],
+    };
+    rerender(createElement(PluginConfigurationPanel, { configuration: external, save: mockSave }));
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/queued changes were canceled because the configuration changed elsewhere/i)
+    ).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('keeps a newer queued edit when the host echoes its starting baseline', async () => {
+    const mockSave = vi.fn();
+    const { rerender } = render(
+      createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
+    );
+    await waitFor(() => expect(screen.getByTitle(availablePath)).toBeInTheDocument());
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
+    rerender(
+      createElement(PluginConfigurationPanel, {
+        configuration: structuredClone(baseConfig),
+        save: mockSave,
+      })
+    );
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    const requested = mockSave.mock.calls[0]?.[0] as PluginOptions;
+    expect(requested.paths.map((path) => path.path)).toEqual([combinedPath, availablePath]);
+    expect(
+      screen.queryByText(
+        /queued changes were canceled because the configuration changed elsewhere/i
+      )
+    ).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('a no-change tuning edit does not request an update after coalescing', async () => {
+    const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
 
     await waitFor(() => {
@@ -290,9 +378,11 @@ describe('PluginConfigurationPanel', () => {
 
     vi.useFakeTimers();
 
-    // Set minSources to 3 so it becomes the "saved" baseline.
+    // Set minSources to 3 so it becomes the requested baseline.
     fireEvent.change(minSourcesInput, { target: { value: '3' } });
-    vi.advanceTimersByTime(600);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
     await Promise.resolve();
 
     const callsAfterFirst = mockSave.mock.calls.length;
@@ -300,7 +390,9 @@ describe('PluginConfigurationPanel', () => {
 
     // Now set it back to the same value: this should be a no-op save.
     fireEvent.change(minSourcesInput, { target: { value: '3' } });
-    vi.advanceTimersByTime(600);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
     await Promise.resolve();
 
     vi.useRealTimers();
@@ -309,8 +401,8 @@ describe('PluginConfigurationPanel', () => {
     expect(mockSave.mock.calls.length).toBe(callsAfterFirst);
   });
 
-  it('debounces tuning updates: save is called after the debounce delay with the patched entry and preserved defaults', async () => {
-    const mockSave = vi.fn().mockResolvedValue(undefined);
+  it('coalesces tuning updates for 300 ms and preserves the complete configuration', async () => {
+    const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
 
     // Wait for the combined path row to appear (real timers; fetch is a microtask).
@@ -329,7 +421,7 @@ describe('PluginConfigurationPanel', () => {
     expect(minSourcesInput).toBeInTheDocument();
 
     // Switch to fake timers AFTER the component has settled so the polling
-    // interval and debounce timer are both under our control from here on.
+    // interval and coalescing timer are both under our control from here on.
     vi.useFakeTimers();
 
     // Record save calls BEFORE the tuning change.
@@ -338,26 +430,31 @@ describe('PluginConfigurationPanel', () => {
     // Fire a change on the minimum-sources input.
     fireEvent.change(minSourcesInput, { target: { value: '3' } });
 
-    // save must NOT have been called synchronously (debounce is still pending).
+    // save must NOT have been called synchronously (coalescing is still pending).
     expect(mockSave.mock.calls.length).toBe(callsBefore);
 
-    // Advance fake timers past the 500 ms debounce and flush microtasks.
-    vi.advanceTimersByTime(600);
+    act(() => {
+      vi.advanceTimersByTime(299);
+    });
+    expect(mockSave.mock.calls.length).toBe(callsBefore);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     await Promise.resolve();
 
     vi.useRealTimers();
 
     // save must now have been called exactly once more.
     expect(mockSave.mock.calls.length).toBe(callsBefore + 1);
-    const lastSaved = mockSave.mock.calls[mockSave.mock.calls.length - 1][0] as PluginOptions;
+    const lastRequested = mockSave.mock.calls[mockSave.mock.calls.length - 1][0] as PluginOptions;
 
-    // The saved payload includes the patched entry.
-    const savedEntry = lastSaved.paths.find((p) => p.path === combinedPath);
-    expect(savedEntry).toBeDefined();
-    expect(savedEntry?.minSources).toBe(3);
+    // The requested payload includes the patched entry.
+    const requestedEntry = lastRequested.paths.find((p) => p.path === combinedPath);
+    expect(requestedEntry).toBeDefined();
+    expect(requestedEntry?.minSources).toBe(3);
 
-    // The saved payload preserves the top-level defaults.
-    expect(lastSaved).toMatchObject({
+    // The requested payload preserves the top-level defaults.
+    expect(lastRequested).toMatchObject({
       defaultStalenessTimeoutMs: baseConfig.defaultStalenessTimeoutMs,
       defaultEmitMinIntervalMs: baseConfig.defaultEmitMinIntervalMs,
       defaultMinSources: baseConfig.defaultMinSources,

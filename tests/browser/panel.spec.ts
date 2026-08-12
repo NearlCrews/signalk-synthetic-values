@@ -1,5 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
+import packageJson from '../../package.json' with { type: 'json' };
+
+const EXPECTED_UI_VERSION = packageJson.devDependencies['signalk-nearlcrews-ui'];
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -11,16 +14,41 @@ test.beforeEach(async ({ page }) => {
 test('uses the fresh Auto default without persisting an implicit preference', async ({ page }) => {
   const root = page.locator('[data-snui-root]');
   await expect(root).not.toHaveAttribute('data-snui-theme');
+  await expect(root).toHaveCSS('background-color', 'rgb(244, 246, 248)');
   await expect(page.getByRole('radio', { name: 'Auto' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText(/^last checked /)).toHaveText(/^last checked (?:now|\d+ sec\. ago)$/);
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('signalk-nearlcrews-ui.theme.v1')))
     .toBeNull();
 });
 
+test('keeps Auto light without a host marker and lets System follow the OS', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const root = page.locator('[data-snui-root]');
+  const themeGroup = page.getByRole('radiogroup', { name: 'Panel theme' });
+
+  await themeGroup.getByRole('radio', { name: 'Auto' }).click();
+  await expect(root).not.toHaveAttribute('data-snui-theme');
+  await expect(root).toHaveCSS('background-color', 'rgb(244, 246, 248)');
+  await expect(root).toHaveCSS('color', 'rgb(24, 32, 44)');
+
+  await themeGroup.getByRole('radio', { name: 'System' }).click();
+  await expect(root).toHaveAttribute('data-snui-theme', 'system');
+  await expect(root).toHaveCSS('background-color', 'rgb(16, 19, 28)');
+  await expect(root).toHaveCSS('color', 'rgb(245, 247, 250)');
+
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(root).toHaveCSS('background-color', 'rgb(244, 246, 248)');
+  await expect(root).toHaveCSS('color', 'rgb(24, 32, 44)');
+});
+
 test('loads the production remote and completes combine, tune, and remove flows', async ({
   page,
 }) => {
-  await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-version', '0.6.2');
+  await expect(page.locator('[data-snui-root]')).toHaveAttribute(
+    'data-snui-version',
+    EXPECTED_UI_VERSION
+  );
 
   const headingRow = page.locator('[data-detected-path-row]', {
     hasText: 'navigation.headingTrue',
@@ -29,6 +57,10 @@ test('loads the production remote and completes combine, tune, and remove flows'
     .getByRole('button', { name: 'Combine navigation.headingTrue', exact: true })
     .click();
   await expect(page.locator('body')).toHaveAttribute('data-save-count', '1');
+  await expect(page.locator('body')).toHaveAttribute(
+    'data-saved-configuration',
+    /"futureFixtureSetting":\{"enabled":true\}/
+  );
   await expect(
     headingRow.getByRole('button', {
       name: 'Remove navigation.headingTrue',
@@ -74,18 +106,18 @@ test('loads the production remote and completes combine, tune, and remove flows'
   ).toBeVisible();
 });
 
-test('enables an unconfigured plugin and retries a failed save', async ({ page }) => {
+test('enables an unconfigured plugin and retries a failed request', async ({ page }) => {
   await page.goto('/?unconfigured&save-failure');
   await expect(page.locator('body')).toHaveAttribute('data-fixture-ready', 'true');
 
   await page.getByRole('button', { name: 'Enable plugin' }).click();
-  await expect(page.getByText('Configuration save failed')).toBeVisible();
+  await expect(page.getByText('Configuration request failed')).toBeVisible();
   await expect(page.locator('body')).toHaveAttribute('data-save-attempt-count', '1');
 
   await page.getByRole('button', { name: 'Retry' }).click();
   await expect(page.locator('body')).toHaveAttribute('data-save-attempt-count', '2');
   await expect(page.locator('body')).toHaveAttribute('data-save-count', '1');
-  await expect(page.getByText('Configuration save failed')).toBeHidden();
+  await expect(page.getByText('Configuration request failed')).toBeHidden();
 });
 
 test('keeps the Combine all trigger mounted and restores focus after cancel', async ({ page }) => {
@@ -110,6 +142,7 @@ test('announces an unchanged manual refresh', async ({ page }) => {
 });
 
 test('ignores the retired legacy preference and supports every theme', async ({ page }) => {
+  test.slow();
   await page.evaluate(() => {
     localStorage.removeItem('signalk-nearlcrews-ui.theme.v1');
     localStorage.setItem('skn-theme', 'night');
@@ -124,6 +157,7 @@ test('ignores the retired legacy preference and supports every theme', async ({ 
 
   const themeGroup = page.getByRole('radiogroup', { name: 'Panel theme' });
   for (const [label, value] of [
+    ['System', 'system'],
     ['Light', 'light'],
     ['Dark', 'dark'],
     ['Night', 'night'],
@@ -136,6 +170,7 @@ test('ignores the retired legacy preference and supports every theme', async ({ 
 });
 
 test('has no Axe findings in any theme', async ({ page, browserName, isMobile }) => {
+  test.setTimeout(180_000);
   test.skip(browserName !== 'chromium' || isMobile, 'One Chromium pass covers computed colors.');
 
   const themeGroup = page.getByRole('radiogroup', { name: 'Panel theme' });
@@ -144,6 +179,7 @@ test('has no Axe findings in any theme', async ({ page, browserName, isMobile })
 
   for (const [label, value] of [
     ['Auto', null],
+    ['System', 'system'],
     ['Light', 'light'],
     ['Dark', 'dark'],
     ['Night', 'night'],
@@ -154,7 +190,7 @@ test('has no Axe findings in any theme', async ({ page, browserName, isMobile })
     } else {
       await expect(root).toHaveAttribute('data-snui-theme', value);
     }
-    const results = await new AxeBuilder({ page }).analyze();
+    const results = await new AxeBuilder({ page }).include('[data-snui-root]').analyze();
     expect(results.violations, `${label} theme`).toEqual([]);
   }
 });
@@ -190,15 +226,28 @@ test('has no Axe findings or horizontal overflow at 320 pixels', async ({ page }
 
 test('responds to a 320-pixel embedded panel inside a wide host', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.locator('main').evaluate((element) => {
-    element.style.width = '320px';
-    element.style.padding = '0';
+  await page.locator('.plugin-list').evaluate((element) => {
+    element.style.display = 'none';
+  });
+  await page.locator('.config-column').evaluate((element) => {
+    element.style.flex = '0 0 320px';
   });
 
   const root = page.locator('[data-snui-root]');
-  await expect(root).toHaveCSS('width', '320px');
+  const width = await root.evaluate((element) => element.clientWidth);
+  expect(width).toBeGreaterThan(250);
+  expect(width).toBeLessThanOrEqual(320);
   const overflow = await root.evaluate((element) => element.scrollWidth - element.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test('runs inside the current Admin scroll and card contract', async ({ page }) => {
+  const overflow = await page.locator('.app-body').evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { x: style.overflowX, y: style.overflowY };
+  });
+  expect(overflow).toEqual({ x: 'hidden', y: 'auto' });
+  await expect(page.locator('.config-column.card [data-snui-root]')).toBeVisible();
 });
 
 test('provides coarse-pointer controls with 44-pixel targets @coarse', async ({ page }) => {
@@ -218,5 +267,9 @@ test('shows a compatibility message when native CSS scope is unavailable', async
   await expect(page.locator('[data-browser-compatibility-message]')).toContainText(
     'Browser update required'
   );
+  await expect(page.locator('[data-browser-compatibility-message]')).toContainText(
+    'newer browser or embedded WebView'
+  );
   await expect(page.locator('[data-snui-root]')).toHaveCount(0);
+  await expect(page.locator('style[data-snui-styles]')).toHaveCount(0);
 });

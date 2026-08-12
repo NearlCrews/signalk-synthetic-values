@@ -34,7 +34,7 @@ type TestPlugin = Omit<Plugin, 'registerWithRouter' | 'start'> & {
 };
 
 function PluginFactory(app: unknown): TestPlugin {
-  return createPlugin(app as ServerAPI) as TestPlugin;
+  return createPlugin(app as ServerAPI) as unknown as TestPlugin;
 }
 
 function makeFakeRouter(): FakeRouter {

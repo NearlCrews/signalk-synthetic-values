@@ -3,13 +3,14 @@
 
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { PluginOptions } from '../../src/config.js';
+import type { PluginOptions, RawPathConfig } from '../../src/config.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
 import {
   applyAddAllCombinable,
   applyAddPath,
   applyRemovePath,
   applyUpdatePath,
+  normalizeOptions,
   usePanelConfig,
 } from '../../src/configpanel/hooks/usePanelConfig.js';
 
@@ -20,6 +21,29 @@ const baseOptions: PluginOptions = {
   maxSourcesPerPath: 16,
   paths: [],
 };
+
+describe('normalizeOptions', () => {
+  it('fills known defaults without discarding unknown configuration fields', () => {
+    const normalized = normalizeOptions({
+      paths: [{ path: 'navigation.position', futurePathSetting: 'kept' }],
+      futureTopLevelSetting: { enabled: true },
+    }) as PluginOptions & Record<string, unknown>;
+
+    expect(normalized.defaultMinSources).toBe(2);
+    expect(normalized.futureTopLevelSetting).toEqual({ enabled: true });
+    expect(normalized.paths[0]).toMatchObject({ futurePathSetting: 'kept' });
+  });
+
+  it('drops malformed path entries without discarding valid future fields', () => {
+    const normalized = normalizeOptions({
+      paths: [null, 'bad', { path: '' }, { path: 'navigation.position', futureSetting: 42 }],
+    });
+
+    expect(normalized.paths).toEqual([
+      { path: 'navigation.position', futureSetting: 42 },
+    ] as RawPathConfig[]);
+  });
+});
 
 // -- applyAddPath -------------------------------------------------------------
 

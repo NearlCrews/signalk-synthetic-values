@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Replaced ineffective Promise-based save serialization with deterministic
+  300-millisecond latest-snapshot coalescing, accurate save-request language,
+  synchronous invocation-error recovery, and a final latest-snapshot request
+  when Admin closes the panel during the coalescing window.
+- Preserved unknown top-level and per-path configuration fields during panel
+  edits so newer settings are not erased by an older panel, and ignored
+  malformed path-list entries instead of letting them crash the panel.
+- Added a current Signal K Admin-shaped browser fixture, including its
+  horizontal-overflow container and responsive configuration card.
+- Isolated Playwright's fixture server from unrelated processes and added a
+  validated browser-port override for parallel local checkout testing.
+- Raised the browser-test timeout to cover interaction-heavy WebKit runs on
+  Pi-class development hosts without weakening per-action assertions.
+- Replaced the duplicated unsupported-browser fallback with the standalone
+  shared notice, which renders before the scoped panel can mount.
+- Replaced local typography constants, including the repeated fixed-width font
+  stack, with shared UI tokens so density changes remain consistent across
+  themes and coarse-pointer layouts.
+
+### Changed
+
+- Updated the exact bundled `signalk-nearlcrews-ui` dependency to 0.7.0.
+- Shared React and React DOM as strict host-provided Module Federation
+  singletons, and extended the production-bundle checks accordingly.
+- Aligned theme documentation with Auto's Light fallback and the explicit
+  System preference, and standardized relative-age presentation through the
+  shared UI helper.
+- Refreshed compatible development dependencies, including Signal K server
+  types, accessibility checks, DOM testing, build tooling, and dead-code
+  analysis, while retaining the published Node 20.18 runtime floor.
+- Added a 1280 by 800 current-Admin hero image and a package gate for App Store
+  screenshot dimensions and size.
+- Injected and verified the exact release commit as `gitHead` in the packed npm
+  artifact, without committing build-only metadata to the source manifest.
+- Recalibrated the production panel ceiling to 32,000 gzip bytes for the shared
+  UI 0.7 compatibility notice, relative-age helper, and typography token.
+- Aligned the Biome schema with the installed CLI and documented the Express
+  type package required transitively by the current Signal K server API types.
+- Updated contributor and release commands to npm 12.0.2 without changing the
+  plugin's published Node 20.18 runtime floor.
+
 <a id="v052"></a>
 
 ## [0.5.2] - 2026-08-04

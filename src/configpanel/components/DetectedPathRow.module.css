@@ -20,8 +20,8 @@
   min-width: 8rem;
   flex: 1 1 18rem;
   color: var(--snui-color-text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.875rem;
+  font-family: var(--snui-font-family-mono);
+  font-size: var(--snui-font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -45,7 +45,7 @@
 .duplicateHint {
   display: block;
   color: var(--snui-color-text-muted);
-  font-size: 0.8125rem;
+  font-size: var(--snui-font-size-xs);
   overflow-wrap: anywhere;
 }
 
@@ -53,7 +53,7 @@
   padding: var(--snui-space-2) var(--snui-space-3);
   border-top: 1px solid var(--snui-color-border);
   color: var(--snui-color-text-muted);
-  font-size: 0.8125rem;
+  font-size: var(--snui-font-size-xs);
   overflow-wrap: anywhere;
 }
 

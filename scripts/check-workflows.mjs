@@ -17,8 +17,14 @@ for (const path of workflowPaths) {
 }
 
 const ci = await readFile('.github/workflows/ci.yml', 'utf8');
-if (!ci.includes('node-version: [22.22.2, 24, 26]') || !ci.includes('test:browser:cross:built')) {
-  failures.push('ci.yml must retain the supported Node matrix and cross-browser gate.');
+if (
+  !ci.includes('node-version: [22.22.2, 24, 26]') ||
+  !ci.includes('npx --yes npm@12.0.2') ||
+  !ci.includes('test:browser:cross:built')
+) {
+  failures.push(
+    'ci.yml must retain npm 12.0.2, the supported Node matrix, and the cross-browser gate.'
+  );
 }
 
 const pluginCi = await readFile('.github/workflows/plugin-ci.yml', 'utf8');
@@ -32,7 +38,15 @@ for (const expected of ['github/codeql-action/init@', 'github/codeql-action/anal
 }
 
 const publish = await readFile('.github/workflows/publish.yml', 'utf8');
-for (const expected of ['--provenance --access public', 'name: npm-package', 'needs: build']) {
+for (const expected of [
+  'npm@12.0.2',
+  '--provenance --access public',
+  'name: npm-package',
+  'needs: build',
+  'RELEASE_GIT_HEAD="$(git rev-parse HEAD)"',
+  'p.gitHead=process.env.RELEASE_GIT_HEAD',
+  'PACKED_GIT_HEAD',
+]) {
   if (!publish.includes(expected)) failures.push(`publish.yml must retain ${expected}.`);
 }
 

@@ -5,8 +5,15 @@ import { createServer } from 'vite';
 const server = await createServer({
   configFile: resolve('fixtures/browser/vite.config.ts'),
   logLevel: 'warn',
+  server: {
+    host: '127.0.0.1',
+    port: 0,
+    strictPort: true,
+  },
 });
 await server.listen();
+const fixtureUrl = server.resolvedUrls?.local[0];
+if (fixtureUrl === undefined) throw new Error('Screenshot fixture did not report its local URL.');
 
 let browser;
 try {
@@ -14,11 +21,26 @@ try {
   const page = await browser.newPage({
     colorScheme: 'light',
     deviceScaleFactor: 1,
-    viewport: { width: 1000, height: 1200 },
+    viewport: { width: 1280, height: 800 },
   });
-  await page.goto('http://127.0.0.1:4175/');
+  await page.goto(fixtureUrl);
   await page.locator('body[data-fixture-ready="true"]').waitFor();
   await page.getByText('navigation.headingTrue', { exact: true }).waitFor();
+
+  await page.screenshot({
+    animations: 'disabled',
+    path: 'assets/screenshots/00-admin-hero.png',
+  });
+
+  await page.setViewportSize({ width: 1000, height: 1200 });
+  await page.locator('.sidebar, .plugin-list').evaluateAll((elements) => {
+    for (const element of elements) element.style.display = 'none';
+  });
+  await page.locator('.config-column').evaluate((element) => {
+    element.style.flex = '1 1 auto';
+    element.style.maxWidth = '800px';
+    element.style.marginInline = 'auto';
+  });
 
   const panel = page.locator('[data-snui-root]');
   await panel.screenshot({

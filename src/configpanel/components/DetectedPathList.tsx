@@ -5,6 +5,7 @@ import {
   Button,
   Cluster,
   CollapsibleSection,
+  formatRelativeAge,
   InlineConfirm,
   Section,
   Stack,
@@ -35,13 +36,12 @@ function LastCheckedStamp({ lastChecked }: { lastChecked: number | null }): Reac
   if (lastChecked === null) {
     return <span className={styles.timestamp}>never checked</span>;
   }
-  const diffSeconds = Math.round((Date.now() - lastChecked) / 1000);
-  const label =
-    diffSeconds < 5
-      ? 'just now'
-      : diffSeconds < 60
-        ? `${diffSeconds}s ago`
-        : `${Math.round(diffSeconds / 60)}m ago`;
+  const label = formatRelativeAge(Math.max(0, Date.now() - lastChecked), {
+    fallback: 'just now',
+    locale: 'en',
+    numeric: 'auto',
+    style: 'short',
+  });
   return <span className={styles.timestamp}>last checked {label}</span>;
 }
 

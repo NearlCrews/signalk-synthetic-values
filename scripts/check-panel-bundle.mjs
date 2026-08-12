@@ -1,4 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
@@ -25,6 +26,8 @@ const combinedCss = assets
   .join('\n');
 const stats = JSON.parse(await readFile('.tmp/panel-stats.json', 'utf8'));
 const baseline = JSON.parse(await readFile('scripts/panel-size-baseline.json', 'utf8'));
+const require = createRequire(import.meta.url);
+const webpackConfig = require('../webpack.config.cjs');
 
 if (stats.errorsCount !== 0 || stats.warningsCount !== 0) {
   throw new Error(
@@ -47,7 +50,7 @@ for (const asset of assets.filter((candidate) => candidate.name.endsWith('.css')
 if (combinedCss.includes('module__snui-')) {
   throw new Error('Webpack renamed a public signalk-nearlcrews-ui CSS identifier.');
 }
-for (const token of ['--snui-color-text', '--snui-space-2']) {
+for (const token of ['--snui-color-text', '--snui-font-family-mono', '--snui-space-2']) {
   if (!combinedCss.includes(`var(${token})`)) {
     throw new Error(`The panel CSS did not preserve the public ${token} token.`);
   }
@@ -59,6 +62,26 @@ if (!/@container\s+snui-panel\b/.test(combinedCss)) {
 const combined = files.map((file) => file.source).join('\n');
 if (!combined.includes('data-snui-version')) {
   throw new Error('The configuration panel did not bundle signalk-nearlcrews-ui.');
+}
+const federationOptions = webpackConfig.plugins.find((plugin) => plugin.options?.shared)?.options;
+if (federationOptions === undefined) {
+  throw new Error('webpack.config.cjs must include Module Federation shared-package options.');
+}
+if (federationOptions.shared['signalk-nearlcrews-ui'] !== undefined) {
+  throw new Error('signalk-nearlcrews-ui must stay bundled into the configuration panel.');
+}
+for (const sharedPackage of ['react', 'react-dom']) {
+  const share = federationOptions.shared[sharedPackage];
+  if (
+    share?.singleton !== true ||
+    share.strictVersion !== true ||
+    share.requiredVersion !== '>=19.2.0 <20.0.0' ||
+    share.import !== false
+  ) {
+    throw new Error(
+      `webpack.config.cjs must consume host-provided ${sharedPackage} as a strict singleton.`
+    );
+  }
 }
 
 for (const marker of [
@@ -127,5 +150,5 @@ if (gzipBytes > maximumGzipBytes) {
 }
 
 console.log(
-  `Panel bundle passed: ${javascriptNames.length} JavaScript files, ${cssNames.length} CSS ${cssNames.length === 1 ? 'file' : 'files'}, ${rawBytes} raw bytes, ${sizeSummary}, and host-shared React.`
+  `Panel bundle passed: ${javascriptNames.length} JavaScript files, ${cssNames.length} CSS ${cssNames.length === 1 ? 'file' : 'files'}, ${rawBytes} raw bytes, ${sizeSummary}, and host-shared React and React DOM.`
 );
