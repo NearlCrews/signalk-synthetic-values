@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Kept the DOM test dependencies on Node 20-compatible releases so the
+  official armv7 Signal K plugin lane can start every Vitest worker.
 - Replaced ineffective Promise-based save serialization with deterministic
   300-millisecond latest-snapshot coalescing, accurate save-request language,
   synchronous invocation-error recovery, and a final latest-snapshot request

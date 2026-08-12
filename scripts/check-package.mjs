@@ -143,4 +143,15 @@ if (packageJson.devDependencies?.['signalk-nearlcrews-ui'] !== '0.7.0') {
   throw new Error('The UI package must be pinned to exact version 0.7.0 during its 0.x series.');
 }
 
+for (const [dependency, expectedRange] of Object.entries({
+  '@testing-library/jest-dom': '^6.9.1',
+  jsdom: '^27.4.0',
+})) {
+  if (packageJson.devDependencies?.[dependency] !== expectedRange) {
+    throw new Error(
+      `${dependency} must remain at ${expectedRange} while the official armv7 lane tests Node 20.`
+    );
+  }
+}
+
 console.log(`Packed package passed: ${files.size} files in ${packResult.filename}.`);
