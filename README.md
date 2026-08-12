@@ -9,25 +9,27 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.5.2
+## What's new in 0.5.3
 
-Version 0.5.2 makes stale-source status self-correcting and hardens discovery
-and diagnostics while keeping saved configurations compatible.
+Version 0.5.3 makes configuration updates safer, refreshes the shared panel,
+and strengthens release validation while preserving existing settings.
 
-- **Accurate quiet-source status.** A lightweight one-second sweep marks paths
-  waiting when every source goes stale without re-emitting unchanged values.
-- **Protected detection.** When the bounded discovery table fills, it prefers
-  evicting single-source paths before paths that are ready to combine.
-- **Safer diagnostics.** Bus-provided source labels are escaped before they
-  reach debug logs.
-- **Shared marine UI 0.6.2.** The panel bundles the current exact shared UI.
+- **Reliable panel updates.** Rapid edits coalesce into the latest complete
+  snapshot, synchronous save errors recover cleanly, and pending work flushes
+  when the panel closes.
+- **Forward-compatible configuration.** Panel edits preserve unknown settings,
+  and malformed path entries no longer crash the panel.
+- **Shared marine UI 0.7.1.** The panel bundles the exact shared UI, consumes
+  the host React pair, and shows a useful notice on unsupported browsers.
+- **Current Admin coverage.** Browser checks exercise the current Signal K
+  Admin card and scrolling layout, narrow panels, themes, and coarse pointers.
+- **Node 20 validation.** DOM test dependencies remain compatible with the
+  official armv7 Signal K plugin lane.
 
-See the changelog in the repository for the complete list.
+See the [v0.5.3 changelog entry](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/CHANGELOG.md#v053) and the
+[full release history](https://github.com/NearlCrews/signalk-synthetic-values/releases).
 
 ## Screenshots
-
-> The hero below is generated for the next release and may be unavailable in
-> the current npm package until that release is published.
 
 [![Synthetic Values inside the current Signal K Admin plugin configuration screen](assets/screenshots/00-admin-hero.png)](assets/screenshots/00-admin-hero.png)
 

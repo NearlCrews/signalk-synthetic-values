@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<a id="v053"></a>
+
+## [0.5.3] - 2026-08-12
+
 ### Fixed
 
 - Kept the DOM test dependencies on Node 20-compatible releases so the
@@ -311,3 +315,6 @@ source so raw sensor data is never replaced.
 - **Source include/exclude filters.** `includeSources` and `excludeSources` limit or skip named sourceRefs per path.
 - **Full config validation.** `validateConfig` is pure and runs at every `start()`. Failing path entries are skipped and named in the status without stopping the plugin.
 - **Tests** across combining math, the circular medoid, damping, registry staleness, emitter shape, config validation, path classification, the combinability list, duplicate-source detection, the aggregate status summary, the config panel components, the per-path settings form, the detected-path row states, feedback prevention, and the stop/start lifecycle. The suite is 273 tests across 24 files.
+
+[Unreleased]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.2...v0.5.3
