@@ -9,24 +9,21 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.5.3
+## What's new in 0.5.4
 
-Version 0.5.3 makes configuration updates safer, refreshes the shared panel,
-and strengthens release validation while preserving existing settings.
+Version 0.5.4 corrects the layout of the detected path cards in the
+configuration panel.
 
-- **Reliable panel updates.** Rapid edits coalesce into the latest complete
-  snapshot, synchronous save errors recover cleanly, and pending work flushes
-  when the panel closes.
-- **Forward-compatible configuration.** Panel edits preserve unknown settings,
-  and malformed path entries no longer crash the panel.
-- **Shared marine UI 0.7.1.** The panel bundles the exact shared UI, consumes
-  the host React pair, and shows a useful notice on unsupported browsers.
-- **Current Admin coverage.** Browser checks exercise the current Signal K
-  Admin card and scrolling layout, narrow panels, themes, and coarse pointers.
-- **Node 20 validation.** DOM test dependencies remain compatible with the
-  official armv7 Signal K plugin lane.
+- **Restored card spacing.** Buttons and source chips are inset from the card
+  border again, the combined rows show their green accent, and duplicate-source
+  hints line up with the rest of the card.
+- **Path first, action last.** Each card leads with the path name and places its
+  Combine or Remove button at the trailing edge, stretching the button to full
+  width when the panel is too narrow to hold a single row.
+- **Cleaner priority reminder.** The dismiss control is a square icon target
+  rather than a padded text button.
 
-See the [v0.5.3 changelog entry](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/CHANGELOG.md#v053) and the
+See the [v0.5.4 changelog entry](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/CHANGELOG.md#v054) and the
 [full release history](https://github.com/NearlCrews/signalk-synthetic-values/releases).
 
 ## Screenshots

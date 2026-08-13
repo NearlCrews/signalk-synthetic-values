@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<a id="v054"></a>
+
+## [0.5.4] - 2026-08-13
+
+### Fixed
+
+- Restored the padding, the combined-row accent border, and the duplicate-source
+  hint indent on detected path cards, which the shared UI scoped styles had been
+  overriding, so controls and badges no longer sit flush against the card border.
+- Reordered each detected path card so the path name leads and its Combine or
+  Remove button follows at the trailing edge, full width when the panel is too
+  narrow for a single row.
+- Squared the priority reminder's dismiss control so the glyph sits in an icon
+  target instead of a text button padded out around it.
+
+### Changed
+
+- Refreshed the packaged panel screenshots to match the corrected row layout.
+
 <a id="v053"></a>
 
 ## [0.5.3] - 2026-08-12
@@ -316,5 +335,6 @@ source so raw sensor data is never replaced.
 - **Full config validation.** `validateConfig` is pure and runs at every `start()`. Failing path entries are skipped and named in the status without stopping the plugin.
 - **Tests** across combining math, the circular medoid, damping, registry staleness, emitter shape, config validation, path classification, the combinability list, duplicate-source detection, the aggregate status summary, the config panel components, the per-path settings form, the detected-path row states, feedback prevention, and the stop/start lifecycle. The suite is 273 tests across 24 files.
 
-[Unreleased]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.2...v0.5.3
