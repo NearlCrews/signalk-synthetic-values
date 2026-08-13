@@ -33,20 +33,25 @@
   color: var(--snui-color-text-muted);
   text-align: center;
 }
+/*
+ * Classes that land on a shared UI component repeat their own name so they
+ * outrank the package rule they override. See the doubling case in
+ * test/configpanel/styles.test.ts for why single-class rules lose.
+ */
 .sv_DetectedPathRow\.module__row--kRvnH.sv_DetectedPathRow\.module__row--kRvnH {
   padding: 0;
   overflow: hidden;
 }
 
-.sv_DetectedPathRow\.module__rowAvailable--TVbbm {
+.sv_DetectedPathRow\.module__rowAvailable--TVbbm.sv_DetectedPathRow\.module__rowAvailable--TVbbm {
   border-inline-start: 0.1875rem solid transparent;
 }
 
-.sv_DetectedPathRow\.module__rowCombined--EVWJu {
+.sv_DetectedPathRow\.module__rowCombined--EVWJu.sv_DetectedPathRow\.module__rowCombined--EVWJu {
   border-inline-start: 0.1875rem solid var(--snui-color-success);
 }
 
-.sv_DetectedPathRow\.module__header--nVBsO {
+.sv_DetectedPathRow\.module__header--nVBsO.sv_DetectedPathRow\.module__header--nVBsO {
   min-height: var(--snui-control-min-height);
   padding: var(--snui-space-2) var(--snui-space-3);
 }
@@ -66,13 +71,14 @@
   color: var(--snui-color-text-muted);
 }
 
-.sv_DetectedPathRow\.module__metadata--UlEIP {
-  min-width: 0;
-  flex: 0 1 auto;
+/* The auto margin keeps the action against the trailing edge on the line it
+   lands on, including the line it wraps to once the badges fill the first. */
+.sv_DetectedPathRow\.module__action--AF7vp.sv_DetectedPathRow\.module__action--AF7vp {
+  flex: none;
   margin-inline-start: auto;
 }
 
-.sv_DetectedPathRow\.module__subRow--FyuzQ {
+.sv_DetectedPathRow\.module__subRow--FyuzQ.sv_DetectedPathRow\.module__subRow--FyuzQ {
   padding: 0 var(--snui-space-3) var(--snui-space-2);
 }
 
@@ -108,9 +114,13 @@
     overflow-wrap: break-word;
   }
 
-  .sv_DetectedPathRow\.module__metadata--UlEIP {
+  .sv_DetectedPathRow\.module__metadata--UlEIP.sv_DetectedPathRow\.module__metadata--UlEIP {
     width: 100%;
-    margin-inline-start: 0;
+  }
+
+  /* Path and metadata each claim a full row, so the action lands on its own. */
+  .sv_DetectedPathRow\.module__action--AF7vp.sv_DetectedPathRow\.module__action--AF7vp {
+    width: 100%;
   }
 }
 .sv_PluginConfigurationPanel\.module__title--AZzEn {

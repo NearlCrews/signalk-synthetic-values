@@ -132,7 +132,7 @@ function PathAction({
 }: PathActionProps): React.ReactElement {
   if (optedIn) {
     return (
-      <Button aria-label={`Remove ${path}`} onClick={onRemove}>
+      <Button className={styles.action} aria-label={`Remove ${path}`} onClick={onRemove}>
         Remove
       </Button>
     );
@@ -140,6 +140,7 @@ function PathAction({
 
   return (
     <Button
+      className={styles.action}
       variant="primary"
       disabled={!canCombine}
       aria-label={`Combine ${path}`}
@@ -190,16 +191,8 @@ export const DetectedPathRow = memo(function DetectedPathRow({
       role="group"
       aria-labelledby={pathId}
     >
+      {/* The path leads so the row names its subject before the action. */}
       <Cluster className={styles.header} gap={2}>
-        <PathAction
-          advisoryId={advisory ? reasonId : undefined}
-          canCombine={canCombine}
-          optedIn={optedIn}
-          path={path}
-          onAdd={handleAdd}
-          onRemove={handleRemove}
-        />
-
         <span
           id={pathId}
           className={`${styles.path} ${canCombine ? '' : styles.pathUnavailable}`}
@@ -214,6 +207,15 @@ export const DetectedPathRow = memo(function DetectedPathRow({
           <KindBadge kind={kind} />
           {optedIn ? <Badge tone="success">combined</Badge> : null}
         </Cluster>
+
+        <PathAction
+          advisoryId={advisory ? reasonId : undefined}
+          canCombine={canCombine}
+          optedIn={optedIn}
+          path={path}
+          onAdd={handleAdd}
+          onRemove={handleRemove}
+        />
       </Cluster>
 
       {advisory ? (

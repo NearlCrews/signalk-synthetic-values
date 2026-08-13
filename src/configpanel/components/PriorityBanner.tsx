@@ -25,10 +25,17 @@ export function PriorityBanner({
 }: PriorityBannerProps): React.ReactElement | null {
   if (!show) return null;
 
+  /*
+   * Banner ships its own dismissal, but it renders the label as visible text
+   * in an action box that shrinks below its content, so beside this much body
+   * copy the word breaks one letter per line. The icon control keeps the
+   * package sizing through `iconOnly` and carries the focus restore that
+   * `dismissFocusRef` would otherwise provide.
+   */
   const dismissAction = (
     <Button
       aria-label="Dismiss priority reminder"
-      size="compact"
+      iconOnly
       onClick={() => {
         onDismiss();
         queueMicrotask(() => dismissFocusRef?.current?.focus());

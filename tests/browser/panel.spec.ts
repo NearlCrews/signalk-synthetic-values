@@ -1,8 +1,21 @@
 import AxeBuilder from '@axe-core/playwright';
+import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import packageJson from '../../package.json' with { type: 'json' };
 
 const EXPECTED_UI_VERSION = packageJson.devDependencies['signalk-nearlcrews-ui'];
+
+type BoundingBox = NonNullable<Awaited<ReturnType<Locator['boundingBox']>>>;
+
+/**
+ * Hides the fixture's Admin chrome so the configuration column, and with it
+ * the panel container query, gets the full width of the viewport.
+ */
+async function hideHostChrome(page: Page): Promise<void> {
+  await page.locator('.sidebar, .plugin-list').evaluateAll((elements) => {
+    for (const element of elements) element.style.display = 'none';
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -104,6 +117,92 @@ test('loads the production remote and completes combine, tune, and remove flows'
       exact: true,
     })
   ).toBeVisible();
+});
+
+interface CombinedRowLayout {
+  actionBox: BoundingBox;
+  headerInline: number;
+  pathBox: BoundingBox;
+  panelWidth: number;
+  rowBox: BoundingBox;
+}
+
+/** Card, path, and action geometry for the row the fixture starts combined. */
+async function combinedRowLayout(page: Page): Promise<CombinedRowLayout> {
+  const row = page.locator('[data-detected-path-row][data-combined="true"]');
+  const path = row.getByText('navigation.speedOverGround', { exact: true });
+  const [panelWidth, headerInline, rowBox, pathBox, actionBox] = await Promise.all([
+    page.locator('[data-snui-root]').evaluate((element) => element.clientWidth),
+    // The header row owns the inset the action and the badges sit behind.
+    path.evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element.parentElement as Element).paddingInlineStart)
+    ),
+    row.boundingBox(),
+    path.boundingBox(),
+    row
+      .getByRole('button', { name: 'Remove navigation.speedOverGround', exact: true })
+      .boundingBox(),
+  ]);
+  if (rowBox === null || pathBox === null || actionBox === null) {
+    throw new Error('The combined row is not visible.');
+  }
+  return { actionBox, headerInline, panelWidth, pathBox, rowBox };
+}
+
+/** Distance between the trailing edge of the action and the trailing card border. */
+function trailingGap(rowBox: BoundingBox, actionBox: BoundingBox): number {
+  return rowBox.x + rowBox.width - (actionBox.x + actionBox.width);
+}
+
+test('keeps the plugin row overrides ahead of the scoped package styles', async ({ page }) => {
+  const row = page.locator('[data-detected-path-row][data-combined="true"]');
+  const accent = await row.evaluate((element) => {
+    const probe = element.ownerDocument.createElement('span');
+    probe.style.color = 'var(--snui-color-success)';
+    element.append(probe);
+    const token = getComputedStyle(probe).color;
+    probe.remove();
+    return { border: getComputedStyle(element).borderLeftColor, token };
+  });
+  expect(accent.border).toBe(accent.token);
+  await expect(row).toHaveCSS('border-left-width', '3px');
+
+  const { actionBox, headerInline, rowBox } = await combinedRowLayout(page);
+  expect(headerInline).toBeGreaterThan(0);
+  expect(actionBox.x - rowBox.x).toBeGreaterThanOrEqual(headerInline);
+  expect(trailingGap(rowBox, actionBox)).toBeGreaterThanOrEqual(headerInline);
+});
+
+test('stacks the row action under the path in a narrow panel', async ({ page }) => {
+  const { actionBox, pathBox, panelWidth, rowBox } = await combinedRowLayout(page);
+  expect(panelWidth).toBeLessThan(600);
+  expect(actionBox.y).toBeGreaterThan(pathBox.y);
+  expect(actionBox.width).toBeCloseTo(pathBox.width, 0);
+  expect(trailingGap(rowBox, actionBox)).toBeGreaterThan(0);
+});
+
+test('trails the row action behind the path at wide panel widths', async ({ page }) => {
+  await hideHostChrome(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  const wide = await combinedRowLayout(page);
+  expect(wide.panelWidth).toBeGreaterThan(600);
+  expect(wide.actionBox.x).toBeGreaterThan(wide.pathBox.x + wide.pathBox.width);
+  expect(wide.actionBox.y).toBeLessThan(wide.pathBox.y + wide.pathBox.height);
+  expect(trailingGap(wide.rowBox, wide.actionBox)).toBeLessThanOrEqual(wide.headerInline + 4);
+
+  // Pinned just above the narrow breakpoint, the path basis and the badges
+  // cannot share a line with the action in any engine, so the wrap is certain.
+  await page.locator('.config-column').evaluate((element) => {
+    element.style.flex = '0 0 660px';
+  });
+  const wrapped = await combinedRowLayout(page);
+  expect(wrapped.panelWidth).toBeGreaterThan(600);
+  expect(wrapped.panelWidth).toBeLessThan(700);
+  expect(wrapped.actionBox.y).toBeGreaterThan(wrapped.pathBox.y);
+  expect(trailingGap(wrapped.rowBox, wrapped.actionBox)).toBeLessThanOrEqual(
+    wrapped.headerInline + 4
+  );
 });
 
 test('enables an unconfigured plugin and retries a failed request', async ({ page }) => {
@@ -225,10 +324,8 @@ test('has no Axe findings or horizontal overflow at 320 pixels', async ({ page }
 });
 
 test('responds to a 320-pixel embedded panel inside a wide host', async ({ page }) => {
+  await hideHostChrome(page);
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.locator('.plugin-list').evaluate((element) => {
-    element.style.display = 'none';
-  });
   await page.locator('.config-column').evaluate((element) => {
     element.style.flex = '0 0 320px';
   });
