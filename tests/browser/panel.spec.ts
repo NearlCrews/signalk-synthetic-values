@@ -383,6 +383,17 @@ test('provides coarse-pointer controls with 44-pixel targets @coarse', async ({ 
     const box = await control.boundingBox();
     expect(box?.height).toBeGreaterThanOrEqual(44);
   }
+
+  // A source checkbox draws a 20-pixel box, and the pointer target is the label
+  // wrapping it, which takes its height from the shared control minimum. Assert
+  // the wrapper rather than the box: a local height that cannot carry the
+  // coarse-pointer media query is how this shrinks, and it shrinks silently,
+  // since neither an axe scan nor a narrow viewport measures target size.
+  const row = page.locator('[data-detected-path-row][data-combined="true"]');
+  await row.getByRole('button', { name: /^Tune settings for/ }).click();
+  const target = row.getByRole('checkbox').first().locator('xpath=ancestor::label[1]');
+  const targetBox = await target.boundingBox();
+  expect(targetBox?.height).toBeGreaterThanOrEqual(44);
 });
 
 test('shows a compatibility message when native CSS scope is unavailable', async ({ page }) => {
