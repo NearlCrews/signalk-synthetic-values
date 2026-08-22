@@ -14,6 +14,7 @@ import { EmptyState } from 'signalk-nearlcrews-ui/composites';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import { plural } from '../../textFormat.js';
 import { type DetectedRow, isRecommendedCombinable } from '../hooks/useDetected.js';
+import { RELATIVE_AGE_FORMAT } from '../relative-age.js';
 import utilities from '../utilities.module.css';
 import styles from './DetectedPathList.module.css';
 import { DetectedPathRow } from './DetectedPathRow.js';
@@ -37,12 +38,7 @@ function LastCheckedStamp({ lastChecked }: { lastChecked: number | null }): Reac
   if (lastChecked === null) {
     return <span className={styles.timestamp}>never checked</span>;
   }
-  const label = formatRelativeAge(Math.max(0, Date.now() - lastChecked), {
-    fallback: 'just now',
-    locale: 'en',
-    numeric: 'auto',
-    style: 'short',
-  });
+  const label = formatRelativeAge(Math.max(0, Date.now() - lastChecked), RELATIVE_AGE_FORMAT);
   return <span className={styles.timestamp}>last checked {label}</span>;
 }
 
