@@ -18,8 +18,9 @@ notices the packaged panel owes.
   dependencies, so the package now includes a generated `THIRD_PARTY_NOTICES.md`
   with each license text, regenerated from what the bundler actually emits and
   verified on every packaging check.
-- **Shared UI 0.8.1.** The panel bundles the current shared component release,
-  including its docked action-bar fixes.
+- **Shared UI 0.8.2.** The panel bundles the current shared component release,
+  including the control-token minimum width that keeps compact and icon-only
+  buttons on the same touch target.
 - **Ages in words.** The detected-path list reads "last checked 5 minutes ago"
   rather than an abbreviated stamp.
 - **Node floor kept honest.** The Node type definitions now match the Node 20
@@ -91,7 +92,7 @@ In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic V
 
 Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, a kind badge, and the source names as chips. Combinable values are classified as scalar, angular, attitude, or position; unsupported values show as other, and configured paths awaiting live data show as unknown.
 
-The panel bundles `signalk-nearlcrews-ui` 0.8.1 for accessible controls, shared
+The panel bundles `signalk-nearlcrews-ui` 0.8.2 for accessible controls, shared
 marine theming, and isolated styles. Auto follows a host theme when one is
 published and otherwise stays Light to match the current Signal K Admin shell. System
 explicitly follows the operating-system preference. Light, Dark, and Night

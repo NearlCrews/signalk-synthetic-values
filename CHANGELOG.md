@@ -24,7 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Updated the bundled `signalk-nearlcrews-ui` dependency to 0.8.1.
+- Updated the bundled `signalk-nearlcrews-ui` dependency to 0.8.2, which sizes
+  compact and icon-only buttons from the shared control token so the refresh
+  button and the priority reminder's dismiss control keep a full touch target.
 - Replaced the hand-built first-run notice with the shared empty state.
 - Relative ages now read in words, as in "last checked 5 minutes ago", through
   one shared wording constant.
