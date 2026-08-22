@@ -20,10 +20,11 @@ const ci = await readFile('.github/workflows/ci.yml', 'utf8');
 if (
   !ci.includes('node-version: [22.22.2, 24, 26]') ||
   !ci.includes('npx --yes npm@12.0.2') ||
-  !ci.includes('test:browser:cross:built')
+  !ci.includes('test:browser:cross:built') ||
+  !ci.includes("node-version: '20.18'")
 ) {
   failures.push(
-    'ci.yml must retain npm 12.0.2, the supported Node matrix, and the cross-browser gate.'
+    'ci.yml must retain npm 12.0.2, the supported Node matrix, the cross-browser gate, and the blocking Node 20 runtime lane.'
   );
 }
 
