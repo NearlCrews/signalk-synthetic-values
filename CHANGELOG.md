@@ -38,9 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Held `jsdom` and `@testing-library/jest-dom` at their newest Node
   20-compatible majors, and told Dependabot to stop proposing the newer ones.
   Both require Node 22 or later, which the armv7 Cerbo GX lane cannot run.
-- Added `signalk-virtual-weather-sensors` to the App Store recommendations: a
-  weather plugin publishing environment deltas becomes a second source on paths
-  a boat already measures, which is what this plugin combines.
 - Named the bundled shared UI release in the README so it can be read without
   opening the manifest.
 
