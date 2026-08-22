@@ -28,7 +28,7 @@ See the [v0.5.4 changelog entry](https://github.com/NearlCrews/signalk-synthetic
 
 ## Screenshots
 
-[![Synthetic Values inside the current Signal K Admin plugin configuration screen](assets/screenshots/00-admin-hero.png)](assets/screenshots/00-admin-hero.png)
+![Synthetic Values inside the current Signal K Admin plugin configuration screen](assets/screenshots/00-admin-hero.png)
 
 The App Store hero shows the production panel inside current Signal K Admin
 chrome. Detailed configuration, not-recommended-path, tuning, and Data Browser
