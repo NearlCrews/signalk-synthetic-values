@@ -27,12 +27,6 @@
   font-size: var(--snui-font-size-xs);
   white-space: nowrap;
 }
-
-.sv_DetectedPathList\.module__empty--M4Yvr {
-  padding-block: var(--snui-space-4);
-  color: var(--snui-color-text-muted);
-  text-align: center;
-}
 /*
  * Classes that land on a shared UI component repeat their own name so they
  * outrank the package rule they override. See the doubling case in

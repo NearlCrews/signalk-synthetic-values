@@ -17,6 +17,15 @@ updates:
         versions:
           - "2.5.3"
           - "2.5.4"
+      # The official Signal K plugin workflow runs an armv7 Cerbo GX lane on
+      # Node 20, and scripts/check-package.mjs holds both packages at the last
+      # release that starts there. jsdom 28 and later need Node 22.13 or newer,
+      # and jest-dom 7 declares Node 22 or newer. Patches inside the compatible
+      # major still arrive.
+      - dependency-name: "jsdom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@testing-library/jest-dom"
+        update-types: ["version-update:semver-major"]
     groups:
       dev-deps:
         dependency-type: "development"
