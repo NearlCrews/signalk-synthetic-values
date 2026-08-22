@@ -8,14 +8,22 @@ name: SignalK Plugin CI
 # tag trigger guarantees a run exists on the exact commit each release is
 # published from.
 #
-# We pin nothing but `build-command` and take the reusable workflow's current
-# defaults (follow the inputs documented at the top of the canonical file, not
-# this comment, which can drift): node-versions ["22","24"], enable-armv7 true.
-# It runs npm ci, the build, package and lifecycle validation, and the App
-# Store install simulation across Linux (x64 and arm64), macOS, and Windows on
-# Node 22 and 24, plus an armv7 Cerbo GX lane on Node 20 and an es-check es2023
-# gate. engines.node here is >=20.18; Node 20 (the Cerbo GX runtime) is covered
-# by the armv7 and es-check lanes rather than the desktop test matrix.
+# Every input is declared rather than inherited, so a change to the reusable
+# workflow's defaults cannot silently move this plugin's matrix. It runs npm
+# ci, the build, the test command, package and lifecycle validation, and the
+# App Store install simulation across Linux (x64 and arm64), macOS, and Windows
+# on Node 22 and 24, plus an armv7 Cerbo GX lane on Node 20 and an es-check
+# es2023 gate.
+#
+# engines.node here is >=20.18 for the Cerbo GX, but NOTHING IN CI BLOCKS ON
+# NODE 20: the armv7 job is declared `continue-on-error: true` in the reusable
+# workflow, so it reports red in the job list while the overall check stays
+# green, and this repository's own ci.yml matrix starts at 22.22.2. A green
+# check therefore does not prove Node 20 health. The blocking defense is
+# local: scripts/check-package.mjs pins the two DOM test dependencies whose
+# newer majors drop Node 20, and .github/dependabot.yml ignores their major
+# updates so the pull request cannot come back. Treat the armv7 job as the
+# advisory signal that those pins are still needed, not as a gate.
 
 on:
   push:
@@ -33,3 +41,8 @@ jobs:
     uses: SignalK/signalk-server/.github/workflows/plugin-ci.yml@ede45a7abfcdfa3b31f369333a12dcf8b450b8ad # master 2026-07-19
     with:
       build-command: npm run build
+      test-command: npm test
+      node-versions: '["22", "24"]'
+      # True on purpose: engines.node is >=20.18 for the Cerbo GX, so the
+      # advisory armv7 lane is the only place a Node 20 install is exercised.
+      enable-armv7: true
