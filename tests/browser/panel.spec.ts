@@ -394,6 +394,29 @@ test('provides coarse-pointer controls with 44-pixel targets @coarse', async ({ 
   const target = row.getByRole('checkbox').first().locator('xpath=ancestor::label[1]');
   const targetBox = await target.boundingBox();
   expect(targetBox?.height).toBeGreaterThanOrEqual(44);
+
+  // The detection error control renders only while detection is failing, so it
+  // is invisible to every check that measures the default fixture state.
+  await page.goto('/?detected-failure');
+  await expect(page.locator('body')).toHaveAttribute('data-fixture-ready', 'true');
+  const retryBox = await page.getByRole('button', { name: /^Retry$/ }).boundingBox();
+  expect(retryBox?.height).toBeGreaterThanOrEqual(44);
+});
+
+test('surfaces a failing detection with a working retry', async ({ page }) => {
+  await page.goto('/?detected-failure');
+  await expect(page.locator('body')).toHaveAttribute('data-fixture-ready', 'true');
+  await expect(page.getByText('Could not load detected paths.')).toBeVisible();
+
+  const retry = page.getByRole('button', { name: /^Retry$/ });
+  await expect(retry).toBeVisible();
+  const before = Number(await page.locator('body').getAttribute('data-detected-request-count'));
+  await retry.click();
+  await expect
+    .poll(async () =>
+      Number(await page.locator('body').getAttribute('data-detected-request-count'))
+    )
+    .toBeGreaterThan(before);
 });
 
 test('shows a compatibility message when native CSS scope is unavailable', async ({ page }) => {

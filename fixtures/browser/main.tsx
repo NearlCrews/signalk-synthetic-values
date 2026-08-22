@@ -53,6 +53,10 @@ interface ShareScope {
 const parameters = new URLSearchParams(window.location.search);
 const unconfigured = parameters.has('unconfigured');
 const failFirstSave = parameters.has('save-failure');
+// Detection keeps failing while this is set, which is the only way to render
+// the panel's detection error banner and its Retry control. Without a mode
+// that produces it, that control never appears in any browser check.
+const failDetection = parameters.has('detected-failure');
 if (parameters.has('unsupported-css-scope')) {
   Object.defineProperty(window, 'CSSScopeRule', {
     configurable: true,
@@ -112,6 +116,7 @@ window.fetch = async (input): Promise<Response> => {
   if (url.pathname.endsWith('/detected')) {
     const requestCount = Number(document.body.dataset.detectedRequestCount ?? 0) + 1;
     document.body.dataset.detectedRequestCount = String(requestCount);
+    if (failDetection) return jsonResponse({ error: 'Fixture detection failed' }, 500);
     return jsonResponse(detectedPayload);
   }
   return jsonResponse({ error: `Unhandled fixture request: ${url.pathname}` }, 404);
