@@ -22,10 +22,10 @@ if (
   !ci.includes('npx --yes npm@12.0.2') ||
   !ci.includes('test:browser:cross:built') ||
   !ci.includes("node-version: '20.18'") ||
-  !ci.includes('--exclude "test/configpanel/**"')
+  !ci.includes('Smoke the runtime artifact on the floor Node')
 ) {
   failures.push(
-    'ci.yml must retain npm 12.0.2, the supported Node matrix, the cross-browser gate, and the blocking Node 20 runtime lane scoped to the plugin-side suite.'
+    'ci.yml must retain npm 12.0.2, the supported Node matrix, the cross-browser gate, and the blocking Node 20 lane ending in the runtime-artifact smoke.'
   );
 }
 

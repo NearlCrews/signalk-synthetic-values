@@ -68,15 +68,19 @@ jobs:
         if: matrix.node-version == '22.22.2'
         run: npm run security-audit
 
-  # Blocking coverage for the published >=20.18 runtime floor. The floor is a
-  # RUNTIME claim: users install the prebuilt dist, so this lane runs the
-  # plugin-side suite only. The panel build chain and the DOM-environment
-  # panel tests need Node 20.19 or newer (require of ES modules: babel-loader
-  # loading the ESM @babel/core, and the DOM environment's ESM dependencies)
-  # and are covered by the 22-plus matrix and the armv7 lane, which tracks the
-  # newest Node 20. The reusable plugin-ci armv7 lane is also advisory
-  # (continue-on-error), so it cannot stop a Node 20 regression; this lane can.
-  # Node 20 ships npm 10, so this job deliberately uses the system npm.
+  # Blocking coverage for the published >=20.18 runtime floor, scoped to what
+  # a FRESH install on that exact Node can genuinely do (verified against a
+  # clean clone on real 20.18.0): install, every type-check project, the
+  # declaration and esbuild bundle builds, and an import smoke proving the
+  # built runtime artifact loads. Vitest CANNOT run here: npm skips optional
+  # dependencies whose engines it cannot satisfy, so a 20.18 install omits
+  # the rolldown native bindings and vitest dies at startup with "Cannot
+  # find module '@rolldown/binding-*'". The panel webpack build cannot run
+  # either: require of ES modules arrived in 20.19, and babel-loader fails
+  # with ERR_REQUIRE_ESM loading the ESM @babel/core. Both are covered by
+  # the 22-plus matrix; the armv7 plugin-ci lane tracks the NEWEST Node 20
+  # and is advisory, so it defends neither the exact floor nor anything
+  # else. Node 20 ships npm 10, so this job uses the system npm.
   node-20-runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -98,8 +102,14 @@ jobs:
       - name: Rebuild native hooks
         run: npm rebuild
 
-      - name: Run the plugin-side tests
-        run: npx --no-install vitest run --exclude "test/configpanel/**"
+      - name: Run type checks
+        run: npm run type-check
+
+      - name: Build the runtime artifact
+        run: npm run build:types && npm run build:bundle
+
+      - name: Smoke the runtime artifact on the floor Node
+        run: node -e "import('./dist/index.js').then(() => console.log('dist loads on the floor Node')).catch((e) => { console.error(e); process.exit(1); })"
 
   build:
     runs-on: ubuntu-latest
