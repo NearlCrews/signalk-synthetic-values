@@ -10,6 +10,7 @@ import {
   Section,
   Stack,
 } from 'signalk-nearlcrews-ui';
+import { EmptyState } from 'signalk-nearlcrews-ui/composites';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import { plural } from '../../textFormat.js';
 import { type DetectedRow, isRecommendedCombinable } from '../hooks/useDetected.js';
@@ -328,10 +329,10 @@ export function DetectedPathList({
           />
         </Stack>
       ) : error === null && !loading ? (
-        <div className={styles.empty}>
-          No duplicate paths detected yet. This plugin watches your live data for paths reported by
-          two or more sources. Leave your instruments running for a minute, then refresh.
-        </div>
+        <EmptyState
+          title="No duplicate paths detected yet"
+          description="This plugin watches your live data for paths reported by two or more sources. Leave your instruments running for a minute, then refresh."
+        />
       ) : null}
     </Section>
   );

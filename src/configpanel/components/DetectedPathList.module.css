@@ -16,9 +16,3 @@
   font-size: var(--snui-font-size-xs);
   white-space: nowrap;
 }
-
-.empty {
-  padding-block: var(--snui-space-4);
-  color: var(--snui-color-text-muted);
-  text-align: center;
-}
