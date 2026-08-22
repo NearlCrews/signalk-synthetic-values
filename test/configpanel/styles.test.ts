@@ -58,6 +58,26 @@ function panelSource(file: string): string {
   return source;
 }
 
+/**
+ * Every plugin CSS module class that lands on a shared UI component, keyed by
+ * `<css module path>#<class name>` and valued with the component it styles.
+ */
+function classesOnSharedUiComponents(): Map<string, string> {
+  const owned = new Map<string, string>();
+  for (const file of panelFiles.filter((path) => path.endsWith('.tsx'))) {
+    const source = panelSource(file);
+    const components = sharedUiImports(source);
+    for (const [identifier, cssPath] of cssModuleImports(source, file)) {
+      for (const match of source.matchAll(new RegExp(`\\b${identifier}\\.(\\w+)`, 'g'))) {
+        const owner = owningTag(source, match.index);
+        if (owner === undefined || !components.has(owner)) continue;
+        owned.set(`${cssPath}#${match[1]}`, owner);
+      }
+    }
+  }
+  return owned;
+}
+
 describe('panel styling boundary', () => {
   it('uses modular plugin styles instead of the retired local theme registry', () => {
     expect(existsSync(join(panelDirectory, 'styles.ts'))).toBe(false);
@@ -88,20 +108,7 @@ describe('panel styling boundary', () => {
     // stylesheets are ordered. Repeating the class name wins on specificity,
     // which is settled first. The browser suite asserts the resulting computed
     // styles; this case keeps the convention from silently lapsing.
-    const owned = new Map<string, string>();
-    for (const file of panelFiles.filter((path) => path.endsWith('.tsx'))) {
-      const source = panelSource(file);
-      const components = sharedUiImports(source);
-      for (const [identifier, cssPath] of cssModuleImports(source, file)) {
-        for (const match of source.matchAll(new RegExp(`\\b${identifier}\\.(\\w+)`, 'g'))) {
-          const owner = owningTag(source, match.index);
-          if (owner === undefined || !components.has(owner)) continue;
-          owned.set(`${cssPath}#${match[1]}`, owner);
-        }
-      }
-    }
-
-    for (const [key, owner] of owned) {
+    for (const [key, owner] of classesOnSharedUiComponents()) {
       const [cssPath, name] = key.split('#');
       // Only a rule whose subject is the bare class needs the doubling, so
       // skip the doubled form and any compound or descendant selector.
