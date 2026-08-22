@@ -139,8 +139,16 @@ for (const file of files) {
 if (packageJson.dependencies?.['signalk-nearlcrews-ui']) {
   throw new Error('signalk-nearlcrews-ui must be a bundled development dependency.');
 }
-if (packageJson.devDependencies?.['signalk-nearlcrews-ui'] !== '0.8.2') {
-  throw new Error('The UI package must be pinned to exact version 0.8.2 during its 0.x series.');
+// Two invariants with different lifetimes, asserted separately. The shape
+// check is permanent and never hand-edited: it rejects range prefixes and
+// prereleases even when a failing version literal below gets pasted over.
+// The literal is the deliberate-bump tripwire for each re-pin.
+const uiPin = packageJson.devDependencies?.['signalk-nearlcrews-ui'];
+if (!/^0\.\d+\.\d+$/.test(uiPin ?? '')) {
+  throw new Error(`The UI package pin must be an exact 0.x version, got ${uiPin}.`);
+}
+if (uiPin !== '0.8.2') {
+  throw new Error(`The UI package must be pinned to 0.8.2 during its 0.x series, got ${uiPin}.`);
 }
 // The README names the bundled release so a reader does not have to open the
 // manifest. Asserting it here is what keeps that sentence from going stale on
