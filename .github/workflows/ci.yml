@@ -68,9 +68,14 @@ jobs:
         if: matrix.node-version == '22.22.2'
         run: npm run security-audit
 
-  # Blocking Node 20 coverage for the published >=20.18 runtime floor. The
-  # reusable plugin-ci armv7 lane runs the same steps on Node 20 but is
-  # advisory (continue-on-error), so it cannot stop a Node 20 regression.
+  # Blocking coverage for the published >=20.18 runtime floor. The floor is a
+  # RUNTIME claim: users install the prebuilt dist, so this lane runs the
+  # plugin-side suite only. The panel build chain and the DOM-environment
+  # panel tests need Node 20.19 or newer (require of ES modules: babel-loader
+  # loading the ESM @babel/core, and the DOM environment's ESM dependencies)
+  # and are covered by the 22-plus matrix and the armv7 lane, which tracks the
+  # newest Node 20. The reusable plugin-ci armv7 lane is also advisory
+  # (continue-on-error), so it cannot stop a Node 20 regression; this lane can.
   # Node 20 ships npm 10, so this job deliberately uses the system npm.
   node-20-runtime:
     runs-on: ubuntu-latest
@@ -93,11 +98,8 @@ jobs:
       - name: Rebuild native hooks
         run: npm rebuild
 
-      - name: Build project
-        run: npm run build
-
-      - name: Run tests
-        run: npm test
+      - name: Run the plugin-side tests
+        run: npx --no-install vitest run --exclude "test/configpanel/**"
 
   build:
     runs-on: ubuntu-latest
