@@ -24,7 +24,8 @@
       "./assets/screenshots/04-data-browser.png"
     ],
     "recommends": [
-      "signalk-nmea2000-emitter-cannon"
+      "signalk-nmea2000-emitter-cannon",
+      "signalk-virtual-weather-sensors"
     ]
   },
   "main": "dist/index.js",
