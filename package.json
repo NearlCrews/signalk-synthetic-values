@@ -1,6 +1,6 @@
 {
   "name": "signalk-synthetic-values",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Combine redundant sensors on one Signal K path into a robust median or outlier-rejected value",
   "keywords": [
     "signalk-node-server-plugin",
@@ -44,7 +44,8 @@
     "assets",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "author": {
     "name": "Nearl Crews",
@@ -113,7 +114,8 @@
     "ci:workflows": "node scripts/check-workflows.mjs",
     "format": "biome format --write .",
     "knip": "knip",
-    "package:check": "node scripts/check-package.mjs",
+    "licenses": "node scripts/generate-third-party-notices.mjs",
+    "package:check": "node scripts/check-package.mjs && node scripts/generate-third-party-notices.mjs --check",
     "audit:runtime": "npm audit --omit=dev --audit-level=high",
     "audit:full": "npm audit --audit-level=moderate",
     "verify:commit": "npm run lint && npm run ci:workflows && npm run knip",
@@ -138,7 +140,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/express": "^5.0.6",
-    "@types/node": "^26.2.0",
+    "@types/node": "^20.19.43",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
@@ -152,7 +154,7 @@
     "markdownlint-cli2": "0.23.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "signalk-nearlcrews-ui": "0.8.0",
+    "signalk-nearlcrews-ui": "0.8.1",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",

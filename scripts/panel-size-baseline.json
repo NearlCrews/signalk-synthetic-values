@@ -4,5 +4,5 @@
   "gzipBytes": 16357,
   "maximumIncreasePercent": 5,
   "approvedCeilingGzipBytes": 33000,
-  "approval": "Recalibrated for the signalk-nearlcrews-ui 0.8.0 update. The panel measured 31,103 gzip bytes on 0.7.1 and 31,948 on 0.8.0, which adds the enforced overlay and field contracts, the panel-contained toast host, the forced-colors mappings, and the shared empty state."
+  "approval": "Recalibrated for the signalk-nearlcrews-ui 0.8.x updates. The panel measured 31,103 gzip bytes on 0.7.1, 31,948 on 0.8.0, which adds the enforced overlay and field contracts, the panel-contained toast host, the forced-colors mappings, and the shared empty state, and 32,010 on 0.8.1, which adds the docked action-bar pointer and settling fixes."
 }

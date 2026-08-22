@@ -9,21 +9,24 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.5.4
+## What's new in 0.5.5
 
-Version 0.5.4 corrects the layout of the detected path cards in the
-configuration panel.
+Version 0.5.5 updates the shared configuration panel and adds the license
+notices the packaged panel owes.
 
-- **Restored card spacing.** Buttons and source chips are inset from the card
-  border again, the combined rows show their green accent, and duplicate-source
-  hints line up with the rest of the card.
-- **Path first, action last.** Each card leads with the path name and places its
-  Combine or Remove button at the trailing edge, stretching the button to full
-  width when the panel is too narrow to hold a single row.
-- **Cleaner priority reminder.** The dismiss control is a square icon target
-  rather than a padded text button.
+- **Third-party notices.** The panel ships as a bundle that carries its
+  dependencies, so the package now includes a generated `THIRD_PARTY_NOTICES.md`
+  with each license text, regenerated from what the bundler actually emits and
+  verified on every packaging check.
+- **Shared UI 0.8.1.** The panel bundles the current shared component release,
+  including its docked action-bar fixes.
+- **Ages in words.** The detected-path list reads "last checked 5 minutes ago"
+  rather than an abbreviated stamp.
+- **Node floor kept honest.** The Node type definitions now match the Node 20
+  runtime the plugin advertises, so code a Cerbo GX cannot run no longer passes
+  the build checks.
 
-See the [v0.5.4 changelog entry](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/CHANGELOG.md#v054) and the
+See the [v0.5.5 changelog entry](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/CHANGELOG.md#v055) and the
 [full release history](https://github.com/NearlCrews/signalk-synthetic-values/releases).
 
 ## Screenshots
@@ -88,9 +91,9 @@ In the Signal K admin UI, open **Server, then Plugin Config**, find "Synthetic V
 
 Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, a kind badge, and the source names as chips. Combinable values are classified as scalar, angular, attitude, or position; unsupported values show as other, and configured paths awaiting live data show as unknown.
 
-The panel uses `signalk-nearlcrews-ui` for accessible controls, shared marine
-theming, and isolated styles. Auto follows a host theme when one is published
-and otherwise stays Light to match the current Signal K Admin shell. System
+The panel bundles `signalk-nearlcrews-ui` 0.8.1 for accessible controls, shared
+marine theming, and isolated styles. Auto follows a host theme when one is
+published and otherwise stays Light to match the current Signal K Admin shell. System
 explicitly follows the operating-system preference. Light, Dark, and Night
 remain direct choices, and all five choices are shared with other panels that
 use the library. Night changes this panel, not the surrounding Admin chrome.

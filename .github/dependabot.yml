@@ -26,6 +26,11 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@testing-library/jest-dom"
         update-types: ["version-update:semver-major"]
+      # The node types describe the runtime floor in engines.node, so their
+      # major moves only when that floor does. scripts/check-package.mjs
+      # enforces the pairing.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       dev-deps:
         dependency-type: "development"

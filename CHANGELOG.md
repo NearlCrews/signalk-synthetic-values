@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<a id="v055"></a>
+
+## [0.5.5] - 2026-08-22
+
+### Added
+
+- A generated `THIRD_PARTY_NOTICES.md` covering the packages the configuration
+  panel bundles and redistributes, with each license text embedded. The panel
+  is a Module Federation remote, so the published package carries that code and
+  owes its MIT and Apache-2.0 notice obligations. `npm run licenses` regenerates
+  the file from what the bundler actually emits, and `npm run package:check`
+  fails when it drifts.
+- A browser check that a tuned per-path value survives collapsing and reopening
+  its section.
+
+### Changed
+
+- Updated the bundled `signalk-nearlcrews-ui` dependency to 0.8.1.
+- Replaced the hand-built first-run notice with the shared empty state.
+- Relative ages now read in words, as in "last checked 5 minutes ago", through
+  one shared wording constant.
+- Pinned `@types/node` to the Node 20 line the plugin advertises in
+  `engines.node`, with a package check that keeps the two in step so a newer
+  Node API cannot typecheck here and then fail on a Cerbo GX.
+- Declared every Signal K plugin-ci input explicitly rather than inheriting the
+  reusable workflow's defaults.
+- Refreshed development dependencies: Biome, the Signal K server types, the Vite
+  React plugin, Vite, and Vitest.
+- Held `jsdom` and `@testing-library/jest-dom` at their newest Node
+  20-compatible majors, and told Dependabot to stop proposing the newer ones.
+  Both require Node 22 or later, which the armv7 Cerbo GX lane cannot run.
+- Added `signalk-virtual-weather-sensors` to the App Store recommendations: a
+  weather plugin publishing environment deltas becomes a second source on paths
+  a boat already measures, which is what this plugin combines.
+- Named the bundled shared UI release in the README so it can be read without
+  opening the manifest.
+
+### Fixed
+
+- Removed the relative link wrapping the README hero screenshot. The Signal K
+  App Store rewrites image paths but leaves link targets alone, so the link
+  resolved to nothing there.
+- Corrected the plugin-ci comment that credited the armv7 lane with covering
+  Node 20. That job is advisory and cannot fail a check, so the package guard
+  and the Dependabot ignores are the blocking defense.
+
 <a id="v054"></a>
 
 ## [0.5.4] - 2026-08-13
@@ -335,6 +381,7 @@ source so raw sensor data is never replaced.
 - **Full config validation.** `validateConfig` is pure and runs at every `start()`. Failing path entries are skipped and named in the status without stopping the plugin.
 - **Tests** across combining math, the circular medoid, damping, registry staleness, emitter shape, config validation, path classification, the combinability list, duplicate-source detection, the aggregate status summary, the config panel components, the per-path settings form, the detected-path row states, feedback prevention, and the stop/start lifecycle. The suite is 273 tests across 24 files.
 
-[Unreleased]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.5...HEAD
+[0.5.5]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.2...v0.5.3

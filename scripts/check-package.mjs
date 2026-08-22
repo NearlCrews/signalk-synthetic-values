@@ -139,9 +139,31 @@ for (const file of files) {
 if (packageJson.dependencies?.['signalk-nearlcrews-ui']) {
   throw new Error('signalk-nearlcrews-ui must be a bundled development dependency.');
 }
-if (packageJson.devDependencies?.['signalk-nearlcrews-ui'] !== '0.8.0') {
-  throw new Error('The UI package must be pinned to exact version 0.8.0 during its 0.x series.');
+if (packageJson.devDependencies?.['signalk-nearlcrews-ui'] !== '0.8.1') {
+  throw new Error('The UI package must be pinned to exact version 0.8.1 during its 0.x series.');
 }
+// The README names the bundled release so a reader does not have to open the
+// manifest. Asserting it here is what keeps that sentence from going stale on
+// the next re-pin.
+const readme = await readFile('README.md', 'utf8');
+if (!readme.includes('`signalk-nearlcrews-ui` 0.8.1')) {
+  throw new Error('README.md must name the bundled signalk-nearlcrews-ui 0.8.1.');
+}
+// @types/node must describe the runtime floor this package advertises, not a
+// newer Node. Deriving the major from engines.node keeps the two in step: a
+// floor raise that forgets the types, or a types bump that outruns the floor,
+// fails here instead of quietly typechecking an API the Cerbo GX cannot run.
+const engineFloorMajor = /(\d+)/.exec(packageJson.engines?.node ?? '')?.[1];
+if (engineFloorMajor === undefined) {
+  throw new Error('engines.node must declare a version floor.');
+}
+const typesNodeRange = packageJson.devDependencies?.['@types/node'];
+if (typeof typesNodeRange !== 'string' || !typesNodeRange.startsWith(`^${engineFloorMajor}.`)) {
+  throw new Error(
+    `@types/node must be a ^${engineFloorMajor}.x range to match the engines.node floor, received ${String(typesNodeRange)}.`
+  );
+}
+
 for (const [dependency, expectedRange] of Object.entries({
   '@testing-library/jest-dom': '^6.9.1',
   jsdom: '^27.4.0',
