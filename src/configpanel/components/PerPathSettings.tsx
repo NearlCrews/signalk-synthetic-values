@@ -99,6 +99,16 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
   const showMinSourcesWarning =
     effectiveMinSources !== undefined && effectiveMinSources > sourceCount;
 
+  // This component renders inside lazy-retain CollapsibleSections, which wrap
+  // their children in React Activity: collapsing runs every effect cleanup in
+  // the subtree and reopening re-runs the effects, while component state
+  // survives. So this is NOT a run-once mount effect, it re-runs on every
+  // reopen. That is safe only because the change handler commits every valid
+  // keystroke upward, which keeps the draft and the committed config in
+  // lockstep, so a re-run re-applies the value the field already shows.
+  // Deferring the commit (to blur, say) would let the draft diverge, and this
+  // effect would then discard an in-progress edit whenever a section is
+  // collapsed and reopened. The browser suite pins the current behavior.
   useEffect(() => {
     setDraftMinSources(config.minSources);
   }, [config.minSources]);

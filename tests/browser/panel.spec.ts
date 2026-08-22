@@ -29,7 +29,9 @@ test('uses the fresh Auto default without persisting an implicit preference', as
   await expect(root).not.toHaveAttribute('data-snui-theme');
   await expect(root).toHaveCSS('background-color', 'rgb(244, 246, 248)');
   await expect(page.getByRole('radio', { name: 'Auto' })).toHaveAttribute('aria-checked', 'true');
-  await expect(page.getByText(/^last checked /)).toHaveText(/^last checked (?:now|\d+ sec\. ago)$/);
+  await expect(page.getByText(/^last checked /)).toHaveText(
+    /^last checked (?:now|\d+ seconds? ago)$/
+  );
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('signalk-nearlcrews-ui.theme.v1')))
     .toBeNull();
@@ -117,6 +119,31 @@ test('loads the production remote and completes combine, tune, and remove flows'
       exact: true,
     })
   ).toBeVisible();
+});
+
+test('keeps a tuned value across a collapse and reopen of its section', async ({ page }) => {
+  // Tune is a lazy-retain CollapsibleSection, so collapsing it runs every
+  // effect cleanup in the subtree and reopening re-runs them while the field
+  // state survives. The per-path editor resyncs its draft from the committed
+  // config in one of those effects, so this asserts the resync re-applies the
+  // committed value instead of discarding the edit.
+  const row = page.locator('[data-detected-path-row][data-combined="true"]');
+  const tune = row.getByRole('button', {
+    name: 'Tune settings for navigation.speedOverGround',
+    exact: true,
+  });
+
+  await tune.click();
+  const minimumSources = row.getByRole('spinbutton', { name: 'Minimum sources' });
+  await minimumSources.fill('3');
+  await expect(minimumSources).toHaveValue('3');
+
+  await tune.click();
+  await expect(minimumSources).toBeHidden();
+  await tune.click();
+
+  await expect(minimumSources).toBeVisible();
+  await expect(minimumSources).toHaveValue('3');
 });
 
 interface CombinedRowLayout {
