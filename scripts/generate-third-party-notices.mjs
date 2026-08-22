@@ -63,12 +63,26 @@ function licenseIdFor(name) {
   return typeof manifest.license === 'string' ? manifest.license : 'see below';
 }
 
-function collectModuleNames(modules = []) {
+function collectModules(modules = []) {
   return modules.flatMap((module) => [
-    module.name,
-    ...collectModuleNames(module.modules ?? []),
-    ...collectModuleNames(module.children ?? []),
+    module,
+    ...collectModules(module.modules ?? []),
+    ...collectModules(module.children ?? []),
   ]);
+}
+
+/**
+ * Webpack's own bootstrap, chunk loader, CSS loader, and Module Federation
+ * share-scope code are generated into the emitted files, but they are reported
+ * as `webpack/runtime/*` with no node_modules path, so the package scan below
+ * cannot see them by name. Attribute webpack whenever the build reports them.
+ */
+function emitsWebpackRuntime(modules) {
+  return modules.some(
+    (module) =>
+      module.moduleType === 'runtime' ||
+      (typeof module.name === 'string' && module.name.includes('webpack/runtime'))
+  );
 }
 
 /** Ask webpack which packages it actually bundles, rather than guessing from the manifest. */
@@ -91,9 +105,12 @@ async function bundledPackageNames() {
     chunks: true,
     modules: true,
     nestedModules: true,
+    runtimeModules: true,
   });
+  const modules = collectModules(statsJson.modules);
   const names = new Set();
-  for (const moduleName of collectModuleNames(statsJson.modules)) {
+  if (emitsWebpackRuntime(modules)) names.add('webpack');
+  for (const { name: moduleName } of modules) {
     const match = /node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+)/.exec(moduleName ?? '');
     if (match?.[1]) names.add(match[1].replace(/\\/g, '/'));
   }
@@ -125,8 +142,11 @@ function render(names, version) {
     [
       'React and React DOM are supplied by the Signal K admin host as singletons and',
       'are not bundled here; the React entry that does appear is the JSX runtime.',
-      "The plugin bundle `dist/index.js` is built from this repository's own sources",
-      'and carries no third-party code.',
+      'Webpack is listed because its module bootstrap, chunk loader, style loader, and',
+      'Module Federation share-scope code are generated into the same files, even though',
+      'those runtime modules carry no package path of their own. The plugin bundle',
+      "`dist/index.js` is built from this repository's own sources by esbuild and carries",
+      'no third-party code.',
     ].join('\n'),
     ...sections,
   ].join('\n\n');
