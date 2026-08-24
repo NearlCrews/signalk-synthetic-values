@@ -13,14 +13,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- A generated `THIRD_PARTY_NOTICES.md` covering the packages the configuration
-  panel bundles and redistributes, with each license text embedded. The panel
-  is a Module Federation remote, so the published package carries that code and
-  owes its MIT and Apache-2.0 notice obligations. `npm run licenses` regenerates
-  the file from what the bundler actually emits, and `npm run package:check`
-  fails when it drifts.
+- A generated `THIRD_PARTY_NOTICES.md` covering the four packages the
+  configuration panel bundles and redistributes (`react`, `react-aria`,
+  `signalk-nearlcrews-ui`, and the webpack runtime), with each license text
+  embedded. The panel is a Module Federation remote, so the published package
+  carries that code and owes its MIT and Apache-2.0 notice obligations.
+  `npm run licenses` regenerates the file from what the bundler actually emits,
+  and `npm run package:check` fails when it drifts.
 - A browser check that a tuned per-path value survives collapsing and reopening
   its section.
+- A browser check that a failing detection scan surfaces its error notice and
+  that the Retry control requests the path list again, driven by a fixture mode
+  that keeps detection failing.
+- A browser assertion that a source checkbox keeps the coarse-pointer touch
+  target it takes from the label wrapping it.
+- A blocking Node 20 CI lane that installs fresh on the published 20.18 runtime
+  floor, runs the type checks, builds the plugin artifact, and proves the built
+  plugin loads there.
 
 ### Changed
 
@@ -49,8 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   App Store rewrites image paths but leaves link targets alone, so the link
   resolved to nothing there.
 - Corrected the plugin-ci comment that credited the armv7 lane with covering
-  Node 20. That job is advisory and cannot fail a check, so the package guard
-  and the Dependabot ignores are the blocking defense.
+  Node 20. That job is advisory and cannot fail a check, so the new Node 20 CI
+  lane, the package guard, and the Dependabot ignores are the blocking defense.
 
 <a id="v054"></a>
 

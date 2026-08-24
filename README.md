@@ -25,7 +25,8 @@ notices the packaged panel owes.
   rather than an abbreviated stamp.
 - **Node floor kept honest.** The Node type definitions now match the Node 20
   runtime the plugin advertises, so code a Cerbo GX cannot run no longer passes
-  the build checks.
+  the build checks, and a blocking CI lane proves the built plugin still loads
+  on that floor.
 
 See the [v0.5.5 changelog entry](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/CHANGELOG.md#v055) and the
 [full release history](https://github.com/NearlCrews/signalk-synthetic-values/releases).
