@@ -119,18 +119,22 @@ module.exports = {
         './PluginConfigurationPanel': './src/configpanel/PluginConfigurationPanel',
       },
       // `singleton` keeps React and its renderer as the host's matching pair.
-      // The host must supply React 19 and React DOM 19. The shared UI package
-      // stays inside this remote and is intentionally absent from this map.
+      // The host must supply React 19 and React DOM 19, but its registered
+      // share version can understate the React it actually ships: Signal K
+      // 2.24.0's Admin bundles React 19.2.4 while registering 19.0.0. With
+      // `import: false` there is no fallback, so `strictVersion` would turn
+      // that mismatch into a panel that never mounts; leaving it off lets the
+      // range check warn and continue on the compatible host. The shared UI
+      // package stays inside this remote and is intentionally absent from
+      // this map.
       shared: {
         react: {
           singleton: true,
-          strictVersion: true,
           requiredVersion: '^19.2.0',
           import: false,
         },
         'react-dom': {
           singleton: true,
-          strictVersion: true,
           requiredVersion: '^19.2.0',
           import: false,
         },

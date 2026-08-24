@@ -11,9 +11,14 @@ When two or more sources feed the same Signal K path (multiple GPS receivers, du
 
 ## What's new in 0.5.5
 
-Version 0.5.5 updates the shared configuration panel and adds the license
-notices the packaged panel owes.
+Version 0.5.5 restores the configuration panel on Signal K 2.24.x hosts,
+updates the shared panel components, and adds the license notices the
+packaged panel owes.
 
+- **Panel restored on Signal K 2.24.x.** The 2.24.0 Admin registers its React
+  share as 19.0.0 while actually shipping 19.2.4, and the panel's strict share
+  check refused the mismatch, so the panel never mounted there. The check now
+  warns and continues on the compatible host.
 - **Third-party notices.** The panel ships as a bundle that carries its
   dependencies, so the package now includes a generated `THIRD_PARTY_NOTICES.md`
   with each license text, regenerated from what the bundler actually emits and

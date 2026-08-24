@@ -80,12 +80,12 @@ for (const sharedPackage of ['react', 'react-dom']) {
   const share = federationOptions.shared[sharedPackage];
   if (
     share?.singleton !== true ||
-    share.strictVersion !== true ||
+    share.strictVersion !== undefined ||
     share.requiredVersion !== '^19.2.0' ||
     share.import !== false
   ) {
     throw new Error(
-      `webpack.config.cjs must consume host-provided ${sharedPackage} as a strict singleton.`
+      `webpack.config.cjs must consume host-provided ${sharedPackage} as a singleton without strictVersion: the Admin can register a share version that understates the React it ships.`
     );
   }
 }

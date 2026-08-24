@@ -54,6 +54,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Removed the strict version check from the shared React and React DOM
+  federation shares, which had kept the configuration panel from mounting on
+  Signal K 2.24.x hosts since 0.5.3. The 2.24.0 Admin bundles React 19.2.4
+  but registers its shares as 19.0.0, so the strict check refused a fully
+  compatible host, and with no bundled fallback the panel never rendered.
+  The shares keep their singleton, `^19.2.0`, and host-provided-only
+  settings; a version mismatch now warns and continues.
 - Removed the relative link wrapping the README hero screenshot. The Signal K
   App Store rewrites image paths but leaves link targets alone, so the link
   resolved to nothing there.
