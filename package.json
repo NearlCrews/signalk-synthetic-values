@@ -145,7 +145,7 @@
     "@vitejs/plugin-react": "^6.1.0",
     "@vitest/coverage-v8": "^4.1.11",
     "babel-loader": "^10.1.1",
-    "cspell": "10.0.1",
+    "cspell": "10.1.0",
     "esbuild": "^0.28.2",
     "husky": "^9.1.7",
     "jsdom": "^27.4.0",
