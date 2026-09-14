@@ -4,11 +4,7 @@ import { fireEvent, render } from '@testing-library/react';
 import { createElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RawPathConfig, RawPathConfigPatch } from '../../src/config.js';
-import {
-  DEFAULT_JUMP_PERSIST_MS,
-  DEFAULT_JUMP_PERSIST_SAMPLES,
-  DEFAULT_MIN_SOURCES,
-} from '../../src/config.js';
+import { DEFAULT_MIN_SOURCES } from '../../src/config.js';
 import { PerPathSettings } from '../../src/configpanel/components/PerPathSettings.js';
 import { SourceChecklist } from '../../src/configpanel/components/SourceChecklist.js';
 import type { PanelDefaults } from '../../src/configpanel/defaultsContext.js';
@@ -391,7 +387,7 @@ describe('PerPathSettings', () => {
     expect(input.placeholder).toBe(`default: ${DEFAULT_MIN_SOURCES}`);
   });
 
-  it('setting the jump max rate emits a complete jumpRejection with shared defaults', () => {
+  it('setting the jump max rate writes the rate alone, leaving the plugin defaults', () => {
     const onChange = vi.fn();
     const { getByText, getByLabelText } = render(
       createElement(PerPathSettings, { row, config, onChange, idPrefix })
@@ -399,20 +395,16 @@ describe('PerPathSettings', () => {
     fireEvent.click(getByText(/advanced/i));
     const rateInput = getByLabelText(/jump rejection max rate/i) as HTMLInputElement;
     fireEvent.change(rateInput, { target: { value: '5' } });
-    expect(onChange).toHaveBeenCalledWith({
-      jumpRejection: {
-        maxRate: 5,
-        persistSamples: DEFAULT_JUMP_PERSIST_SAMPLES,
-        persistMs: DEFAULT_JUMP_PERSIST_MS,
-      },
-    });
+    // validateConfig backfills persistSamples and persistMs, so the saved
+    // config carries only what the operator actually chose.
+    expect(onChange).toHaveBeenCalledWith({ jumpRejection: { maxRate: 5 } });
     // 0 is not a valid rate (exclusive minimum): no patch may fire.
     onChange.mockClear();
     fireEvent.change(rateInput, { target: { value: '0' } });
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('clearing the jump max rate removes the whole jumpRejection block', () => {
+  it('clearing the jump max rate switches it off and keeps the persist settings', () => {
     const onChange = vi.fn();
     const cfgWithJump: RawPathConfig = {
       path: 'navigation.speedOverGround',
@@ -425,7 +417,9 @@ describe('PerPathSettings', () => {
     const rateInput = getByLabelText(/jump rejection max rate/i) as HTMLInputElement;
     expect(rateInput.value).toBe('5');
     fireEvent.change(rateInput, { target: { value: '' } });
-    expect(onChange).toHaveBeenCalledWith({ jumpRejection: undefined });
+    expect(onChange).toHaveBeenCalledWith({
+      jumpRejection: { maxRate: undefined, persistSamples: 3, persistMs: 5000 },
+    });
   });
 });
 
@@ -496,7 +490,7 @@ describe('PerPathSettings: clearing the jump rate', () => {
     optedIn: true,
   };
 
-  it('restores hand-tuned persist settings when the rate comes back', () => {
+  it('keeps hand-tuned persist settings in the saved config when the rate is cleared', () => {
     const onChange = vi.fn();
     const tuned: RawPathConfig = {
       path: row.path,
@@ -509,13 +503,17 @@ describe('PerPathSettings: clearing the jump rate', () => {
     const rate = getByLabelText(/jump rejection max rate/i) as HTMLInputElement;
 
     fireEvent.change(rate, { target: { value: '' } });
-    expect(onChange).toHaveBeenLastCalledWith({ jumpRejection: undefined });
+    expect(onChange).toHaveBeenLastCalledWith({
+      jumpRejection: { maxRate: undefined, persistSamples: 7, persistMs: 12000 },
+    });
 
     // The host echoes the cleared config back, then the rate is entered again.
+    // The persist settings come from the config itself, so any editor of it
+    // sees the same two values rather than only this panel.
     rerender(
       createElement(PerPathSettings, {
         row,
-        config: { path: row.path },
+        config: { path: row.path, jumpRejection: { persistSamples: 7, persistMs: 12000 } },
         onChange,
         idPrefix: 'r',
       })
@@ -526,19 +524,13 @@ describe('PerPathSettings: clearing the jump rate', () => {
     });
   });
 
-  it('falls back to the shipped persist defaults for a path that never had them', () => {
+  it('writes the rate alone for a path that never had persist settings', () => {
     const onChange = vi.fn();
     const { getByLabelText, getByText } = render(
       createElement(PerPathSettings, { row, config: { path: row.path }, onChange, idPrefix: 'r' })
     );
     fireEvent.click(getByText(/advanced/i));
     fireEvent.change(getByLabelText(/jump rejection max rate/i), { target: { value: '3' } });
-    expect(onChange).toHaveBeenLastCalledWith({
-      jumpRejection: {
-        maxRate: 3,
-        persistSamples: DEFAULT_JUMP_PERSIST_SAMPLES,
-        persistMs: DEFAULT_JUMP_PERSIST_MS,
-      },
-    });
+    expect(onChange).toHaveBeenLastCalledWith({ jumpRejection: { maxRate: 3 } });
   });
 });

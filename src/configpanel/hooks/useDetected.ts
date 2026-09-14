@@ -1,34 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Kind } from '../../metrics.js';
+import type { DetectedRow } from '../../detected.js';
 import { fetchJson, jsonEqual } from '../api-base.js';
+
+// The row shape is declared once beside the route that serves it, so a new wire
+// field cannot reach the server and miss the panel.
+export type { DetectedRow };
 
 // 10 s poll: the detected list changes only when new sources come online,
 // so anything faster wastes CPU on Pi-class SK servers.
 export const POLL_MS = 10_000;
-
-export interface DetectedRow {
-  path: string;
-  sources: string[];
-  /**
-   * Sources fresh in the combiner right now, or null when the path is not
-   * configured and no freshness is being tracked. Discovery lists a source for
-   * a minute after its last delta; the combiner drops it after the staleness
-   * timeout, so these two differ for up to 59 seconds after a sensor dies.
-   */
-  freshSources?: string[] | null;
-  /** Sources the include or exclude lists keep out of the combination. */
-  excludedSources?: string[];
-  kind: Kind | 'unknown';
-  optedIn: boolean;
-  /** Whether the value can be averaged at all (false for text/objects). Defaults true when absent. */
-  combinable?: boolean;
-  /** Whether averaging is meaningful (false for GNSS fix metadata). Defaults true when absent. */
-  recommended?: boolean;
-  /** Reason shown in the panel when the path is not combinable or not recommended. */
-  advisory?: string;
-  /** Groups of sources reporting identical changing values: likely the same feed re-broadcast. */
-  duplicateGroups?: string[][];
-}
 
 export interface DetectedResponse {
   paths: DetectedRow[];
@@ -54,21 +34,22 @@ function errorState(prev: DetectedState): DetectedState {
   };
 }
 
-const DETECTED_KINDS: ReadonlyArray<DetectedRow['kind']> = [
+// Hashed once at module load: every row of every poll is checked against it.
+const DETECTED_KINDS: ReadonlySet<DetectedRow['kind']> = new Set([
   'scalar',
   'angular',
   'position',
   'attitude',
   'other',
   'unknown',
-];
+]);
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
 function isDetectedKind(value: unknown): value is DetectedRow['kind'] {
-  return typeof value === 'string' && DETECTED_KINDS.includes(value as DetectedRow['kind']);
+  return typeof value === 'string' && DETECTED_KINDS.has(value as DetectedRow['kind']);
 }
 
 function isOptionalBoolean(value: unknown): value is boolean | undefined {
@@ -89,12 +70,6 @@ function isOptionalStringArray(value: unknown): value is string[] | undefined {
   return value === undefined || isStringArray(value);
 }
 
-// null is a meaningful third state: the path is not configured, so the plugin
-// tracks no freshness for it. An older plugin omits the field entirely.
-function isOptionalFreshSources(value: unknown): value is string[] | null | undefined {
-  return value === null || isOptionalStringArray(value);
-}
-
 function isDetectedRow(value: unknown): value is DetectedRow {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const row = value as Record<string, unknown>;
@@ -104,7 +79,7 @@ function isDetectedRow(value: unknown): value is DetectedRow {
     isStringArray(row.sources) &&
     isDetectedKind(row.kind) &&
     typeof row.optedIn === 'boolean' &&
-    isOptionalFreshSources(row.freshSources) &&
+    isOptionalStringArray(row.freshSources) &&
     isOptionalStringArray(row.excludedSources) &&
     isOptionalBoolean(row.combinable) &&
     isOptionalBoolean(row.recommended) &&

@@ -16,14 +16,12 @@
   padding: var(--snui-space-2) var(--snui-space-3);
 }
 
-/* The path wraps rather than truncating. BreakablePath inserts a <wbr> at
-   every dot, so a long path breaks cleanly at a segment boundary, and nothing
-   depends on a hover tooltip to read the rest of it. */
+/* Only the flex sizing: the path wraps rather than truncating, and the shared
+   Code component supplies both the wrapping and the segment break opportunities
+   that keep a long path breaking at a dot rather than mid-word. */
 .path.path {
   min-width: 8rem;
   flex: 1 1 18rem;
-  overflow-wrap: anywhere;
-  white-space: normal;
 }
 
 .pathUnavailable.pathUnavailable {

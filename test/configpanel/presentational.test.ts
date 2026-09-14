@@ -76,7 +76,7 @@ describe('sourceChips', () => {
   const sources = ['gps.1', 'gps.2', 'gps.3'];
 
   it('marks every source live when the path is not configured', () => {
-    expect(sourceChips(sources, null, undefined).map((c) => c.state)).toEqual([
+    expect(sourceChips(sources, [], undefined, false).map((c) => c.state)).toEqual([
       'live',
       'live',
       'live',
@@ -84,7 +84,7 @@ describe('sourceChips', () => {
   });
 
   it('marks a source the combiner no longer sees as stale', () => {
-    expect(sourceChips(sources, ['gps.1'], undefined)).toEqual([
+    expect(sourceChips(sources, ['gps.1'], undefined, true)).toEqual([
       { sourceRef: 'gps.1', state: 'live' },
       { sourceRef: 'gps.2', state: 'stale' },
       { sourceRef: 'gps.3', state: 'stale' },
@@ -92,7 +92,7 @@ describe('sourceChips', () => {
   });
 
   it('excluded wins over stale, because the operator asked for it', () => {
-    expect(sourceChips(sources, ['gps.1'], ['gps.2'])).toEqual([
+    expect(sourceChips(sources, ['gps.1'], ['gps.2'], true)).toEqual([
       { sourceRef: 'gps.1', state: 'live' },
       { sourceRef: 'gps.2', state: 'excluded' },
       { sourceRef: 'gps.3', state: 'stale' },
@@ -107,9 +107,9 @@ describe('SourceChips', () => {
 
   const chipsFor = (
     sources: string[],
-    fresh: string[] | null = null,
+    fresh: string[] | undefined = undefined,
     excluded: string[] | undefined = undefined
-  ) => sourceChips(sources, fresh, excluded);
+  ) => sourceChips(sources, fresh, excluded, fresh !== undefined);
 
   const five = ['gps.1', 'gps.2', 'gps.3', 'gps.4', 'gps.5'];
 
@@ -141,7 +141,9 @@ describe('SourceChips', () => {
   });
 
   it('names an excluded source in its own text', () => {
-    render(createElement(SourceChips, { chips: chipsFor(['gps.1', 'gps.2'], null, ['gps.2']) }));
+    render(
+      createElement(SourceChips, { chips: chipsFor(['gps.1', 'gps.2'], undefined, ['gps.2']) })
+    );
     expect(screen.getByText('gps.2, excluded')).toBeInTheDocument();
   });
 

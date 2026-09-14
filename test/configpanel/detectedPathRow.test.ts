@@ -414,7 +414,7 @@ describe('DetectedPathRow: a stale source is not a contributing one', () => {
     document.body.innerHTML = '';
   });
 
-  const row = (freshSources: string[] | null, excludedSources: string[] = []): DetectedRow => ({
+  const row = (freshSources: string[], excludedSources: string[] = []): DetectedRow => ({
     path: 'environment.depth.belowKeel',
     sources: ['sounder.1', 'sounder.2', 'sounder.3'],
     freshSources,
@@ -467,7 +467,7 @@ describe('DetectedPathRow: a stale source is not a contributing one', () => {
   it('treats every source as live for a path the plugin is not combining', () => {
     render(
       createElement(DetectedPathRow, {
-        row: { ...row(null), optedIn: false },
+        row: { ...row([]), optedIn: false },
         optedIn: false,
         config: undefined,
         onAdd: vi.fn(),

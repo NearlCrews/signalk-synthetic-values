@@ -5,9 +5,9 @@ import {
   Button,
   Cluster,
   CollapsibleSection,
-  type FormatRelativeAgeOptions,
   InlineConfirm,
   LiveRegion,
+  RELATIVE_AGE_EN,
   RelativeAge,
   Section,
   Stack,
@@ -19,11 +19,6 @@ import { plural } from '../../textFormat.js';
 import { type DetectedRow, isRecommendedCombinable } from '../hooks/useDetected.js';
 import styles from './DetectedPathList.module.css';
 import { DetectedPathRow } from './DetectedPathRow.js';
-
-// Every other string in this panel is English, so the age does not follow the
-// browser locale: "last checked hace 5 minutos" would read as a defect. The pin
-// also keeps the browser assertions independent of the runner's locale.
-const RELATIVE_AGE_OPTIONS: FormatRelativeAgeOptions = { locale: 'en' };
 
 function FunnelIcon(): React.ReactElement {
   return (
@@ -41,13 +36,17 @@ function FunnelIcon(): React.ReactElement {
 }
 
 function LastCheckedStamp({ lastChecked }: { lastChecked: number | null }): React.ReactElement {
+  // The stamp stays on one line so the header actions wrap it whole. Every
+  // other string in this panel is English, so the age does not follow the
+  // browser locale: "last checked hace 5 minutos" would read as a defect, and
+  // the pin also keeps the browser assertions independent of the runner.
   return (
-    <Text className={styles.timestamp} size="xs" tone="muted">
+    <Text size="xs" tone="muted" wrap="nowrap">
       {lastChecked === null ? (
         'never checked'
       ) : (
         <>
-          last checked <RelativeAge options={RELATIVE_AGE_OPTIONS} since={lastChecked} />
+          last checked <RelativeAge options={RELATIVE_AGE_EN} since={lastChecked} />
         </>
       )}
     </Text>
@@ -81,7 +80,7 @@ function HeaderActions({
   );
 }
 
-interface NotRecommendedGroupProps {
+interface RowListProps {
   rows: DetectedRow[];
   configByPath: Map<string, RawPathConfig>;
   onAdd: (path: string) => void;
@@ -89,37 +88,48 @@ interface NotRecommendedGroupProps {
   onUpdate: (path: string, patch: RawPathConfigPatch) => void;
 }
 
-function NotRecommendedGroup({
+/**
+ * A run of detected rows. Whether a row is opted in is the presence of its
+ * saved config, so every list asks the same question of the same map rather
+ * than each caller asserting an answer it happens to know.
+ */
+function RowList({
   rows,
   configByPath,
   onAdd,
   onRemove,
   onUpdate,
-}: NotRecommendedGroupProps): React.ReactElement | null {
+}: RowListProps): React.ReactElement {
+  return (
+    <Stack gap={2}>
+      {rows.map((row) => (
+        <DetectedPathRow
+          key={row.path}
+          row={row}
+          optedIn={configByPath.has(row.path)}
+          config={configByPath.get(row.path)}
+          onAdd={onAdd}
+          onRemove={onRemove}
+          onUpdate={onUpdate}
+        />
+      ))}
+    </Stack>
+  );
+}
+
+function NotRecommendedGroup(props: RowListProps): React.ReactElement | null {
   const [open, setOpen] = useState(false);
-  if (rows.length === 0) return null;
+  if (props.rows.length === 0) return null;
 
   return (
     <CollapsibleSection
       headingLevel={4}
       mountStrategy="lazy-retain"
-      title={`Detected but not recommended (${rows.length})`}
+      title={`Detected but not recommended (${props.rows.length})`}
       open={open}
       onOpenChange={setOpen}
     >
-      <Stack gap={2}>
-        {rows.map((row) => (
-          <DetectedPathRow
-            key={row.path}
-            row={row}
-            optedIn={configByPath.has(row.path)}
-            config={configByPath.get(row.path)}
-            onAdd={onAdd}
-            onRemove={onRemove}
-            onUpdate={onUpdate}
-          />
-        ))}
-      </Stack>
+      <RowList {...props} />
     </CollapsibleSection>
   );
 }
@@ -235,7 +245,7 @@ export function DetectedPathList({
     return merged;
   }, [detected, configByPath]);
 
-  const { combinableNotYetConfigured, combinedRows, notRecommendedRows } = useMemo(() => {
+  const { combinableNotYetConfigured, orderedRows, notRecommendedRows } = useMemo(() => {
     const notYet: DetectedRow[] = [];
     const combined: DetectedRow[] = [];
     const notRecommended: DetectedRow[] = [];
@@ -247,7 +257,8 @@ export function DetectedPathList({
     notYet.sort((a, b) => b.sources.length - a.sources.length);
     return {
       combinableNotYetConfigured: notYet,
-      combinedRows: combined,
+      // Paths waiting to be combined lead, then the ones already combining.
+      orderedRows: [...notYet, ...combined],
       notRecommendedRows: notRecommended,
     };
   }, [rows, configByPath]);
@@ -316,31 +327,13 @@ export function DetectedPathList({
             onAddAll={onAddAll}
           />
 
-          <Stack gap={2}>
-            {combinableNotYetConfigured.map((row) => (
-              <DetectedPathRow
-                key={row.path}
-                row={row}
-                optedIn={false}
-                config={undefined}
-                onAdd={handleAdd}
-                onRemove={handleRemove}
-                onUpdate={onUpdate}
-              />
-            ))}
-
-            {combinedRows.map((row) => (
-              <DetectedPathRow
-                key={row.path}
-                row={row}
-                optedIn={true}
-                config={configByPath.get(row.path)}
-                onAdd={handleAdd}
-                onRemove={handleRemove}
-                onUpdate={onUpdate}
-              />
-            ))}
-          </Stack>
+          <RowList
+            rows={orderedRows}
+            configByPath={configByPath}
+            onAdd={handleAdd}
+            onRemove={handleRemove}
+            onUpdate={onUpdate}
+          />
 
           <NotRecommendedGroup
             rows={notRecommendedRows}

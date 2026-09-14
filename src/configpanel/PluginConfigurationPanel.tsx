@@ -120,14 +120,36 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
   const [enabledHere, setEnabledHere] = useState(false);
   const unconfigured = configuration == null && !enabledHere;
 
-  const clearQueued = useCallback((): void => {
+  // The form differs from the last accepted request while edits wait in the
+  // coalescing window and after a failed request rolled the baseline back. Held
+  // as state rather than derived by serializing the whole configuration on every
+  // render: the panel body re-renders on every keystroke in a number field, and
+  // each such comparison grows with the number of combined paths.
+  const [dirty, setDirty] = useState(false);
+  useUnsavedChangesGuard(dirty);
+
+  const cancelTimer = useCallback((): void => {
     if (saveTimerRef.current !== null) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
+  }, []);
+
+  const clearQueued = useCallback((): void => {
+    cancelTimer();
     pendingOptionsRef.current = null;
     pendingBaseOptionsRef.current = null;
     pendingRefreshRef.current = false;
+  }, [cancelTimer]);
+
+  // Reset the save-issue flags without allocating when they are already clear,
+  // so a render is not scheduled for a state that did not change.
+  const clearSaveIssues = useCallback((): void => {
+    setSaveReport((prev) =>
+      prev.failure === null && !prev.canceledByHost
+        ? prev
+        : { ...prev, failure: null, canceledByHost: false }
+    );
   }, []);
 
   // Write actions update form state immediately, then queue one host request.
@@ -150,45 +172,44 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
     try {
       save(next);
       setSaveReport({ requestedAt: Date.now(), failure: null, canceledByHost: false });
+      setDirty(false);
       if (refreshAfterRequest) void refresh();
     } catch {
       requestedOptionsRef.current = previousRequested;
       // The request never reached the host, so the plugin is still not enabled
-      // and the save bar must keep offering the enabling save.
+      // and the save bar must keep offering the enabling save. The baseline
+      // rolled back, so the form is dirty again.
       setEnabledHere(false);
+      setDirty(true);
       setSaveReport((prev) => ({ ...prev, failure: REQUEST_FAILURE, canceledByHost: false }));
     }
   }, [refresh, save]);
 
   const scheduleSaveRequest = useCallback(
     (next: PluginOptions, refreshAfterRequest = false): void => {
+      // An edit that lands back on the last accepted request leaves nothing to
+      // send, so the queue empties and the form is clean again.
       if (jsonEqual(next, requestedOptionsRef.current)) {
         clearQueued();
-        setSaveReport((prev) =>
-          prev.failure === null && !prev.canceledByHost
-            ? prev
-            : { ...prev, failure: null, canceledByHost: false }
-        );
+        setDirty(false);
+        clearSaveIssues();
         return;
       }
 
       pendingOptionsRef.current = next;
       pendingBaseOptionsRef.current ??= requestedOptionsRef.current;
       pendingRefreshRef.current ||= refreshAfterRequest;
-      if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
-      setSaveReport((prev) =>
-        prev.failure === null && !prev.canceledByHost
-          ? prev
-          : { ...prev, failure: null, canceledByHost: false }
-      );
+      cancelTimer();
+      setDirty(true);
+      clearSaveIssues();
       saveTimerRef.current = setTimeout(flushSaveRequest, SAVE_COALESCE_MS);
     },
-    [clearQueued, flushSaveRequest]
+    [cancelTimer, clearQueued, clearSaveIssues, flushSaveRequest]
   );
 
   useEffect(
     () => () => {
-      if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
+      cancelTimer();
       // An explicit edit must not disappear when Admin unmounts the panel
       // during the coalescing window. Send the latest snapshot without
       // scheduling post-unmount UI work or a detection refresh.
@@ -204,7 +225,7 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
         }
       }
     },
-    []
+    [cancelTimer]
   );
 
   // A genuine external edit wins over a queued local snapshot. A normal host
@@ -215,8 +236,15 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
     if (previousConfigurationRef.current === configuration) return;
     previousConfigurationRef.current = configuration;
     const pendingBase = pendingBaseOptionsRef.current;
-    if (pendingBase === null || jsonEqual(normalizeOptions(configuration), pendingBase)) return;
+    if (pendingBase === null) {
+      // Nothing queued, so the form state hook has already resynced the form to
+      // whatever the host supplied and there is nothing left unsent.
+      setDirty(false);
+      return;
+    }
+    if (jsonEqual(normalizeOptions(configuration), pendingBase)) return;
     clearQueued();
+    setDirty(false);
     setSaveReport((prev) => ({ ...prev, failure: null, canceledByHost: true }));
   }, [clearQueued, configuration]);
 
@@ -225,22 +253,20 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
   // failed request both start from a form that matches the baseline.
   const handleSave = useCallback((): void => {
     if (unconfigured) setEnabledHere(true);
-    if (saveTimerRef.current !== null) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
+    cancelTimer();
     if (pendingOptionsRef.current === null) {
       pendingOptionsRef.current = optionsRef.current;
       pendingBaseOptionsRef.current = requestedOptionsRef.current;
       pendingRefreshRef.current = true;
     }
     flushSaveRequest();
-  }, [flushSaveRequest, unconfigured]);
+  }, [cancelTimer, flushSaveRequest, unconfigured]);
 
   const handleDiscard = useCallback((): void => {
     clearQueued();
     optionsRef.current = requestedOptionsRef.current;
     replaceOptions(requestedOptionsRef.current);
+    setDirty(false);
     setSaveReport((prev) => ({ ...prev, failure: null, canceledByHost: false }));
   }, [clearQueued, replaceOptions]);
 
@@ -288,11 +314,6 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
     },
     [scheduleSaveRequest, updatePath]
   );
-
-  // The form differs from the last accepted request while edits wait in the
-  // coalescing window and after a failed request rolled the baseline back.
-  const dirty = !jsonEqual(options, requestedOptionsRef.current);
-  useUnsavedChangesGuard(dirty);
 
   const showBanner = options.paths.length > 0 && !bannerDismissed;
 

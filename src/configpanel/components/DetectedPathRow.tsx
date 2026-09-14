@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { Fragment, memo, useCallback, useId, useState } from 'react';
+import { memo, useCallback, useId, useState } from 'react';
 import {
   Badge,
   Button,
@@ -32,7 +32,10 @@ export interface DetectedPathRowProps {
 
 function DuplicateSourcesHint({ groups }: { groups: string[][] }): React.ReactElement | null {
   if (groups.length === 0) return null;
-  const groupsByKey = new Map(groups.map((group) => [JSON.stringify(group), group]));
+  // The route can report one group twice, so the render is keyed on the members
+  // themselves. A delimiter join is the key: serializing every group on every
+  // render buys nothing a separator that cannot appear in a source name does.
+  const groupsByKey = new Map(groups.map((group) => [group.join('\u0000'), group]));
 
   return (
     <Stack className={styles.subRow} gap={1}>
@@ -59,27 +62,6 @@ function SourceCountBadge({ chips }: { chips: SourceChip[] }): React.ReactElemen
       <span aria-hidden="true">{live === total ? total : `${live}/${total}`}</span>
       <VisuallyHidden>{label}</VisuallyHidden>
     </Badge>
-  );
-}
-
-function BreakablePath({ path }: { path: string }): React.ReactElement {
-  let prefix = '';
-  return (
-    <>
-      {path.split('.').map((segment, segmentIndex) => {
-        prefix = prefix ? `${prefix}.${segment}` : segment;
-        return (
-          <Fragment key={prefix}>
-            {segmentIndex > 0 ? (
-              <>
-                .<wbr />
-              </>
-            ) : null}
-            {segment}
-          </Fragment>
-        );
-      })}
-    </>
   );
 }
 
@@ -177,26 +159,38 @@ function PathAction({
   );
 }
 
+/**
+ * Where a row stands: `combining` is opted in with at least one live source,
+ * `stalled` is opted in with none, and `inactive` is a path nobody opted in to.
+ * Decided once, so the accent colour and the badge cannot disagree.
+ */
+type RowState = 'combining' | 'stalled' | 'inactive';
+
+const ROW_STATE_BADGE: Record<RowState, React.ReactElement | null> = {
+  combining: <Badge tone="success">combined</Badge>,
+  stalled: <Badge tone="warning">no live sources</Badge>,
+  inactive: null,
+};
+
+const ROW_STATE_ACCENT: Record<RowState, 'success' | 'warning' | undefined> = {
+  combining: 'success',
+  stalled: 'warning',
+  inactive: undefined,
+};
+
 interface RowMetadataProps {
   chips: SourceChip[];
-  combining: boolean;
   kind: DetectedRow['kind'];
-  optedIn: boolean;
+  rowState: RowState;
 }
 
-function RowMetadata({ chips, combining, kind, optedIn }: RowMetadataProps): React.ReactElement {
+function RowMetadata({ chips, kind, rowState }: RowMetadataProps): React.ReactElement {
   return (
     <Cluster className={styles.metadata} gap={1}>
       <SourceCountBadge chips={chips} />
       <SourceChips chips={chips} />
       <KindBadge kind={kind} />
-      {optedIn ? (
-        combining ? (
-          <Badge tone="success">combined</Badge>
-        ) : (
-          <Badge tone="warning">no live sources</Badge>
-        )
-      ) : null}
+      {ROW_STATE_BADGE[rowState]}
     </Cluster>
   );
 }
@@ -210,12 +204,16 @@ export const DetectedPathRow = memo(function DetectedPathRow({
   onUpdate,
 }: DetectedPathRowProps): React.ReactElement {
   const { path, sources, kind } = row;
-  const chips = sourceChips(sources, row.freshSources, row.excludedSources);
+  const chips = sourceChips(sources, row.freshSources, row.excludedSources, optedIn);
   // A combined path with nothing live is not combining. The accent bar and the
   // badge follow the live state so a green row never means "this value stopped
   // updating a minute ago", and the badge text carries the difference so the
   // colour is not the only cue.
-  const combining = chips.some((chip) => chip.state === 'live');
+  const rowState: RowState = optedIn
+    ? chips.some((chip) => chip.state === 'live')
+      ? 'combining'
+      : 'stalled'
+    : 'inactive';
   const canCombine = row.combinable !== false && kind !== 'other';
   const advisory = row.advisory ?? (kind === 'other' ? NON_NUMERIC_ADVISORY : undefined);
   const [tuneOpen, setTuneOpen] = useState(false);
@@ -240,7 +238,7 @@ export const DetectedPathRow = memo(function DetectedPathRow({
 
   return (
     <Card
-      accent={optedIn ? (combining ? 'success' : 'warning') : undefined}
+      accent={ROW_STATE_ACCENT[rowState]}
       className={styles.row}
       density="flush"
       data-detected-path-row=""
@@ -251,13 +249,14 @@ export const DetectedPathRow = memo(function DetectedPathRow({
       {/* The path leads so the row names its subject before the action. */}
       <Cluster className={styles.header} gap={2}>
         <Code
+          break="segments"
           id={pathId}
           className={canCombine ? styles.path : `${styles.path} ${styles.pathUnavailable}`}
         >
-          <BreakablePath path={path} />
+          {path}
         </Code>
 
-        <RowMetadata chips={chips} kind={kind} optedIn={optedIn} combining={combining} />
+        <RowMetadata chips={chips} kind={kind} rowState={rowState} />
 
         <PathAction
           advisoryId={advisory ? reasonId : undefined}

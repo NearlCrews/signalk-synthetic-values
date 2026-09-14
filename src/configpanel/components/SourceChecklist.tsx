@@ -28,9 +28,12 @@ export function SourceChecklist({
   onChange,
 }: Props): React.ReactElement {
   const useIncludeModel = Array.isArray(includeSources) && includeSources.length > 0;
+  // Membership is asked once per source, so each list is hashed once rather
+  // than rescanned per source on every render and every toggle.
+  const listed = new Set(useIncludeModel ? includeSources : (excludeSources ?? []));
   const selected = useIncludeModel
-    ? sources.filter((src) => includeSources.includes(src))
-    : sources.filter((src) => !excludeSources?.includes(src));
+    ? sources.filter((src) => listed.has(src))
+    : sources.filter((src) => !listed.has(src));
 
   function handleChange(next: readonly string[]): void {
     if (next.length === 0) {
@@ -43,7 +46,8 @@ export function SourceChecklist({
       onChange({ includeSources: [...next], excludeSources: undefined });
       return;
     }
-    const excluded = sources.filter((src) => !next.includes(src));
+    const chosen = new Set(next);
+    const excluded = sources.filter((src) => !chosen.has(src));
     onChange({
       includeSources: undefined,
       excludeSources: excluded.length === 0 ? undefined : excluded,

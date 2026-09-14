@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { memo, useRef, useState } from 'react';
+import { memo, useState } from 'react';
 import {
   Banner,
   CollapsibleSection,
@@ -9,8 +9,15 @@ import {
   Stack,
   VisuallyHidden,
 } from 'signalk-nearlcrews-ui';
+import { COMBINE_METHODS, type CombineMethod } from '../../combine.js';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
-import { DEFAULT_JUMP_PERSIST_MS, DEFAULT_JUMP_PERSIST_SAMPLES } from '../../config.js';
+import {
+  ANGULAR_MODES_LIST,
+  DEFAULT_ANGULAR_SPREAD_THRESHOLD,
+  DEFAULT_MAD_THRESHOLD,
+  DEFAULT_TRIM_FRACTION,
+  sourceFilterFor,
+} from '../../config.js';
 import { plural } from '../../textFormat.js';
 import { usePanelDefaults } from '../defaultsContext.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
@@ -51,26 +58,34 @@ interface Props {
   idPrefix: string;
 }
 
-const METHOD_CHOICES = [
-  { value: 'median', label: 'Median' },
-  { value: 'trimmedMean', label: 'Trimmed mean' },
-  { value: 'mean', label: 'Mean' },
-] as const;
+type AngularMode = (typeof ANGULAR_MODES_LIST)[number];
 
-const ANGULAR_CHOICES = [
-  { value: 'auto', label: 'Auto' },
-  { value: 'yes', label: 'Yes' },
-  { value: 'no', label: 'No' },
-] as const;
+// Only the display labels live here. The values come from the modules that own
+// them, so a new combine method or angular mode fails to compile until it is
+// given a label rather than silently missing from the panel.
+const METHOD_LABELS: Record<CombineMethod, string> = {
+  median: 'Median',
+  trimmedMean: 'Trimmed mean',
+  mean: 'Mean',
+};
 
-// Which of a path's sources pass the include and exclude filter, matching
-// `sourceAllowed` in the runtime.
+const ANGULAR_LABELS: Record<AngularMode, string> = {
+  auto: 'Auto',
+  yes: 'Yes',
+  no: 'No',
+};
+
+const METHOD_CHOICES = COMBINE_METHODS.map((value) => ({ value, label: METHOD_LABELS[value] }));
+
+const ANGULAR_CHOICES = ANGULAR_MODES_LIST.map((value) => ({
+  value,
+  label: ANGULAR_LABELS[value],
+}));
+
+// Which of a path's sources pass the include and exclude filter, using the same
+// compiled rule the runtime applies to every delta.
 function countIncludedSources(sources: string[], config: RawPathConfig): number {
-  const include = config.includeSources;
-  const exclude = config.excludeSources;
-  return sources.filter(
-    (src) => (!include?.length || include.includes(src)) && !exclude?.includes(src)
-  ).length;
+  return sources.filter(sourceFilterFor(config)).length;
 }
 
 export function PerPathSettings({ row, config, onChange, idPrefix }: Props): React.ReactElement {
@@ -99,20 +114,18 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
         onChange={(method) => onChange({ method })}
       />
 
-      <NumberField
-        allowEmpty
-        density="compact"
-        inputProps={{ placeholder: `default: ${defaults.minSources}` }}
-        integer
+      <PatchNumberField
         label="Minimum sources"
-        layout="inline"
+        value={config.minSources}
+        placeholder={`default: ${defaults.minSources}`}
+        fieldKey="minSources"
+        integer
         // The runtime drops a path whose minimum exceeds the tracked-source
         // cap, so the field refuses the value rather than letting a saved
         // config delete the entry.
         max={defaults.maxSourcesPerPath}
         min={1}
-        value={config.minSources}
-        onValueChange={(minSources) => onChange({ minSources })}
+        onChange={onChange}
       />
 
       {showMinSourcesWarning ? (
@@ -150,6 +163,7 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
 
 type NumericKey = keyof Pick<
   RawPathConfig,
+  | 'minSources'
   | 'madThreshold'
   | 'rejectThreshold'
   | 'disagreeThreshold'
@@ -166,6 +180,7 @@ interface PatchNumberFieldProps {
   placeholder: string;
   fieldKey: NumericKey;
   unit?: string | undefined;
+  integer?: boolean | undefined;
   min?: number | undefined;
   max?: number | undefined;
   exclusiveMin?: boolean | undefined;
@@ -180,6 +195,7 @@ const PatchNumberField = memo(function PatchNumberField({
   placeholder,
   fieldKey,
   unit,
+  integer,
   min = 0,
   max,
   exclusiveMin,
@@ -193,6 +209,7 @@ const PatchNumberField = memo(function PatchNumberField({
       exclusiveMax={exclusiveMax}
       exclusiveMin={exclusiveMin}
       inputProps={{ placeholder }}
+      integer={integer}
       label={label}
       layout="inline"
       max={max}
@@ -205,11 +222,10 @@ const PatchNumberField = memo(function PatchNumberField({
 });
 
 /**
- * The jump-rejection rate, which switches the whole feature on and off.
- * Clearing it removes `jumpRejection` from the saved config, so the persist
- * settings ride along in a ref and are restored if the rate comes back. The
- * README promises this panel preserves those two values rather than editing
- * them, and without the ref that promise held everywhere except here.
+ * The jump-rejection rate, which switches the whole feature on and off. An
+ * absent rate means off, so clearing the field writes one key and leaves the
+ * persist settings saved beside it, which is what the README promises and what
+ * every other editor of the same config now gets too.
  */
 function JumpRateField({
   config,
@@ -218,17 +234,6 @@ function JumpRateField({
   config: RawPathConfig;
   onChange: (patch: RawPathConfigPatch) => void;
 }): React.ReactElement {
-  const preserved = useRef({
-    persistSamples: config.jumpRejection?.persistSamples ?? DEFAULT_JUMP_PERSIST_SAMPLES,
-    persistMs: config.jumpRejection?.persistMs ?? DEFAULT_JUMP_PERSIST_MS,
-  });
-  if (config.jumpRejection) {
-    preserved.current = {
-      persistSamples: config.jumpRejection.persistSamples ?? preserved.current.persistSamples,
-      persistMs: config.jumpRejection.persistMs ?? preserved.current.persistMs,
-    };
-  }
-
   return (
     <NumberField
       allowEmpty
@@ -240,14 +245,18 @@ function JumpRateField({
       min={0}
       unit="per second"
       value={config.jumpRejection?.maxRate}
-      onValueChange={(maxRate) =>
-        onChange({
-          jumpRejection: maxRate === undefined ? undefined : { maxRate, ...preserved.current },
-        })
-      }
+      onValueChange={(maxRate) => onChange({ jumpRejection: { ...config.jumpRejection, maxRate } })}
     />
   );
 }
+
+// The default angular spread reads as a quarter turn rather than as
+// 1.5707963267948966, but only while it is one: a changed constant prints
+// itself instead of leaving the panel naming a value the schema no longer uses.
+const ANGULAR_SPREAD_PLACEHOLDER =
+  DEFAULT_ANGULAR_SPREAD_THRESHOLD === Math.PI / 2
+    ? 'default: \u03c0/2'
+    : `default: ${DEFAULT_ANGULAR_SPREAD_THRESHOLD}`;
 
 interface AdvancedFieldsProps {
   config: RawPathConfig;
@@ -263,7 +272,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
       <PatchNumberField
         label="Outlier threshold (MAD multiplier)"
         value={config.madThreshold}
-        placeholder="default: 3"
+        placeholder={`default: ${DEFAULT_MAD_THRESHOLD}`}
         fieldKey="madThreshold"
         onChange={onChange}
       />
@@ -287,7 +296,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         label="Angular spread threshold"
         unit="radians"
         value={config.angularSpreadThreshold}
-        placeholder="default: π/2"
+        placeholder={ANGULAR_SPREAD_PLACEHOLDER}
         fieldKey="angularSpreadThreshold"
         exclusiveMin
         onChange={onChange}
@@ -295,7 +304,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
       <PatchNumberField
         label="Trim fraction (0 to less than 0.5)"
         value={config.trimFraction}
-        placeholder="default: 0.25"
+        placeholder={`default: ${DEFAULT_TRIM_FRACTION}`}
         fieldKey="trimFraction"
         max={0.5}
         exclusiveMax

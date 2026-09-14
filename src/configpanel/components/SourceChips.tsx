@@ -17,22 +17,25 @@ interface SourceChipsProps {
 const VISIBLE_MAX = 3;
 
 /**
- * Work out how each detected source stands. `freshSources` is null for a path
- * that is not configured, where no combination is running and every source is
- * simply listed.
+ * Work out how each detected source stands. Freshness only means something on a
+ * path that is combining: an unconfigured path runs no combination, so every
+ * source it reports is simply listed.
  */
 export function sourceChips(
   sources: string[],
-  freshSources: string[] | null | undefined,
-  excludedSources: string[] | undefined
+  freshSources: string[] | undefined,
+  excludedSources: string[] | undefined,
+  optedIn: boolean
 ): SourceChip[] {
   const excluded = new Set(excludedSources ?? []);
-  const fresh = freshSources == null ? null : new Set(freshSources);
+  // Freshness only means something on a path that is combining, and only when
+  // the route reported it at all.
+  const fresh = optedIn && freshSources !== undefined ? new Set(freshSources) : undefined;
   return sources.map((sourceRef) => ({
     sourceRef,
     state: excluded.has(sourceRef)
       ? 'excluded'
-      : fresh === null || fresh.has(sourceRef)
+      : fresh === undefined || fresh.has(sourceRef)
         ? 'live'
         : 'stale',
   }));
@@ -48,11 +51,9 @@ function chipLabel({ sourceRef, state }: SourceChip): string {
 }
 
 function SourceChipBadge({ chip }: { chip: SourceChip }): React.ReactElement {
-  return (
-    <Badge className={styles.chip} tone={chip.state === 'stale' ? 'warning' : 'neutral'}>
-      {chipLabel(chip)}
-    </Badge>
-  );
+  // No wrapping override: a source reference can be long (`n2k-1.35`,
+  // `nmea0183.GP.RMC`), and the package badge already wraps inside itself.
+  return <Badge tone={chip.state === 'stale' ? 'warning' : 'neutral'}>{chipLabel(chip)}</Badge>;
 }
 
 /**

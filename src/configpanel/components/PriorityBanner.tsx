@@ -1,8 +1,6 @@
 import type * as React from 'react';
 import { Banner } from 'signalk-nearlcrews-ui';
 
-const PRIORITY_BANNER_TITLE = 'Set source priority to use combined values';
-
 export interface PriorityBannerProps {
   show: boolean;
   sourceLabel: string;
@@ -34,7 +32,7 @@ export function PriorityBanner({
       dismissFocusRef={dismissFocusRef}
       onDismiss={onDismiss}
       role="region"
-      title={PRIORITY_BANNER_TITLE}
+      title="Set source priority to use combined values"
       tone="info"
     >
       Combined values use <strong>{sourceLabel}</strong>. In{' '}
