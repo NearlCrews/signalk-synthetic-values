@@ -17,11 +17,18 @@ async function hideHostChrome(page: Page): Promise<void> {
   });
 }
 
-/** The save bar's status line, told apart from the detected-paths announcer by its wording. */
+/**
+ * The save bar's status line, told apart from the detected-paths announcer by
+ * the marker the shared action bar puts on it rather than by its wording, which
+ * the package owns and may reword.
+ */
 function saveStatus(page: Page): Locator {
-  return page.getByRole('status').filter({
-    hasText: /all changes saved|unsaved changes|save sent to the server|save to enable the plugin/i,
-  });
+  return page.locator('[data-snui-action-bar-status]');
+}
+
+/** The row the fixture starts already combined. */
+function combinedRow(page: Page): Locator {
+  return page.locator('[data-detected-path-row][data-combined="true"]');
 }
 
 /**
@@ -151,7 +158,7 @@ test('keeps a tuned value across a collapse and reopen of its section', async ({
   // effect cleanup in the subtree and reopening re-runs them while the field
   // state survives. The shared number field keeps its draft beside the value
   // it was typed against, so this asserts the edit survives the round trip.
-  const row = page.locator('[data-detected-path-row][data-combined="true"]');
+  const row = combinedRow(page);
   const tune = row.getByRole('button', {
     name: 'Tune settings for navigation.speedOverGround',
     exact: true,
@@ -171,44 +178,42 @@ test('keeps a tuned value across a collapse and reopen of its section', async ({
 });
 
 test('insets the nested Advanced section inside the embedded Tune section', async ({ page }) => {
-  // Tune is an embedded CollapsibleSection: it drops its own inline padding so
-  // the row wrapper supplies the inset the flush card no longer pads. Advanced
-  // nests inside it at the default variant, so it keeps its own inset. The
-  // package scopes the embedded rules to direct children for exactly this case.
-  const row = page.locator('[data-detected-path-row][data-combined="true"]');
-  await row
-    .getByRole('button', { name: 'Tune settings for navigation.speedOverGround', exact: true })
-    .click();
+  // Tune is an embedded CollapsibleSection, so the plugin's own wrapper supplies
+  // the inset the flush card no longer pads, and Advanced nests inside it at the
+  // default variant and adds one of its own. Measured as the geometry a reader
+  // sees, so the package is free to move the markup that produces it.
+  const row = combinedRow(page);
+  const tuneToggle = row.getByRole('button', {
+    name: 'Tune settings for navigation.speedOverGround',
+    exact: true,
+  });
+  await tuneToggle.click();
   const tune = row.getByRole('region', {
     name: 'Tune settings for navigation.speedOverGround',
   });
-  await tune
-    .getByRole('button', { name: 'Advanced settings for navigation.speedOverGround', exact: true })
-    .click();
+  const advancedToggle = tune.getByRole('button', {
+    name: 'Advanced settings for navigation.speedOverGround',
+    exact: true,
+  });
+  await advancedToggle.click();
   const advanced = tune.getByRole('region', {
     name: 'Advanced settings for navigation.speedOverGround',
   });
-  await expect(advanced.getByRole('spinbutton', { name: /^Outlier threshold/ })).toBeVisible();
+  const field = advanced.getByRole('spinbutton', { name: /^Outlier threshold/ });
+  await expect(field).toBeVisible();
 
-  const insets = await Promise.all(
-    [tune, advanced].map((section) =>
-      section.evaluate((element) => {
-        const header = element.querySelector(':scope > header') as HTMLElement;
-        const toggle = header.querySelector('button') as HTMLButtonElement;
-        const contentId = toggle.getAttribute('aria-controls') as string;
-        const content = element.ownerDocument.getElementById(contentId) as HTMLElement;
-        return {
-          content: Number.parseFloat(getComputedStyle(content).paddingInlineStart),
-          header: Number.parseFloat(getComputedStyle(header).paddingInlineStart),
-        };
-      })
-    )
-  );
-  const [embedded, nested] = insets;
-  expect(embedded?.header).toBe(0);
-  expect(embedded?.content).toBe(0);
-  expect(nested?.header).toBeGreaterThan(0);
-  expect(nested?.content).toBeGreaterThan(0);
+  const [rowBox, tuneBox, advancedBox] = await Promise.all([
+    row.boundingBox(),
+    tuneToggle.boundingBox(),
+    advancedToggle.boundingBox(),
+  ]);
+  if (rowBox === null || tuneBox === null || advancedBox === null) {
+    throw new Error('The Tune section is not visible.');
+  }
+  // The plugin wrapper holds Tune off the card edge, and Advanced sits further
+  // in again, so the nesting is visible rather than implied.
+  expect(tuneBox.x).toBeGreaterThan(rowBox.x);
+  expect(advancedBox.x).toBeGreaterThan(tuneBox.x);
 });
 
 interface CombinedRowLayout {
@@ -221,7 +226,7 @@ interface CombinedRowLayout {
 
 /** Card, path, and action geometry for the row the fixture starts combined. */
 async function combinedRowLayout(page: Page): Promise<CombinedRowLayout> {
-  const row = page.locator('[data-detected-path-row][data-combined="true"]');
+  const row = combinedRow(page);
   const path = row.getByText('navigation.speedOverGround', { exact: true });
   const [panelWidth, headerInline, rowBox, pathBox, actionBox] = await Promise.all([
     page.locator('[data-snui-root]').evaluate((element) => element.clientWidth),
@@ -250,7 +255,7 @@ test('marks a combined row with the shared card accent bar', async ({ page }) =>
   // The accent comes from the card's own `accent` prop, so this pins the tone
   // color and the fact that the leading edge is heavier than the plain card
   // border, without restating the width the package owns.
-  const row = page.locator('[data-detected-path-row][data-combined="true"]');
+  const row = combinedRow(page);
   const accent = await row.evaluate((element) => {
     const probe = element.ownerDocument.createElement('span');
     probe.style.color = 'var(--snui-color-success)';
@@ -286,7 +291,7 @@ test('keeps the plugin row overrides ahead of the scoped package styles', async 
   // The card ships a grid gap between its slots; the row draws its own dividers
   // instead, so a zero gap here proves the doubled class still outranks the
   // package rule inside its native CSS scope.
-  const row = page.locator('[data-detected-path-row][data-combined="true"]');
+  const row = combinedRow(page);
   await expect(row).toHaveCSS('row-gap', '0px');
 
   const { actionBox, headerInline, rowBox } = await combinedRowLayout(page);
@@ -510,7 +515,7 @@ test('provides coarse-pointer controls with 44-pixel targets @coarse', async ({ 
   // the wrapper rather than the box: a local height that cannot carry the
   // coarse-pointer media query is how this shrinks, and it shrinks silently,
   // since neither an axe scan nor a narrow viewport measures target size.
-  const row = page.locator('[data-detected-path-row][data-combined="true"]');
+  const row = combinedRow(page);
   await row.getByRole('button', { name: /^Tune settings for/ }).click();
   const target = row.getByRole('checkbox').first().locator('xpath=ancestor::label[1]');
   const targetBox = await target.boundingBox();
