@@ -105,6 +105,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   upload and the audit beside them.
 - The backend type-check project covers `test/configpanel`, which a
   top-level-only glob had left type-checked by nothing.
+- Pinned workflow references move to `github/codeql-action` 4.37.9,
+  `zizmorcore/zizmor-action` 0.6.3, and the official Signal K reusable
+  plugin-ci workflow at its 2026-09-13 master commit, which adds an
+  asynchronous crash trap to the lifecycle check and a working-directory input
+  that defaults to the repository root.
 
 ### Fixed
 
