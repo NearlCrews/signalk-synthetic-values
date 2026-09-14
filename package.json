@@ -1,6 +1,6 @@
 {
   "name": "signalk-synthetic-values",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "Combine redundant sensors on one Signal K path into a robust median or outlier-rejected value",
   "keywords": [
     "signalk-node-server-plugin",
@@ -88,7 +88,7 @@
     "build:types": "node scripts/build-types.mjs",
     "build:bundle": "node esbuild.config.js",
     "build:panel": "node scripts/build-panel.mjs",
-    "check:panel": "node scripts/check-panel-bundle.mjs",
+    "check:panel": "node scripts/check-panel-bundle.mjs && snui-check-consumer --root . --remote public/remoteEntry.js --baseline scripts/panel-size-baseline.json",
     "build": "npm run clean && npm run build:types && npm run build:bundle && npm run build:panel && npm run check:panel",
     "type-check": "tsc --noEmit && npm run type-check:test && npm run type-check:panel && npm run type-check:browser",
     "type-check:test": "tsc -p tsconfig.test.json --noEmit",
@@ -124,7 +124,6 @@
     "validate": "npm run verify",
     "prepublishOnly": "npm run verify:release",
     "hooks": "husky",
-    "security-audit": "npm audit --audit-level=moderate",
     "dev": "tsx watch src/index.ts"
   },
   "devDependencies": {
@@ -132,34 +131,43 @@
     "@babel/core": "^8.0.1",
     "@babel/preset-react": "^8.0.1",
     "@babel/preset-typescript": "^8.0.1",
-    "@biomejs/biome": "2.5.10",
-    "@playwright/test": "^1.62.1",
+    "@biomejs/biome": "2.5.12",
+    "@playwright/test": "^1.63.0",
     "@signalk/server-api": "^2.31.1",
     "@testing-library/dom": "^10.4.1",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@types/express": "^5.0.6",
     "@types/node": "^20.19.43",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
-    "@vitejs/plugin-react": "^6.1.0",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^5.0.0",
     "babel-loader": "^10.1.1",
-    "cspell": "10.0.1",
+    "cspell": "10.2.2",
     "esbuild": "^0.28.2",
     "husky": "^9.1.7",
-    "jsdom": "^27.4.0",
-    "knip": "^6.32.2",
+    "jsdom": "^30.0.1",
+    "knip": "^6.34.0",
     "markdownlint-cli2": "0.23.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "signalk-nearlcrews-ui": "0.8.2",
-    "tsx": "^4.23.12",
+    "signalk-nearlcrews-ui": "0.11.1",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
-    "vitest": "^4.1.11",
-    "webpack": "^5.109.2",
-    "webpack-cli": "^7.2.2"
+    "vitest": "^5.0.0",
+    "webpack": "^5.110.3",
+    "webpack-cli": "^7.2.3"
+  },
+  "overrides": {
+    "vitest": {
+      "@types/node": "$@types/node"
+    },
+    "@vitest/coverage-v8": {
+      "@types/node": "$@types/node"
+    },
+    "smol-toml": "1.8.0"
   },
   "allowScripts": {
     "esbuild@0.28.2": true

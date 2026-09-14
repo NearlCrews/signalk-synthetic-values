@@ -20,6 +20,7 @@ import webpack from 'webpack';
  * runs inside `npm run package:check`.
  */
 
+const require = createRequire(import.meta.url);
 const repositoryDir = new URL('../', import.meta.url);
 const noticesUrl = new URL('THIRD_PARTY_NOTICES.md', repositoryDir);
 const checkOnly = process.argv.includes('--check');
@@ -31,23 +32,13 @@ function readJson(relativePath) {
 }
 
 /**
- * The shared UI version comes from the manifest rather than a literal in this
- * file, so a re-pin touches one place. `scripts/check-package.mjs` owns the
- * tripwire that an unreviewed bump has to clear.
+ * The shared UI version comes from the installed package's exported manifest,
+ * so the header names the release webpack actually bundled. The exact pin and
+ * its match with the installed tree are asserted by `snui-check-consumer` in
+ * `npm run check:panel`.
  */
 function sharedUiVersion() {
-  const pinned = readJson('package.json').devDependencies?.['signalk-nearlcrews-ui'];
-  if (typeof pinned !== 'string' || !pinned) {
-    throw new Error('package.json does not pin signalk-nearlcrews-ui.');
-  }
-  // Resolved by path: the package exports no ./package.json subpath.
-  const installed = readJson('node_modules/signalk-nearlcrews-ui/package.json').version;
-  if (installed !== pinned) {
-    throw new Error(
-      `Installed signalk-nearlcrews-ui ${String(installed)} does not match package.json ${pinned}.`
-    );
-  }
-  return installed;
+  return require('signalk-nearlcrews-ui/package.json').version;
 }
 
 function licenseTextFor(name) {
@@ -87,7 +78,6 @@ function emitsWebpackRuntime(modules) {
 
 /** Ask webpack which packages it actually bundles, rather than guessing from the manifest. */
 async function bundledPackageNames() {
-  const require = createRequire(import.meta.url);
   const config = require('../webpack.config.cjs');
   const stats = await new Promise((resolve, reject) => {
     webpack(config, (error, result) => {

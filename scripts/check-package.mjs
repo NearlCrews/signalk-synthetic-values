@@ -139,23 +139,18 @@ for (const file of files) {
 if (packageJson.dependencies?.['signalk-nearlcrews-ui']) {
   throw new Error('signalk-nearlcrews-ui must be a bundled development dependency.');
 }
-// Two invariants with different lifetimes, asserted separately. The shape
-// check is permanent and never hand-edited: it rejects range prefixes and
-// prereleases even when a failing version literal below gets pasted over.
-// The literal is the deliberate-bump tripwire for each re-pin.
+// The exact pin, and its match with the installed tree and the built remote,
+// are asserted by the shared UI package's own `snui-check-consumer` in
+// `npm run check:panel`. The README names the bundled release so a reader does
+// not have to open the manifest; reading the pin here is what keeps that
+// sentence from going stale on the next re-pin.
 const uiPin = packageJson.devDependencies?.['signalk-nearlcrews-ui'];
-if (!/^0\.\d+\.\d+$/.test(uiPin ?? '')) {
-  throw new Error(`The UI package pin must be an exact 0.x version, got ${uiPin}.`);
+if (typeof uiPin !== 'string' || uiPin === '') {
+  throw new Error('package.json must pin signalk-nearlcrews-ui in devDependencies.');
 }
-if (uiPin !== '0.8.2') {
-  throw new Error(`The UI package must be pinned to 0.8.2 during its 0.x series, got ${uiPin}.`);
-}
-// The README names the bundled release so a reader does not have to open the
-// manifest. Asserting it here is what keeps that sentence from going stale on
-// the next re-pin.
 const readme = await readFile('README.md', 'utf8');
-if (!readme.includes('`signalk-nearlcrews-ui` 0.8.2')) {
-  throw new Error('README.md must name the bundled signalk-nearlcrews-ui 0.8.2.');
+if (!readme.includes(`\`signalk-nearlcrews-ui\` ${uiPin}`)) {
+  throw new Error(`README.md must name the bundled signalk-nearlcrews-ui ${uiPin}.`);
 }
 // @types/node must describe the runtime floor this package advertises, not a
 // newer Node. Deriving the major from engines.node keeps the two in step: a
@@ -172,15 +167,37 @@ if (typeof typesNodeRange !== 'string' || !typesNodeRange.startsWith(`^${engineF
   );
 }
 
-for (const [dependency, expectedRange] of Object.entries({
-  '@testing-library/jest-dom': '^6.9.1',
-  jsdom: '^27.4.0',
-})) {
-  if (packageJson.devDependencies?.[dependency] !== expectedRange) {
+// The test toolchain no longer starts on the runtime floor: Vitest 5, jsdom 30,
+// and jest-dom 7 all require Node 22 or newer, so the advisory armv7 Cerbo GX
+// lane in the official plugin workflow can install and build the plugin but can
+// no longer run the unit suite. That lane is declared continue-on-error
+// upstream, so it never gated a release. Floor coverage stays with ci.yml's
+// node-20-runtime job, which runs the type checks, the runtime build, and an
+// import smoke on 20.18.
+//
+// Vitest declares an optional @types/node peer at Node 22 types or newer, which
+// the pinned major above cannot satisfy, so the manifest holds that peer at the
+// root pin for the Vitest packages. Without it npm refuses to resolve the tree.
+// It changes resolution only: TypeScript still reads the root @types/node.
+for (const scope of ['vitest', '@vitest/coverage-v8']) {
+  if (packageJson.overrides?.[scope]?.['@types/node'] !== '$@types/node') {
     throw new Error(
-      `${dependency} must remain at ${expectedRange} while the official armv7 lane tests Node 20.`
+      `overrides["${scope}"]["@types/node"] must be "$@types/node" so npm resolves the Vitest peer on the Node ${engineFloorMajor} types.`
     );
   }
+}
+
+// smol-toml before 1.8.0 is the development-only advisory that turned this
+// repository's security audit red (GHSA-c83g-rgw3-j3cx and the fast-uri set
+// arrived at the same time and were fixed by an ordinary refresh; this one
+// needed a pin because cspell, knip, and markdownlint-cli2 all resolved an
+// older transitive copy). Recorded here because package.json cannot carry a
+// comment. Drop the pin once every consumer resolves 1.8.0 or newer on its own,
+// which `npm ls smol-toml --all` will show.
+if (packageJson.overrides?.['smol-toml'] !== '1.8.0') {
+  throw new Error(
+    'overrides["smol-toml"] must pin 1.8.0 while cspell, knip, and markdownlint-cli2 still resolve an older transitive copy.'
+  );
 }
 
 console.log(`Packed package passed: ${files.size} files in ${packResult.filename}.`);
