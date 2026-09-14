@@ -27,9 +27,22 @@ serves, and any implementation ideas you have.
 ## Development requirements
 
 The published plugin supports Node 20.18 or newer at runtime. The development
-and build toolchain requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`. The checked-in
+and build toolchain requires Node `^22.22.2 || ^24.15.0 || ^26.0.0`. The checked-in
 `.node-version` selects Node 22.23.1. Use `npm ci` to install the exact dependency
 tree recorded in `package-lock.json`.
+
+The test toolchain starts at Node 22: Vitest, jsdom, and jest-dom all declare
+that floor. The advisory armv7 Cerbo GX lane in the official Signal K plugin
+workflow therefore installs and builds the plugin but cannot run the unit
+suite; upstream declares that lane `continue-on-error`, so it never gated a
+release. What defends the published runtime floor is the blocking `node-20-runtime` job in
+`.github/workflows/ci.yml`: it type-checks, builds the declaration and runtime
+bundles, and imports the built artifact on 20.18. Keep `@types/node` on the
+major named by `engines.node` so a Node API the floor cannot run never passes
+the type checks; `scripts/check-package.mjs` enforces the pairing. Vitest
+declares an optional `@types/node` peer at Node 22 types or newer, so the
+`overrides` block in `package.json` holds that peer at the root pin. It changes
+resolution only: TypeScript still reads the root `@types/node`.
 
 ## Pull requests
 
@@ -58,6 +71,17 @@ tree recorded in `package-lock.json`.
 - Run `npm run knip` when adding or removing modules, exports, scripts, or
   dependencies.
 - Do not edit `dist/` or `public/`; both are generated build output.
+- The configuration panel bundles `signalk-nearlcrews-ui` at an exact pin and
+  takes its Module Federation share map from `signalk-nearlcrews-ui/federation`.
+  `npm run check:panel` runs the library's `snui-check-consumer` against the
+  built remote (the pin, the version stamp, the share map, the absence of a
+  React runtime, and the size baseline in `scripts/panel-size-baseline.json`);
+  `scripts/check-panel-bundle.mjs` keeps only this repository's own build and
+  CSS assertions. Read the library's migration guide before moving the pin.
+- A panel CSS class that lands on a shared UI component is written doubled
+  (`.name.name`) so it outranks the library's scoped rule; the doubling case in
+  `test/configpanel/styles.test.ts` enforces it. Prefer a library prop over an
+  override wherever one exists.
 - Tests live in `test/`, mirroring the source structure, and run on Vitest
   (`npm test` for a single run, `npm run test:watch` for the watcher). Backend
   tests are type-checked by `npm run type-check:test`.
@@ -65,6 +89,10 @@ tree recorded in `package-lock.json`.
   Firefox, and WebKit with
   `npx --no-install playwright install chromium firefox webkit`, then run
   `npm run test:browser:cross`.
+- `test:browser:cross` and `test:browser:cross:built` run the same command. The
+  first has a `pretest` hook that builds; the second does not, and exists for CI,
+  where the `build` job has already produced the panel remote. Use the plain one
+  locally.
 - Browser tests start an isolated fixture server. If port 4175 is occupied, set
   `SYNTHETIC_VALUES_BROWSER_PORT` to an unused port from 1024 through 65535.
 - Default to no comments. Add one only when the WHY is non-obvious (a hidden

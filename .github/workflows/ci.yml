@@ -38,16 +38,23 @@ jobs:
       - name: Install dependencies
         run: npx --yes npm@12.0.2 ci
 
+      # Biome, markdownlint, cspell, the workflow contract script, knip, and tsc
+      # all produce identical results on every Node in the matrix, so they run
+      # once rather than three times, matching the Codecov and audit steps below.
       - name: Run linter
+        if: matrix.node-version == '22.22.2'
         run: npm run lint
 
       - name: Check workflow contracts
+        if: matrix.node-version == '22.22.2'
         run: npm run ci:workflows
 
       - name: Check for dead code
+        if: matrix.node-version == '22.22.2'
         run: npm run knip
 
       - name: Run type check
+        if: matrix.node-version == '22.22.2'
         run: npm run type-check
 
       - name: Run tests with coverage
@@ -66,13 +73,14 @@ jobs:
 
       - name: Run security audit
         if: matrix.node-version == '22.22.2'
-        run: npm run security-audit
+        run: npm run audit:full
 
   # Blocking coverage for the published >=20.18 runtime floor, scoped to what
   # a FRESH install on that exact Node can genuinely do (verified against a
   # clean clone on real 20.18.0): install, every type-check project, the
   # declaration and esbuild bundle builds, and an import smoke proving the
-  # built runtime artifact loads. Vitest CANNOT run here: npm skips optional
+  # built runtime artifact loads. Vitest CANNOT run here, for two reasons now:
+  # it declares Node 22 or newer from version 5, and npm skips optional
   # dependencies whose engines it cannot satisfy, so a 20.18 install omits
   # the rolldown native bindings and vitest dies at startup with "Cannot
   # find module '@rolldown/binding-*'". The panel webpack build cannot run

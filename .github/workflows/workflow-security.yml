@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   actionlint:
     runs-on: ubuntu-latest
@@ -23,10 +27,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6.0.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
       - name: Check workflow syntax
+        # Dependabot's github-actions ecosystem cannot see a version inside a
+        # `run:` step, and there is no Go module manifest here, so nothing will tell
+        # you when this ages. Bump it by hand at release time, and update the
+        # matching string in scripts/check-workflows.mjs.
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
   zizmor:
