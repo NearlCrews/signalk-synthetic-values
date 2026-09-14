@@ -1,6 +1,12 @@
 # signalk-synthetic-values Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+- Date: 2026-06-23
+- Status: implemented. Retained as a historical record of the original design, not as work to carry
+  out.
+
+Details have moved on since this was written. The admin screens it names are from a Signal K version
+that predates the current sidebar, and the README it specifies has been rewritten several times.
+Read it for the reasoning behind the design, not for the instructions.
 
 **Goal:** Build a Signal K node-server plugin that combines multiple sources of the same path into one robust synthetic value (median, kind-aware outlier rejection, and disagreement detection) emitted as an additional source on the same path.
 

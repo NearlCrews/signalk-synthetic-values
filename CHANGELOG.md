@@ -7,6 +7,199 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Confidence notifications. Each combined path publishes
+  `notifications.<path>` describing how much the published value can be
+  trusted, so a consumer that reads only the value can still tell a clean
+  four-sensor consensus from a value assembled after half the sensors were
+  discarded. `alert` covers a suppressed value and a breach of the
+  `disagreeThreshold` you set, `warn` covers a rejected sensor, a lone
+  remaining source, a slew-limited output, a split sensor set, and a path that
+  has run out of fresh sources, and `normal` clears a previous notification.
+  Only an alert requests the `visual` method, so the plugin never asks the boat
+  to make a sound, and `alarm` and `emergency` are never used. The new
+  top-level `notifications` option switches the channel off.
+- A split check that needs no units. With three or more readings, a combined
+  value whose nearest reading is further away than a quarter of the whole
+  spread means the sources have split into groups and the published value sits
+  in the gap between them. The path reports as disagreeing and raises a
+  notification, and the value is still published, because suppressing it needs
+  a threshold in the path's own units. Setting `disagreeThreshold` replaces the
+  check on that path. Position is excluded, because receivers at the bow and
+  the stern are a legitimate pair of groups whose midpoint is the answer
+  wanted.
+- Duplicate feeds are collapsed before combining. One sounder forwarded by two
+  gateways is two source names and one sensor, and left alone it votes twice,
+  satisfies `minSources` on its own, and outvotes an independent sensor.
+  Sources that report the same values while those values are changing are
+  grouped and counted once. A feed quantized on the way round, such as this
+  plugin's own output returning over NMEA 2000, is not an exact match and is
+  documented as a configuration hazard instead.
+- Angles are classified against the Signal K specification rather than a short
+  allowlist plus metadata units. Full-circle quantities combine circularly even
+  where the server resolves no units for them, the specification's bounded
+  angles such as a rudder angle combine linearly, and a path reporting radians
+  that is neither is named in the status line, logged once, marked in the panel
+  row, and left out of "Combine all", because averaging a bearing linearly
+  publishes the reciprocal.
+- A path whose sources report less often than its staleness timeout says so.
+  The status line already reported it as waiting for sources; the debug log and
+  the panel row now give the measured reporting interval and name the setting
+  to raise.
+- The detected-path row separates live, stale, and excluded sources. A source
+  that has stopped reporting reads "no data" and an excluded one reads
+  "excluded", the count reads "2 of 3 sources combining" when they differ, and
+  a combined path with nothing live reads "no live sources" instead of keeping
+  its combined accent. Discovery lists a source for a minute while the combiner
+  drops it after the staleness timeout, so the two disagree for up to 59
+  seconds after a sensor dies.
+- Sources past the first three sit behind a real disclosure control rather than
+  a `title` tooltip, which a touch or keyboard user never sees.
+
+### Changed
+
+- The configuration panel now builds on `signalk-nearlcrews-ui` 0.11.1. The
+  theme selector shows its "Panel theme" group label and names the two
+  automatic choices for what they follow, "Match Admin" and "Match device",
+  where they read "Auto" and "System" before. The save bar reads "All changes
+  saved", "Save sent to the server", and "Save to enable the plugin", and a
+  per-path number field that rejects a value now reads, for example, "Enter a
+  number of 0 or more." instead of "Enter a number of at least 0.". Every
+  field error leads with the danger tone mark and its spoken tone word, so an
+  error no longer depends on the danger color alone, and the info tone the
+  panel's notices use is painted in cyan rather than sharing the link color.
+- The priority reminder takes its landmark name from its own visible title
+  instead of repeating that title in a label of its own, which is what the
+  shared banner now does for any banner given a landmark role.
+- The panel size baseline is re-recorded at 47,933 gzip bytes, against 38,263
+  on 0.9.0. The growth is the shared UI release, which the panel takes whole:
+  no panel code was added in the same step, so the 5% growth band measures
+  from the new figure.
+- Jump rejection runs on each observation as it arrives, so `persistSamples`
+  counts sensor samples, which is what its label promises. Running it at emit
+  time only ever saw one sample per emit interval, so a fast sounder needed
+  `persistSamples * emitMinIntervalMs` to confirm a real step. Per-source jump
+  history is now discarded on age rather than on absence from one emit cycle,
+  so a source slower than the staleness window keeps its history instead of
+  re-arming the limiter.
+- The absolute reject distance applies whether or not outlier rejection is on,
+  because it is a hard limit rather than a statistical one, and it is the only
+  rejection that works with two or three sources. The MAD threshold must now be
+  greater than zero: zero reads like "no threshold" and does the opposite,
+  rejecting every reading with any spread at all.
+- The slew limiter stands aside when it would hide a real change: once it has
+  fallen more than ten seconds of catch-up behind the combined value, and on
+  `environment.depth.belowKeel`, `belowTransducer`, and `belowSurface` whenever
+  the water is shoaling. While it is holding the output back, the path reports
+  as held back by the slew limit rather than as combining normally.
+- Fresh readings are ordered by source reference rather than by registry
+  insertion order, so a combined value and the source list beside it do not
+  change when a source drops out and re-registers or when the plugin restarts.
+- The status line and the debug lines carry the units of a reported spread,
+  read "3 of 4 sources" when rejection dropped one, count paths with a rejected
+  source, and point at Data, Priorities, which is where the current Signal K
+  Admin keeps them.
+- The lint, workflow-contract, dead-code, and type checks run once on the Node
+  22 lane instead of three times across the matrix, matching the coverage
+  upload and the audit beside them.
+- The backend type-check project covers `test/configpanel`, which a
+  top-level-only glob had left type-checked by nothing.
+
+### Fixed
+
+- `mean` and `median` answer `NaN` on an empty array rather than one of them
+  returning a plausible-looking zero.
+- An angle normalized from a tiny negative remainder no longer rounds back to
+  exactly 2pi, which published a heading of 360.000 degrees.
+- The circular medoid resolves a tie to the circular mean of the tied readings
+  rather than to whichever source registered first, so a two-source path
+  answers the bisector and the output no longer moves when delta arrival order
+  changes.
+- A slew step of zero width, which two emits sharing a timestamp produce, no
+  longer consumes the reading it could not apply.
+- The panel's Combine button keeps its place in the tab order while it is
+  unavailable, so the description explaining why stays reachable and focus does
+  not drop to the document body when a poll flips a path to a non-combinable
+  kind.
+
+<a id="v056"></a>
+
+## [0.5.6] - 2026-09-08
+
+### Added
+
+- A save bar at the bottom of the configuration panel reports the state of your
+  edits: queued edits read as unsaved until the request goes out, then as
+  requested, and a plugin that has never been configured reads "Save to enable
+  the plugin." Save sends queued edits at once instead of waiting out the
+  coalescing window and retries a failed request; Discard drops queued edits
+  and returns the form to the last requested snapshot. The browser asks for
+  confirmation before the page is left while edits are still queued.
+- Per-path number fields now say why a value was rejected, for example "Enter a
+  number greater than 0.", instead of snapping back silently, and the fields
+  that carry a unit (staleness timeout, emit interval, angular spread, slew
+  limit, and jump rejection rate) show that unit beside the input.
+
+### Changed
+
+- Updated the bundled `signalk-nearlcrews-ui` dependency to 0.9.0 and adopted
+  its panel shell, save bar, number field, live region, relative age, text,
+  hidden text, and inline code primitives. The panel's own copies of each are
+  gone: the local title heading and its stylesheet, the visually hidden
+  utility, the relative-age wording constant, the numeric input parser, the
+  hand-rolled muted and monospace text styling, the priority reminder's custom
+  dismiss control, and the doubled overrides that stripped the card padding,
+  painted the combined row's accent stripe, and stripped the Tune section
+  chrome, which the library now provides as `Card density="flush"`,
+  `Card accent`, and `CollapsibleSection variant="embedded"`.
+- The panel title is a level-2 heading. Signal K Admin already renders the page
+  heading and the plugin card header, so the panel no longer adds a second
+  `h1`.
+- The not-enabled notice explains the first save and no longer carries its own
+  "Enable plugin" button; the save bar's Save performs that save.
+- The priority reminder's dismiss control is the shared banner's own, labeled
+  "Dismiss", and it still returns focus to the detected-paths heading.
+- Refreshed the packaged App Store screenshots to show the migrated panel.
+- The Module Federation share map comes from `signalk-nearlcrews-ui/federation`
+  instead of a copied block, and `npm run check:panel` runs the library's
+  `snui-check-consumer` for the exact pin, the version stamp in the built
+  remote, the absence of a bundled React runtime, the share map, and the size
+  baseline. `scripts/check-panel-bundle.mjs` keeps only this repository's own
+  build, CSS, and module assertions, and `scripts/check-package.mjs` reads the
+  pin from the manifest instead of holding a literal.
+- The panel size baseline is re-recorded at 38,263 gzip bytes for the migrated
+  panel, against 32,152 on 0.8.2; the docked save bar and the number field are
+  the largest additions. The 5% growth band measures from that baseline and the
+  one-off migration ceiling is gone, so the gate catches unexpected growth
+  rather than the migration itself.
+- Dependabot proposes shared UI bumps in their own pull request, separate from
+  the weekly development batch, because the library ships breaking changes in
+  0.x minors.
+- Refreshed development dependencies: Biome 2.5.12, cspell 10.2.2, Playwright
+  1.63, Testing Library React 16.3.3, the React DOM types, the Vite React
+  plugin, Knip 6.34, tsx, webpack 5.110, and webpack-cli 7.2.3, and moved the
+  transitive `browserslist` past its two published advisories and the
+  transitive `fast-uri` past its four. Both are development-only, so the
+  published package never shipped them.
+- Took the Vitest 5, `@vitest/coverage-v8` 5, jsdom 30, and
+  `@testing-library/jest-dom` 7 majors. All four require Node 22 or newer, so
+  the advisory armv7 Cerbo GX lane in the official Signal K plugin workflow can
+  still install and build the plugin but can no longer run the unit suite. That
+  lane never gated a release, and coverage on the published Node 20.18 floor
+  stays with the blocking job that type-checks, builds, and imports the runtime
+  artifact there. `@types/node` stays on the major that matches `engines.node`,
+  so the manifest overrides Vitest's optional types peer back to that pin; the
+  runtime the plugin supports is unchanged.
+
+### Fixed
+
+- The detected-paths announcer no longer sets both `role="status"` and
+  `aria-live="polite"`, which some screen readers read twice.
+- The "last checked" age no longer reads the clock during render; the shared
+  component owns a ten-second tick and stamps the timestamp on a `time`
+  element.
+
 <a id="v055"></a>
 
 ## [0.5.5] - 2026-08-22
@@ -396,7 +589,8 @@ source so raw sensor data is never replaced.
 - **Full config validation.** `validateConfig` is pure and runs at every `start()`. Failing path entries are skipped and named in the status without stopping the plugin.
 - **Tests** across combining math, the circular medoid, damping, registry staleness, emitter shape, config validation, path classification, the combinability list, duplicate-source detection, the aggregate status summary, the config panel components, the per-path settings form, the detected-path row states, feedback prevention, and the stop/start lifecycle. The suite is 273 tests across 24 files.
 
-[Unreleased]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.5...HEAD
+[Unreleased]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.6...HEAD
+[0.5.6]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.2...v0.5.3
