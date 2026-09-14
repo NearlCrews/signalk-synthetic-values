@@ -1,0 +1,18 @@
+/*
+ * Classes that land on a shared UI component repeat their own name so they
+ * outrank the package rule they override. See the doubling case in
+ * test/configpanel/styles.test.ts for why single-class rules lose.
+ */
+
+/* Source references can be long (`n2k-1.35`, `nmea0183.GP.RMC`), so a chip
+   wraps inside itself rather than pushing the row wider. */
+.chip.chip {
+  overflow-wrap: anywhere;
+}
+
+/* The overflow list starts on its own line so the first three chips and the
+   toggle keep their place when it opens. No display declaration: the panel
+   relies on `hidden` while it is closed, and any display here would defeat it. */
+.overflow {
+  width: 100%;
+}

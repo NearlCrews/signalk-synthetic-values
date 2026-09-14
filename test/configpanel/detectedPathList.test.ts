@@ -92,8 +92,27 @@ describe('DetectedPathList: empty state', () => {
         onRefresh: vi.fn(),
       })
     );
-    expect(screen.getByText(/no duplicate paths detected yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/checking for multi-source paths/i)).toBeInTheDocument();
     expect(screen.getByText(/leave your instruments running/i)).toBeInTheDocument();
+  });
+
+  it('offers a refresh in the empty state once the first poll has landed', () => {
+    render(
+      createElement(DetectedPathList, {
+        detected: [],
+        configByPath: new Map(),
+        onAdd: vi.fn(),
+        onAddAll: vi.fn(),
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+        lastChecked: 1000,
+        loading: false,
+        error: null,
+        onRefresh: vi.fn(),
+      })
+    );
+    expect(screen.getByText(/no duplicate paths detected yet/i)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /refresh/i }).length).toBeGreaterThanOrEqual(2);
   });
 
   it('renders the Refresh button in the empty state', () => {
@@ -129,7 +148,7 @@ describe('DetectedPathList: empty state', () => {
         onRefresh: vi.fn(),
       })
     );
-    expect(screen.getByTitle('navigation.offlinePath')).toBeInTheDocument();
+    expect(screen.getByText('navigation.offlinePath')).toBeInTheDocument();
     expect(screen.getByText(/waiting for live sources/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument();
     expect(screen.queryByText(/no duplicate paths detected yet/i)).not.toBeInTheDocument();
@@ -259,8 +278,8 @@ describe('DetectedPathList: error state', () => {
       })
     );
     expect(screen.getByText(/network error/i)).toBeInTheDocument();
-    expect(screen.getByTitle(scalRow.path)).toBeInTheDocument();
-    expect(screen.getByTitle(angRow.path)).toBeInTheDocument();
+    expect(screen.getByText(scalRow.path)).toBeInTheDocument();
+    expect(screen.getByText(angRow.path)).toBeInTheDocument();
   });
 });
 
@@ -293,7 +312,7 @@ describe('DetectedPathList: sort order', () => {
       })
     );
     const pathLabels = Array.from(sortContainer.querySelectorAll('[data-detected-path-row]'))
-      .map((el) => (el as HTMLElement).querySelector('[title]')?.getAttribute('title'))
+      .map((el) => (el as HTMLElement).querySelector('code')?.textContent)
       .filter(Boolean) as string[];
     // Not-yet-combined combinable rows should come first in order: posRow (4 src), scalRow (2 src)
     expect(pathLabels.indexOf(posRow.path)).toBeLessThan(pathLabels.indexOf(scalRow.path));
@@ -383,7 +402,7 @@ describe('DetectedPathList: sort order', () => {
       })
     );
     const pathLabels = Array.from(combinedContainer.querySelectorAll('[data-detected-path-row]'))
-      .map((el) => (el as HTMLElement).querySelector('[title]')?.getAttribute('title'))
+      .map((el) => (el as HTMLElement).querySelector('code')?.textContent)
       .filter(Boolean) as string[];
     // scalRow (not combined) must come before angRow (combined)
     expect(pathLabels.indexOf(scalRow.path)).toBeLessThan(pathLabels.indexOf(angRow.path));
@@ -435,7 +454,7 @@ describe('DetectedPathList: Combine all', () => {
     const btn = screen.getByRole('button', { name: /combine all/i });
     fireEvent.click(btn);
     // After click, a confirmation showing "2" (scalRow and posRow) should appear.
-    expect(screen.getByText(/combine 2 detected path/i)).toBeInTheDocument();
+    expect(screen.getByText(/combine all 2 detected paths\?/i)).toBeInTheDocument();
   });
 
   it('"Combine all" calls onAddAll with only combinable, not-yet-configured rows', () => {
@@ -457,7 +476,7 @@ describe('DetectedPathList: Combine all', () => {
     // Click "Combine all" to get to the confirmation.
     fireEvent.click(screen.getByRole('button', { name: /combine all/i }));
     // Click the confirm button.
-    fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Combine 2 paths' }));
     // onAddAll should be called with exactly scalRow and posRow (not angRow, not otherRow).
     expect(onAddAll).toHaveBeenCalledOnce();
     const calledWith: DetectedRow[] = onAddAll.mock.calls[0][0] as DetectedRow[];
@@ -636,3 +655,78 @@ describe('DetectedPathList: live region', () => {
 
 // PriorityBanner tests live in presentational.test.ts with the other
 // presentational components.
+
+// ---------------------------------------------------------------------------
+// Focus and announcements
+// ---------------------------------------------------------------------------
+
+describe('DetectedPathList: nothing leaves focus on the document body', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const props = (overrides: Partial<Parameters<typeof DetectedPathList>[0]>) => ({
+    detected: [scalRow],
+    configByPath: new Map<string, RawPathConfig>(),
+    onAdd: vi.fn(),
+    onAddAll: vi.fn(),
+    onRemove: vi.fn(),
+    onUpdate: vi.fn(),
+    lastChecked: 1000,
+    loading: false,
+    error: null,
+    onRefresh: vi.fn().mockResolvedValue(true),
+    ...overrides,
+  });
+
+  it('moves focus to the section heading when a successful Retry unmounts the banner', async () => {
+    const onRefresh = vi.fn().mockResolvedValue(true);
+    const { rerender } = render(
+      createElement(DetectedPathList, props({ error: 'network error', onRefresh }))
+    );
+    const retry = screen.getByRole('button', { name: /retry/i });
+    retry.focus();
+    fireEvent.click(retry);
+    await vi.waitFor(() => expect(onRefresh).toHaveBeenCalled());
+    // The successful refresh clears the error, which unmounts the banner and
+    // the button that was focused.
+    rerender(createElement(DetectedPathList, props({ error: null, onRefresh })));
+    await vi.waitFor(() => {
+      expect(document.activeElement).not.toBe(document.body);
+    });
+    expect(screen.getByText(/detected paths loaded/i)).toBeInTheDocument();
+  });
+
+  it('leaves focus alone on an ordinary refresh, which unmounts nothing', async () => {
+    const onRefresh = vi.fn().mockResolvedValue(true);
+    render(createElement(DetectedPathList, props({ onRefresh })));
+    const refresh = screen.getByRole('button', { name: /refresh detected paths/i });
+    refresh.focus();
+    fireEvent.click(refresh);
+    await vi.waitFor(() => expect(screen.getByText(/detected paths refreshed/i)).toBeVisible());
+    expect(document.activeElement).toBe(refresh);
+  });
+
+  it('announces the path when a row is combined or removed', () => {
+    const onAdd = vi.fn();
+    const onRemove = vi.fn();
+    const { rerender } = render(createElement(DetectedPathList, props({ onAdd, onRemove })));
+    fireEvent.click(screen.getByRole('button', { name: `Combine ${scalRow.path}` }));
+    expect(onAdd).toHaveBeenCalledWith(scalRow.path);
+    expect(screen.getByText(`Combining ${scalRow.path}.`)).toBeInTheDocument();
+
+    rerender(
+      createElement(
+        DetectedPathList,
+        props({
+          onAdd,
+          onRemove,
+          configByPath: new Map<string, RawPathConfig>([[scalRow.path, { path: scalRow.path }]]),
+        })
+      )
+    );
+    fireEvent.click(screen.getByRole('button', { name: `Remove ${scalRow.path}` }));
+    expect(onRemove).toHaveBeenCalledWith(scalRow.path);
+    expect(screen.getByText(`Removed ${scalRow.path}.`)).toBeInTheDocument();
+  });
+});

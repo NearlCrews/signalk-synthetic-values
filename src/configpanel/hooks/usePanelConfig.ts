@@ -4,6 +4,7 @@ import {
   DEFAULT_EMIT_INTERVAL_MS,
   DEFAULT_MAX_SOURCES_PER_PATH,
   DEFAULT_MIN_SOURCES,
+  DEFAULT_NOTIFICATIONS,
   DEFAULT_STALENESS_MS,
 } from '../../config.js';
 import { jsonEqual } from '../api-base.js';
@@ -46,6 +47,8 @@ export function normalizeOptions(configuration?: unknown): PluginOptions {
       typeof source.maxSourcesPerPath === 'number'
         ? source.maxSourcesPerPath
         : DEFAULT_MAX_SOURCES_PER_PATH,
+    notifications:
+      typeof source.notifications === 'boolean' ? source.notifications : DEFAULT_NOTIFICATIONS,
     paths: Array.isArray(source.paths) ? source.paths.filter(isRawPathConfig) : [],
   } as PluginOptions;
 }
@@ -130,6 +133,8 @@ export interface UsePanelConfigResult {
   addPath: (path: string) => void;
   addAllCombinable: (rows: ReadonlyArray<DetectedRow>) => void;
   removePath: (path: string) => void;
+  /** Replaces the form state, for a Discard that returns to the last requested snapshot. */
+  replaceOptions: (next: PluginOptions) => void;
   updatePath: (path: string, patch: RawPathConfigPatch) => void;
 }
 
@@ -180,5 +185,9 @@ export function usePanelConfig(
     setOptions((prev) => applyUpdatePath(prev, path, patch));
   }, []);
 
-  return { options, addPath, addAllCombinable, removePath, updatePath };
+  const replaceOptions = useCallback((next: PluginOptions): void => {
+    setOptions(next);
+  }, []);
+
+  return { options, addPath, addAllCombinable, removePath, replaceOptions, updatePath };
 }

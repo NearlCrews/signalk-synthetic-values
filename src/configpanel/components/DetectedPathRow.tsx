@@ -1,16 +1,25 @@
 import type * as React from 'react';
 import { Fragment, memo, useCallback, useId, useState } from 'react';
-import { Badge, Button, Card, Cluster, CollapsibleSection, Stack } from 'signalk-nearlcrews-ui';
+import {
+  Badge,
+  Button,
+  Card,
+  Cluster,
+  Code,
+  CollapsibleSection,
+  Stack,
+  Text,
+  VisuallyHidden,
+} from 'signalk-nearlcrews-ui';
 import { NON_NUMERIC_ADVISORY } from '../../combinability.js';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import { oxfordJoin, plural } from '../../textFormat.js';
 import { PLUGIN_SOURCE_LABEL } from '../api-base.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
-import utilities from '../utilities.module.css';
 import styles from './DetectedPathRow.module.css';
 import { KindBadge } from './KindBadge.js';
 import { PerPathSettings } from './PerPathSettings.js';
-import { SourceChips } from './SourceChips.js';
+import { type SourceChip, SourceChips, sourceChips } from './SourceChips.js';
 
 export interface DetectedPathRowProps {
   row: DetectedRow;
@@ -28,21 +37,27 @@ function DuplicateSourcesHint({ groups }: { groups: string[][] }): React.ReactEl
   return (
     <Stack className={styles.subRow} gap={1}>
       {[...groupsByKey].map(([key, group]) => (
-        <span key={key} className={styles.duplicateHint}>
+        <Text key={key} as="div" size="xs" tone="muted">
           {oxfordJoin(group)} report identical values and may be the same feed re-broadcast.
           Consider combining only one of them so it does not outvote your independent sensors.
-        </span>
+        </Text>
       ))}
     </Stack>
   );
 }
 
-function SourceCountBadge({ count }: { count: number }): React.ReactElement {
-  const label = `${count} source${plural(count)}`;
+// A plain count carries no severity, so it takes the neutral tone. An `info`
+// tone would draw the shared glyph and announce "Information." over what is
+// only a number.
+function SourceCountBadge({ chips }: { chips: SourceChip[] }): React.ReactElement {
+  const total = chips.length;
+  const live = chips.filter((chip) => chip.state === 'live').length;
+  const label =
+    live === total ? `${total} source${plural(total)}` : `${live} of ${total} sources combining`;
   return (
-    <Badge tone="info">
-      <span aria-hidden="true">{count}</span>
-      <span className={utilities.visuallyHidden}>{label}</span>
+    <Badge>
+      <span aria-hidden="true">{live === total ? total : `${live}/${total}`}</span>
+      <VisuallyHidden>{label}</VisuallyHidden>
     </Badge>
   );
 }
@@ -70,11 +85,15 @@ function BreakablePath({ path }: { path: string }): React.ReactElement {
 
 function PriorityInstruction({ path }: { path: string }): React.ReactElement {
   return (
-    <div className={styles.priorityInstruction}>
+    <Text as="div" className={styles.priorityInstruction} size="xs" tone="muted">
       Source priority required: rank <strong>{PLUGIN_SOURCE_LABEL}</strong> first in its group. Add
-      a <a href={`#/data/priorities?path=${encodeURIComponent(path)}`}>path-level override</a> only
-      if this path needs a different order.
-    </div>
+      a{' '}
+      <a href={`#/data/priorities?path=${encodeURIComponent(path)}`}>
+        path-level override
+        <VisuallyHidden> for {path}</VisuallyHidden>
+      </a>{' '}
+      only if this path needs a different order.
+    </Text>
   );
 }
 
@@ -96,20 +115,22 @@ function TuneSection({
   idPrefix,
 }: TuneSectionProps): React.ReactElement {
   return (
-    <CollapsibleSection
-      className={styles.tune}
-      headingLevel={3}
-      mountStrategy="lazy-retain"
-      open={open}
-      onOpenChange={onOpenChange}
-      title={
-        <>
-          Tune<span className={utilities.visuallyHidden}> settings for {row.path}</span>
-        </>
-      }
-    >
-      <PerPathSettings row={row} config={config} onChange={onUpdate} idPrefix={idPrefix} />
-    </CollapsibleSection>
+    <div className={styles.tune}>
+      <CollapsibleSection
+        headingLevel={4}
+        mountStrategy="lazy-retain"
+        open={open}
+        onOpenChange={onOpenChange}
+        title={
+          <>
+            Tune<VisuallyHidden> settings for {row.path}</VisuallyHidden>
+          </>
+        }
+        variant="embedded"
+      >
+        <PerPathSettings row={row} config={config} onChange={onUpdate} idPrefix={idPrefix} />
+      </CollapsibleSection>
+    </div>
   );
 }
 
@@ -139,16 +160,44 @@ function PathAction({
   }
 
   return (
+    // ariaDisabled rather than disabled: the button keeps its place in the tab
+    // order, so the description explaining why it is unavailable is reachable,
+    // and focus does not drop to the document body when a poll flips a path to
+    // a non-combinable kind while the button is focused.
     <Button
       className={styles.action}
       variant="primary"
-      disabled={!canCombine}
+      ariaDisabled={!canCombine}
       aria-label={`Combine ${path}`}
       aria-describedby={advisoryId}
       onClick={onAdd}
     >
       Combine
     </Button>
+  );
+}
+
+interface RowMetadataProps {
+  chips: SourceChip[];
+  combining: boolean;
+  kind: DetectedRow['kind'];
+  optedIn: boolean;
+}
+
+function RowMetadata({ chips, combining, kind, optedIn }: RowMetadataProps): React.ReactElement {
+  return (
+    <Cluster className={styles.metadata} gap={1}>
+      <SourceCountBadge chips={chips} />
+      <SourceChips chips={chips} />
+      <KindBadge kind={kind} />
+      {optedIn ? (
+        combining ? (
+          <Badge tone="success">combined</Badge>
+        ) : (
+          <Badge tone="warning">no live sources</Badge>
+        )
+      ) : null}
+    </Cluster>
   );
 }
 
@@ -161,6 +210,12 @@ export const DetectedPathRow = memo(function DetectedPathRow({
   onUpdate,
 }: DetectedPathRowProps): React.ReactElement {
   const { path, sources, kind } = row;
+  const chips = sourceChips(sources, row.freshSources, row.excludedSources);
+  // A combined path with nothing live is not combining. The accent bar and the
+  // badge follow the live state so a green row never means "this value stopped
+  // updating a minute ago", and the badge text carries the difference so the
+  // colour is not the only cue.
+  const combining = chips.some((chip) => chip.state === 'live');
   const canCombine = row.combinable !== false && kind !== 'other';
   const advisory = row.advisory ?? (kind === 'other' ? NON_NUMERIC_ADVISORY : undefined);
   const [tuneOpen, setTuneOpen] = useState(false);
@@ -185,7 +240,9 @@ export const DetectedPathRow = memo(function DetectedPathRow({
 
   return (
     <Card
-      className={`${styles.row} ${optedIn ? styles.rowCombined : styles.rowAvailable}`}
+      accent={optedIn ? (combining ? 'success' : 'warning') : undefined}
+      className={styles.row}
+      density="flush"
       data-detected-path-row=""
       data-combined={optedIn ? 'true' : undefined}
       role="group"
@@ -193,20 +250,14 @@ export const DetectedPathRow = memo(function DetectedPathRow({
     >
       {/* The path leads so the row names its subject before the action. */}
       <Cluster className={styles.header} gap={2}>
-        <span
+        <Code
           id={pathId}
-          className={`${styles.path} ${canCombine ? '' : styles.pathUnavailable}`}
-          title={path}
+          className={canCombine ? styles.path : `${styles.path} ${styles.pathUnavailable}`}
         >
           <BreakablePath path={path} />
-        </span>
+        </Code>
 
-        <Cluster className={styles.metadata} gap={1}>
-          <SourceCountBadge count={sources.length} />
-          <SourceChips sources={sources} />
-          <KindBadge kind={kind} />
-          {optedIn ? <Badge tone="success">combined</Badge> : null}
-        </Cluster>
+        <RowMetadata chips={chips} kind={kind} optedIn={optedIn} combining={combining} />
 
         <PathAction
           advisoryId={advisory ? reasonId : undefined}
@@ -220,9 +271,9 @@ export const DetectedPathRow = memo(function DetectedPathRow({
 
       {advisory ? (
         <div className={styles.subRow}>
-          <span id={reasonId} className={styles.advisory}>
+          <Text as="div" id={reasonId} size="xs" tone="muted">
             {advisory}
-          </span>
+          </Text>
         </div>
       ) : null}
 

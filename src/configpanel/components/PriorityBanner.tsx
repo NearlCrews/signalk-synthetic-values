@@ -1,5 +1,7 @@
 import type * as React from 'react';
-import { Banner, Button } from 'signalk-nearlcrews-ui';
+import { Banner } from 'signalk-nearlcrews-ui';
+
+const PRIORITY_BANNER_TITLE = 'Set source priority to use combined values';
 
 export interface PriorityBannerProps {
   show: boolean;
@@ -25,32 +27,14 @@ export function PriorityBanner({
 }: PriorityBannerProps): React.ReactElement | null {
   if (!show) return null;
 
-  /*
-   * Banner ships its own dismissal, but it renders the label as visible text
-   * in an action box that shrinks below its content, so beside this much body
-   * copy the word breaks one letter per line. The icon control keeps the
-   * package sizing through `iconOnly` and carries the focus restore that
-   * `dismissFocusRef` would otherwise provide.
-   */
-  const dismissAction = (
-    <Button
-      aria-label="Dismiss priority reminder"
-      iconOnly
-      onClick={() => {
-        onDismiss();
-        queueMicrotask(() => dismissFocusRef?.current?.focus());
-      }}
-    >
-      <span aria-hidden="true">×</span>
-    </Button>
-  );
-
   return (
     <Banner
-      aria-label="Source priority reminder"
-      actions={dismissAction}
+      // No aria-label: a banner given a landmark role takes its name from its
+      // own visible title, so the region and the heading cannot drift apart.
+      dismissFocusRef={dismissFocusRef}
+      onDismiss={onDismiss}
       role="region"
-      title="Set source priority to use combined values"
+      title={PRIORITY_BANNER_TITLE}
       tone="info"
     >
       Combined values use <strong>{sourceLabel}</strong>. In{' '}

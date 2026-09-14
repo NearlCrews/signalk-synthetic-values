@@ -82,7 +82,7 @@ describe('panel styling boundary', () => {
   it('uses modular plugin styles instead of the retired local theme registry', () => {
     expect(existsSync(join(panelDirectory, 'styles.ts'))).toBe(false);
     const cssModules = panelFiles.filter((file) => file.endsWith('.module.css'));
-    expect(cssModules.length).toBeGreaterThanOrEqual(4);
+    expect(cssModules.length).toBeGreaterThanOrEqual(2);
   });
 
   it('uses only public shared UI tokens in plugin CSS', () => {
@@ -123,7 +123,7 @@ describe('panel styling boundary', () => {
   it('imports the shared UI package from the panel composition root', () => {
     const source = panelSource(join(panelDirectory, 'PluginConfigurationPanel.tsx'));
     expect(source).toContain("from 'signalk-nearlcrews-ui'");
-    expect(source).toContain('<PanelRoot>');
+    expect(source).toContain('<PanelShell');
     expect(source).not.toContain('legacyThemeStorageKeys');
   });
 });

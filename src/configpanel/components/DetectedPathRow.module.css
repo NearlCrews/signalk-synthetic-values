@@ -3,17 +3,12 @@
  * outrank the package rule they override. See the doubling case in
  * test/configpanel/styles.test.ts for why single-class rules lose.
  */
+
+/* The row draws its own section dividers, so the card grid gap is zero. The
+   combined state cue is the card's own `accent` bar, which the row does not
+   restyle. */
 .row.row {
-  padding: 0;
-  overflow: hidden;
-}
-
-.rowAvailable.rowAvailable {
-  border-inline-start: 0.1875rem solid transparent;
-}
-
-.rowCombined.rowCombined {
-  border-inline-start: 0.1875rem solid var(--snui-color-success);
+  gap: 0;
 }
 
 .header.header {
@@ -21,18 +16,17 @@
   padding: var(--snui-space-2) var(--snui-space-3);
 }
 
-.path {
+/* The path wraps rather than truncating. BreakablePath inserts a <wbr> at
+   every dot, so a long path breaks cleanly at a segment boundary, and nothing
+   depends on a hover tooltip to read the rest of it. */
+.path.path {
   min-width: 8rem;
   flex: 1 1 18rem;
-  color: var(--snui-color-text);
-  font-family: var(--snui-font-family-mono);
-  font-size: var(--snui-font-size-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
-.pathUnavailable {
+.pathUnavailable.pathUnavailable {
   color: var(--snui-color-text-muted);
 }
 
@@ -47,36 +41,30 @@
   padding: 0 var(--snui-space-3) var(--snui-space-2);
 }
 
-.advisory,
-.duplicateHint {
-  display: block;
-  color: var(--snui-color-text-muted);
-  font-size: var(--snui-font-size-xs);
-  overflow-wrap: anywhere;
-}
-
-.priorityInstruction {
+.priorityInstruction.priorityInstruction {
   padding: var(--snui-space-2) var(--snui-space-3);
-  border-top: 1px solid var(--snui-color-border);
-  color: var(--snui-color-text-muted);
-  font-size: var(--snui-font-size-xs);
-  overflow-wrap: anywhere;
+  border-block-start: 1px solid var(--snui-color-border);
 }
 
-.tune.tune {
-  border-width: 1px 0 0;
-  border-radius: 0;
-  box-shadow: none;
+/* The embedded Tune section borrows the flush card's chrome, so this wrapper
+   supplies the inset the card no longer pads and the divider above it. */
+.tune {
+  padding-inline: var(--snui-space-3);
+  border-block-start: 1px solid var(--snui-color-border);
 }
 
+/*
+ * `snui-panel` is the container name signalk-nearlcrews-ui sets on the panel
+ * root, and 37.5rem is its narrow breakpoint. Neither is public API today, so
+ * both are pinned here by hand: if the library renames the container or moves
+ * the breakpoint, this block stops matching and the row silently reverts to
+ * the wide layout. The 320-pixel reflow assertion in tests/browser/panel.spec.ts
+ * is what would catch that.
+ */
 @container snui-panel (max-width: 37.5rem) {
-  .path {
+  .path.path {
     min-width: 100%;
     flex-basis: 100%;
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
-    overflow-wrap: break-word;
   }
 
   .metadata.metadata {

@@ -11,6 +11,8 @@ import {
 } from '../../src/config.js';
 import { PerPathSettings } from '../../src/configpanel/components/PerPathSettings.js';
 import { SourceChecklist } from '../../src/configpanel/components/SourceChecklist.js';
+import type { PanelDefaults } from '../../src/configpanel/defaultsContext.js';
+import { PanelDefaultsContext } from '../../src/configpanel/defaultsContext.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
 
 // ---------------------------------------------------------------------------
@@ -31,26 +33,23 @@ describe('SourceChecklist', () => {
         includeSources: undefined,
         excludeSources: undefined,
         onChange: vi.fn(),
-        idPrefix: 'test-row',
       })
     );
-    expect(getAllByRole('checkbox')).toHaveLength(3);
+    // Three sources plus the group's own select-all box.
+    expect(getAllByRole('checkbox')).toHaveLength(4);
   });
 
   it('unchecking an included source yields excludeSources and no non-empty includeSources', () => {
     const onChange = vi.fn();
-    const { getAllByRole } = render(
+    const { getByRole } = render(
       createElement(SourceChecklist, {
         sources,
         includeSources: undefined,
         excludeSources: undefined,
         onChange,
-        idPrefix: 'test-row',
       })
     );
-    const checkboxes = getAllByRole('checkbox') as HTMLInputElement[];
-    // Uncheck gps.1 (the first checkbox)
-    fireEvent.click(checkboxes[0] as HTMLElement);
+    fireEvent.click(getByRole('checkbox', { name: 'gps.1' }));
     expect(onChange).toHaveBeenCalledOnce();
     const payload: RawPathConfigPatch = onChange.mock.calls[0][0];
 
@@ -72,10 +71,11 @@ describe('SourceChecklist', () => {
         includeSources: undefined,
         excludeSources: undefined,
         onChange,
-        idPrefix: 'test-row',
       })
     );
-    const checkboxes = getAllByRole('checkbox') as HTMLInputElement[];
+    const checkboxes = (getAllByRole('checkbox') as HTMLInputElement[]).filter(
+      (box) => box.getAttribute('aria-label') !== 'All sources'
+    );
     for (const cb of checkboxes) {
       fireEvent.click(cb);
     }
@@ -92,18 +92,16 @@ describe('SourceChecklist', () => {
 
   it('when includeSources is already set, trimming uses includeSources not excludeSources', () => {
     const onChange = vi.fn();
-    const { getAllByRole } = render(
+    const { getByRole } = render(
       createElement(SourceChecklist, {
         sources,
         includeSources: ['gps.1', 'gps.2', 'gps.3'],
         excludeSources: undefined,
         onChange,
-        idPrefix: 'test-row',
       })
     );
-    const checkboxes = getAllByRole('checkbox') as HTMLInputElement[];
     // Uncheck gps.1
-    fireEvent.click(checkboxes[0] as HTMLElement);
+    fireEvent.click(getByRole('checkbox', { name: 'gps.1' }));
     const payload: RawPathConfigPatch = onChange.mock.calls[0][0];
 
     // Must NOT produce excludeSources when includeSources was pre-set
@@ -124,7 +122,6 @@ describe('SourceChecklist', () => {
         includeSources: ['gps.1'],
         excludeSources: undefined,
         onChange,
-        idPrefix: 'test-row',
       })
     );
 
@@ -144,7 +141,6 @@ describe('SourceChecklist', () => {
         includeSources: undefined,
         excludeSources: ['gps.1'],
         onChange,
-        idPrefix: 'test-row',
       })
     );
 
@@ -163,12 +159,55 @@ describe('SourceChecklist', () => {
         includeSources: undefined,
         excludeSources: undefined,
         onChange: vi.fn(),
-        idPrefix: 'test-row',
       })
     );
 
     const ids = getAllByRole('checkbox').map((checkbox) => checkbox.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('stays quiet while at least one source is selected', () => {
+    const { queryByText } = render(
+      createElement(SourceChecklist, {
+        sources,
+        includeSources: undefined,
+        excludeSources: undefined,
+        onChange: vi.fn(),
+      })
+    );
+    expect(queryByText(/will not combine/)).toBeNull();
+  });
+
+  it('warns when nothing is selected, because the path then combines nothing', () => {
+    const { getByRole, getByText } = render(
+      createElement(SourceChecklist, {
+        sources,
+        includeSources: undefined,
+        excludeSources: sources,
+        onChange: vi.fn(),
+      })
+    );
+    expect(
+      getByText('No sources are selected, so this path will not combine.')
+    ).toBeInTheDocument();
+    expect(getByRole('checkbox', { name: 'All sources' })).toBeInTheDocument();
+  });
+
+  it('offers a select-all box that clears a full selection in one press', () => {
+    const onChange = vi.fn();
+    const { getByRole } = render(
+      createElement(SourceChecklist, {
+        sources,
+        includeSources: undefined,
+        excludeSources: undefined,
+        onChange,
+      })
+    );
+    fireEvent.click(getByRole('checkbox', { name: 'All sources' }));
+    expect(onChange).toHaveBeenCalledWith({
+      includeSources: undefined,
+      excludeSources: sources,
+    });
   });
 });
 
@@ -202,27 +241,58 @@ describe('PerPathSettings', () => {
     expect(getByLabelText(/method/i)).toBeInTheDocument();
     // minSources number input
     expect(getByLabelText(/minimum sources/i)).toBeInTheDocument();
-    // Source checklist checkboxes (one per source)
-    expect(getAllByRole('checkbox')).toHaveLength(row.sources.length);
+    // Source checklist checkboxes: one per source plus the select-all box.
+    expect(getAllByRole('checkbox')).toHaveLength(row.sources.length + 1);
   });
 
-  it('raises minSources past source count and renders a warning but still fires onChange', () => {
+  it('raises minSources past source count, fires onChange, and warns once committed', () => {
     const onChange = vi.fn();
-    const { getByLabelText, getByText } = render(
+    const { getByLabelText, getByText, queryByText, rerender } = render(
       createElement(PerPathSettings, { row, config, onChange, idPrefix })
     );
     const minSourcesInput = getByLabelText(/minimum sources/i) as HTMLInputElement;
     // row has 3 sources; set minSources to 5 (above count)
     fireEvent.change(minSourcesInput, { target: { value: '5' } });
 
-    // Warning text should appear
-    expect(getByText(/3 source/i)).toBeInTheDocument();
-
-    // onChange must still have fired with the new value
+    // onChange must have fired with the new value
     expect(onChange).toHaveBeenCalled();
     const calls = onChange.mock.calls;
     const lastPayload: RawPathConfigPatch = calls[calls.length - 1][0];
     expect(lastPayload.minSources).toBe(5);
+    expect(queryByText(/3 selected source/i)).toBeNull();
+
+    // The panel commits every valid keystroke, so the warning follows the
+    // committed configuration rather than a field-local draft.
+    rerender(
+      createElement(PerPathSettings, {
+        row,
+        config: { ...config, minSources: 5 },
+        onChange,
+        idPrefix,
+      })
+    );
+    expect(getByText(/3 selected source/i)).toBeInTheDocument();
+    expect(minSourcesInput).toHaveValue(5);
+  });
+
+  it('shows the validation message for a value the runtime would reject', () => {
+    const { getByLabelText, getByText } = render(
+      createElement(PerPathSettings, { row, config, onChange: vi.fn(), idPrefix })
+    );
+    fireEvent.click(getByText(/advanced/i));
+    const madInput = getByLabelText(/outlier threshold/i) as HTMLInputElement;
+    fireEvent.change(madInput, { target: { value: '-5' } });
+    expect(madInput).toHaveAttribute('aria-invalid', 'true');
+    expect(madInput).toHaveAccessibleDescription(/enter a number of 0 or more/i);
+  });
+
+  it('describes a unit-bearing field by its unit without changing its name', () => {
+    const { getByLabelText, getByText } = render(
+      createElement(PerPathSettings, { row, config, onChange: vi.fn(), idPrefix })
+    );
+    fireEvent.click(getByText(/advanced/i));
+    const staleness = getByLabelText('Staleness timeout');
+    expect(staleness).toHaveAccessibleDescription(/ms/);
   });
 
   it('clearing minSources emits { minSources: undefined } to signal key removal', () => {
@@ -356,5 +426,119 @@ describe('PerPathSettings', () => {
     expect(rateInput.value).toBe('5');
     fireEvent.change(rateInput, { target: { value: '' } });
     expect(onChange).toHaveBeenCalledWith({ jumpRejection: undefined });
+  });
+});
+
+describe('PerPathSettings: the minimum-sources field and its warning', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const row: DetectedRow = {
+    path: 'navigation.speedOverGround',
+    sources: ['gps.1', 'gps.2', 'gps.3'],
+    kind: 'scalar',
+    optedIn: true,
+  };
+  const idPrefix = 'test-row';
+
+  function renderWith(config: RawPathConfig, defaults?: Partial<PanelDefaults>) {
+    const value: PanelDefaults = {
+      minSources: DEFAULT_MIN_SOURCES,
+      stalenessTimeoutMs: 1000,
+      emitMinIntervalMs: 1000,
+      maxSourcesPerPath: 16,
+      ...defaults,
+    };
+    return render(
+      createElement(
+        PanelDefaultsContext.Provider,
+        { value },
+        createElement(PerPathSettings, { row, config, onChange: vi.fn(), idPrefix })
+      )
+    );
+  }
+
+  it('refuses a minimum above the tracked-source cap, which the runtime would drop', () => {
+    const { getByLabelText } = renderWith({ path: row.path }, { maxSourcesPerPath: 4 });
+    const input = getByLabelText(/minimum sources/i) as HTMLInputElement;
+    expect(input).toHaveAttribute('max', '4');
+    fireEvent.change(input, { target: { value: '5' } });
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('warns when the resolved default already exceeds the source count', () => {
+    const { getByText } = renderWith({ path: 'p' }, { minSources: 4 });
+    expect(getByText(/3 selected sources/i)).toBeInTheDocument();
+    expect(getByText(/Requiring 4/)).toBeInTheDocument();
+  });
+
+  it('counts only the sources that pass the include and exclude filter', () => {
+    const { getByText } = renderWith({ path: row.path, excludeSources: ['gps.2', 'gps.3'] });
+    expect(getByText(/1 selected source\./i)).toBeInTheDocument();
+  });
+
+  it('stays quiet when enough sources are selected', () => {
+    const { queryByText } = renderWith({ path: row.path });
+    expect(queryByText(/will not combine until/i)).toBeNull();
+  });
+});
+
+describe('PerPathSettings: clearing the jump rate', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const row: DetectedRow = {
+    path: 'navigation.speedOverGround',
+    sources: ['gps.1', 'gps.2'],
+    kind: 'scalar',
+    optedIn: true,
+  };
+
+  it('restores hand-tuned persist settings when the rate comes back', () => {
+    const onChange = vi.fn();
+    const tuned: RawPathConfig = {
+      path: row.path,
+      jumpRejection: { maxRate: 2, persistSamples: 7, persistMs: 12000 },
+    };
+    const { getByLabelText, getByText, rerender } = render(
+      createElement(PerPathSettings, { row, config: tuned, onChange, idPrefix: 'r' })
+    );
+    fireEvent.click(getByText(/advanced/i));
+    const rate = getByLabelText(/jump rejection max rate/i) as HTMLInputElement;
+
+    fireEvent.change(rate, { target: { value: '' } });
+    expect(onChange).toHaveBeenLastCalledWith({ jumpRejection: undefined });
+
+    // The host echoes the cleared config back, then the rate is entered again.
+    rerender(
+      createElement(PerPathSettings, {
+        row,
+        config: { path: row.path },
+        onChange,
+        idPrefix: 'r',
+      })
+    );
+    fireEvent.change(getByLabelText(/jump rejection max rate/i), { target: { value: '2' } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      jumpRejection: { maxRate: 2, persistSamples: 7, persistMs: 12000 },
+    });
+  });
+
+  it('falls back to the shipped persist defaults for a path that never had them', () => {
+    const onChange = vi.fn();
+    const { getByLabelText, getByText } = render(
+      createElement(PerPathSettings, { row, config: { path: row.path }, onChange, idPrefix: 'r' })
+    );
+    fireEvent.click(getByText(/advanced/i));
+    fireEvent.change(getByLabelText(/jump rejection max rate/i), { target: { value: '3' } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      jumpRejection: {
+        maxRate: 3,
+        persistSamples: DEFAULT_JUMP_PERSIST_SAMPLES,
+        persistMs: DEFAULT_JUMP_PERSIST_MS,
+      },
+    });
   });
 });

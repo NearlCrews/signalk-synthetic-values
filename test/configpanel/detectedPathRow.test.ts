@@ -281,11 +281,14 @@ describe('DetectedPathRow: non-combinable row', () => {
         onUpdate: vi.fn(),
       })
     );
+    // aria-disabled rather than the native attribute, so the button keeps its
+    // place in the tab order and its description is reachable.
     const btn = screen.getByRole('button', { name: /combine/i });
-    expect(btn).toBeDisabled();
+    expect(btn).not.toBeDisabled();
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('the disabled Combine button has aria-describedby pointing to the reason', () => {
+  it('the unavailable Combine button has aria-describedby pointing to the reason', () => {
     render(
       createElement(DetectedPathRow, {
         row: otherRow,
@@ -399,5 +402,89 @@ describe('DetectedPathRow: duplicate sources hint', () => {
       })
     );
     expect(screen.queryByText(/may be the same feed/i)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Live sources against listed sources
+// ---------------------------------------------------------------------------
+
+describe('DetectedPathRow: a stale source is not a contributing one', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const row = (freshSources: string[] | null, excludedSources: string[] = []): DetectedRow => ({
+    path: 'environment.depth.belowKeel',
+    sources: ['sounder.1', 'sounder.2', 'sounder.3'],
+    freshSources,
+    excludedSources,
+    kind: 'scalar',
+    optedIn: true,
+  });
+
+  function renderRow(r: DetectedRow) {
+    return render(
+      createElement(DetectedPathRow, {
+        row: r,
+        optedIn: true,
+        config: { path: r.path },
+        onAdd: vi.fn(),
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+      })
+    );
+  }
+
+  it('says how many of the listed sources are actually combining', () => {
+    renderRow(row(['sounder.1', 'sounder.2']));
+    expect(screen.getByText('2 of 3 sources combining')).toBeInTheDocument();
+  });
+
+  it('marks the source that stopped reporting in its own text', () => {
+    renderRow(row(['sounder.1', 'sounder.2']));
+    expect(screen.getByText('sounder.3, no data')).toBeInTheDocument();
+  });
+
+  it('marks an excluded source as excluded, not as missing', () => {
+    renderRow(row(['sounder.1', 'sounder.2'], ['sounder.3']));
+    expect(screen.getByText('sounder.3, excluded')).toBeInTheDocument();
+  });
+
+  it('drops the combined badge when nothing is live, with words not only colour', () => {
+    const { container } = renderRow(row([]));
+    expect(screen.getByText('no live sources')).toBeInTheDocument();
+    expect(screen.queryByText('combined')).toBeNull();
+    expect(container.querySelector('[data-detected-path-row]')?.className).not.toContain('success');
+  });
+
+  it('reads as a plain count when every source is live', () => {
+    renderRow(row(['sounder.1', 'sounder.2', 'sounder.3']));
+    expect(screen.getByText('3 sources')).toBeInTheDocument();
+    expect(screen.getByText('combined')).toBeInTheDocument();
+  });
+
+  it('treats every source as live for a path the plugin is not combining', () => {
+    render(
+      createElement(DetectedPathRow, {
+        row: { ...row(null), optedIn: false },
+        optedIn: false,
+        config: undefined,
+        onAdd: vi.fn(),
+        onRemove: vi.fn(),
+        onUpdate: vi.fn(),
+      })
+    );
+    expect(screen.getByText('3 sources')).toBeInTheDocument();
+  });
+
+  it('names the destination of every path-level override link', () => {
+    renderRow(row(['sounder.1']));
+    // The name is matched loosely because the jsdom accessible-name shim drops
+    // the space before a VisuallyHidden suffix; a real browser keeps it, which
+    // is what tests/browser/panel.spec.ts asserts exactly.
+    expect(
+      screen.getByRole('link', { name: /path-level override\s*for environment\.depth\.belowKeel/ })
+    ).toBeInTheDocument();
   });
 });

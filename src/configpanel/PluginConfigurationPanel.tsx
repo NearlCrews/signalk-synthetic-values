@@ -1,15 +1,7 @@
 import type * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Banner,
-  Button,
-  Cluster,
-  PanelRoot,
-  Stack,
-  supportsNativeCssScope,
-  ThemeToggle,
-  UnsupportedBrowserNotice,
-} from 'signalk-nearlcrews-ui';
+import { Banner, PanelShell, useUnsavedChangesGuard } from 'signalk-nearlcrews-ui';
+import { SaveActionBar } from 'signalk-nearlcrews-ui/composites';
 import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../config.js';
 import { jsonEqual, PLUGIN_SOURCE_LABEL } from './api-base.js';
 import { DetectedPathList } from './components/DetectedPathList.js';
@@ -25,7 +17,6 @@ import {
   normalizeOptions,
   usePanelConfig,
 } from './hooks/usePanelConfig.js';
-import styles from './PluginConfigurationPanel.module.css';
 
 interface Props {
   // The Signal K admin UI passes whatever is saved, which on a fresh install is
@@ -37,27 +28,47 @@ interface Props {
 
 const SAVE_COALESCE_MS = 300;
 
+const REQUEST_FAILURE = 'Could not request the configuration update.';
+
+interface SaveReport {
+  /** When the host last accepted a request, or null before the first. */
+  requestedAt: number | null;
+  /** Why the last request failed; cleared by the next request or a discard. */
+  failure: string | null;
+  /** Queued edits were dropped because the host supplied a different configuration. */
+  canceledByHost: boolean;
+}
+
+const INITIAL_SAVE_REPORT: SaveReport = { requestedAt: null, failure: null, canceledByHost: false };
+
+function reloadPage(): void {
+  window.location.reload();
+}
+
 /**
  * Composition root for the synthetic-values config panel.
  *
- * Mounts inside the Signal K admin UI. PanelRoot owns shared theme and
- * component styling, while this component wires the form-state hook
- * (usePanelConfig) to the live-detection hook (useDetected).
- *
+ * Mounts inside the Signal K admin UI. PanelShell owns the browser preflight,
+ * shared theme and component styling, the title, and the error boundary. The
+ * body wires the form-state hook (usePanelConfig) to the live-detection hook
+ * (useDetected), and it mounts only on a supported browser so an unsupported
+ * one shows the notice without starting the detection poll.
+ */
+const PluginConfigurationPanel: React.FC<Props> = (props) => (
+  <PanelShell title="Synthetic Values" themeToggle="end" onReload={reloadPage}>
+    <PanelBody {...props} />
+  </PanelShell>
+);
+
+/**
  * Write actions update locally at once, then send the latest complete snapshot
  * after a short coalescing window. Signal K Admin's save callback is
- * fire-and-forget, so the panel reports a request instead of claiming that an
- * asynchronous server write completed.
+ * fire-and-forget, so the save bar reports a request instead of claiming that
+ * an asynchronous server write completed. Save sends a queued snapshot without
+ * waiting out the window and retries a failed request; Discard drops the queue
+ * and returns the form to the last requested snapshot.
  */
-const PluginConfigurationPanel: React.FC<Props> = (props) => {
-  if (typeof window === 'undefined' || !supportsNativeCssScope(window)) {
-    return <UnsupportedBrowserNotice />;
-  }
-
-  return <SupportedPluginConfigurationPanel {...props} />;
-};
-
-const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, save }) => {
+const PanelBody: React.FC<Props> = ({ configuration, save }) => {
   // Ref that always holds the last configuration requested from the host, used
   // by the no-op gate and by the hook's self-save echo detection. Normalized so
   // a fresh install (undefined or empty configuration) starts from a complete
@@ -65,10 +76,8 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
   const requestedOptionsRef = useRef<PluginOptions>(normalizeOptions(configuration));
 
   // Form state: holds the full PluginOptions being edited.
-  const { options, addPath, addAllCombinable, removePath, updatePath } = usePanelConfig(
-    configuration,
-    requestedOptionsRef
-  );
+  const { options, addPath, addAllCombinable, removePath, replaceOptions, updatePath } =
+    usePanelConfig(configuration, requestedOptionsRef);
 
   // Live detection: polls /api/detected every 10 s.
   const { paths: detected, lastChecked, loading, error, refresh } = useDetected();
@@ -100,10 +109,26 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
   const pendingBaseOptionsRef = useRef<PluginOptions | null>(null);
   const pendingRefreshRef = useRef(false);
 
-  // Save-request surfaces. Signal K Admin returns before its network write
-  // settles, so neither state claims that configuration persistence completed.
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  const [saveReport, setSaveReport] = useState<SaveReport>(INITIAL_SAVE_REPORT);
+
+  // A plugin with no saved configuration is "Unconfigured" and disabled. Since
+  // this custom configurator replaces the Signal K admin form (including its
+  // enable and submit chrome), the only way to enable the plugin is to save a
+  // configuration from here, which the save bar keeps enabled while the plugin
+  // is unconfigured. `enabledHere` hides the prompt immediately after the
+  // request, before the host re-supplies the configuration prop.
+  const [enabledHere, setEnabledHere] = useState(false);
+  const unconfigured = configuration == null && !enabledHere;
+
+  const clearQueued = useCallback((): void => {
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    pendingOptionsRef.current = null;
+    pendingBaseOptionsRef.current = null;
+    pendingRefreshRef.current = false;
+  }, []);
 
   // Write actions update form state immediately, then queue one host request.
   // React state updates are asynchronous, so next-state is computed
@@ -124,27 +149,26 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
     requestedOptionsRef.current = next;
     try {
       save(next);
-      setSaveError(null);
-      setSaveNotice('Configuration update requested from Signal K Admin.');
+      setSaveReport({ requestedAt: Date.now(), failure: null, canceledByHost: false });
       if (refreshAfterRequest) void refresh();
     } catch {
       requestedOptionsRef.current = previousRequested;
-      setSaveNotice(null);
-      setSaveError('Could not request the configuration update.');
+      // The request never reached the host, so the plugin is still not enabled
+      // and the save bar must keep offering the enabling save.
+      setEnabledHere(false);
+      setSaveReport((prev) => ({ ...prev, failure: REQUEST_FAILURE, canceledByHost: false }));
     }
   }, [refresh, save]);
 
   const scheduleSaveRequest = useCallback(
-    (next: PluginOptions, refreshAfterRequest = false, force = false): void => {
-      if (!force && jsonEqual(next, requestedOptionsRef.current)) {
-        pendingOptionsRef.current = null;
-        pendingBaseOptionsRef.current = null;
-        pendingRefreshRef.current = false;
-        if (saveTimerRef.current !== null) {
-          clearTimeout(saveTimerRef.current);
-          saveTimerRef.current = null;
-        }
-        setSaveNotice(null);
+    (next: PluginOptions, refreshAfterRequest = false): void => {
+      if (jsonEqual(next, requestedOptionsRef.current)) {
+        clearQueued();
+        setSaveReport((prev) =>
+          prev.failure === null && !prev.canceledByHost
+            ? prev
+            : { ...prev, failure: null, canceledByHost: false }
+        );
         return;
       }
 
@@ -152,11 +176,14 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
       pendingBaseOptionsRef.current ??= requestedOptionsRef.current;
       pendingRefreshRef.current ||= refreshAfterRequest;
       if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
-      setSaveError(null);
-      setSaveNotice('Configuration changes queued.');
+      setSaveReport((prev) =>
+        prev.failure === null && !prev.canceledByHost
+          ? prev
+          : { ...prev, failure: null, canceledByHost: false }
+      );
       saveTimerRef.current = setTimeout(flushSaveRequest, SAVE_COALESCE_MS);
     },
-    [flushSaveRequest]
+    [clearQueued, flushSaveRequest]
   );
 
   useEffect(
@@ -189,17 +216,33 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
     previousConfigurationRef.current = configuration;
     const pendingBase = pendingBaseOptionsRef.current;
     if (pendingBase === null || jsonEqual(normalizeOptions(configuration), pendingBase)) return;
-    if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = null;
-    pendingOptionsRef.current = null;
-    pendingBaseOptionsRef.current = null;
-    pendingRefreshRef.current = false;
-    setSaveNotice('Queued changes were canceled because the configuration changed elsewhere.');
-  }, [configuration]);
+    clearQueued();
+    setSaveReport((prev) => ({ ...prev, failure: null, canceledByHost: true }));
+  }, [clearQueued, configuration]);
 
-  const handleRetrySave = useCallback((): void => {
-    scheduleSaveRequest(optionsRef.current, true, true);
-  }, [scheduleSaveRequest]);
+  // Sends the queued snapshot now, or the current form state when nothing is
+  // queued: the enabling save of an unconfigured plugin and the retry after a
+  // failed request both start from a form that matches the baseline.
+  const handleSave = useCallback((): void => {
+    if (unconfigured) setEnabledHere(true);
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (pendingOptionsRef.current === null) {
+      pendingOptionsRef.current = optionsRef.current;
+      pendingBaseOptionsRef.current = requestedOptionsRef.current;
+      pendingRefreshRef.current = true;
+    }
+    flushSaveRequest();
+  }, [flushSaveRequest, unconfigured]);
+
+  const handleDiscard = useCallback((): void => {
+    clearQueued();
+    optionsRef.current = requestedOptionsRef.current;
+    replaceOptions(requestedOptionsRef.current);
+    setSaveReport((prev) => ({ ...prev, failure: null, canceledByHost: false }));
+  }, [clearQueued, replaceOptions]);
 
   const handleAdd = useCallback(
     (path: string): void => {
@@ -246,20 +289,10 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
     [scheduleSaveRequest, updatePath]
   );
 
-  // A plugin with no saved configuration is "Unconfigured" and disabled. Since
-  // this custom configurator replaces the Signal K admin form (including its
-  // enable and submit chrome), the only way to enable the plugin is to save a
-  // configuration from here. With no detected paths to opt in, there would be
-  // nothing to click, so an explicit "Enable plugin" action requests a default
-  // empty config, which enables the plugin and starts detection. `enabledHere`
-  // hides the prompt immediately after the click, before the host re-supplies
-  // the configuration prop.
-  const [enabledHere, setEnabledHere] = useState(false);
-  const handleEnable = useCallback((): void => {
-    setEnabledHere(true);
-    scheduleSaveRequest(optionsRef.current, true, true);
-  }, [scheduleSaveRequest]);
-  const unconfigured = configuration == null && !enabledHere;
+  // The form differs from the last accepted request while edits wait in the
+  // coalescing window and after a failed request rolled the baseline back.
+  const dirty = !jsonEqual(options, requestedOptionsRef.current);
+  useUnsavedChangesGuard(dirty);
 
   const showBanner = options.paths.length > 0 && !bannerDismissed;
 
@@ -269,78 +302,71 @@ const SupportedPluginConfigurationPanel: React.FC<Props> = ({ configuration, sav
       minSources: options.defaultMinSources,
       stalenessTimeoutMs: options.defaultStalenessTimeoutMs,
       emitMinIntervalMs: options.defaultEmitMinIntervalMs,
+      maxSourcesPerPath: options.maxSourcesPerPath,
     }),
-    [options.defaultMinSources, options.defaultStalenessTimeoutMs, options.defaultEmitMinIntervalMs]
+    [
+      options.defaultMinSources,
+      options.defaultStalenessTimeoutMs,
+      options.defaultEmitMinIntervalMs,
+      options.maxSourcesPerPath,
+    ]
   );
   const detectedHeadingRef = useRef<HTMLSpanElement>(null);
 
   return (
     <PanelDefaultsContext.Provider value={panelDefaults}>
-      <PanelRoot>
-        <Stack gap={4}>
-          <Cluster justify="between">
-            <h1 className={styles.title}>Synthetic Values</h1>
-            <ThemeToggle />
-          </Cluster>
+      {/* Request failure: baseline already rolled back, Save re-sends the form state. */}
+      {saveReport.failure !== null ? (
+        <Banner tone="danger" live="assertive" title="Configuration request failed">
+          {saveReport.failure} Save to try again.
+        </Banner>
+      ) : null}
 
-          {/* Request failure: baseline already rolled back, retry re-sends the form state. */}
-          {saveError !== null && (
-            <Banner
-              tone="danger"
-              live="assertive"
-              title="Configuration request failed"
-              actions={<Button onClick={handleRetrySave}>Retry</Button>}
-            >
-              {saveError}
-            </Banner>
-          )}
+      {saveReport.canceledByHost ? (
+        <Banner tone="info" live="polite">
+          Queued changes were canceled because the configuration changed elsewhere.
+        </Banner>
+      ) : null}
 
-          {saveError === null && saveNotice !== null && (
-            <Banner tone="info" live="polite" title="Configuration update">
-              {saveNotice}
-            </Banner>
-          )}
+      {/* Enable prompt: the save bar's Save is the only save trigger while unconfigured */}
+      {unconfigured ? (
+        <Banner tone="info" title="This plugin is not enabled yet">
+          Save requests a default configuration, which enables the plugin and starts watching your
+          data for paths reported by two or more sources. Nothing is combined until you opt a path
+          in.
+        </Banner>
+      ) : null}
 
-          {/* Enable prompt: the only save trigger when the plugin is unconfigured */}
-          {unconfigured && (
-            <Banner
-              tone="info"
-              title="This plugin is not enabled yet"
-              actions={
-                <Button variant="primary" onClick={handleEnable}>
-                  Enable plugin
-                </Button>
-              }
-            >
-              Enabling it requests a default configuration and starts watching your data for paths
-              reported by two or more sources. Nothing is combined until you opt a path in.
-            </Banner>
-          )}
+      {/* Priority banner: shown once any path is combined, dismissible */}
+      <PriorityBanner
+        show={showBanner}
+        sourceLabel={PLUGIN_SOURCE_LABEL}
+        dismissFocusRef={detectedHeadingRef}
+        onDismiss={handleDismiss}
+      />
 
-          {/* Priority banner: shown once any path is combined, dismissible */}
-          <PriorityBanner
-            show={showBanner}
-            sourceLabel={PLUGIN_SOURCE_LABEL}
-            dismissFocusRef={detectedHeadingRef}
-            onDismiss={handleDismiss}
-          />
+      {/* Detected paths list */}
+      <DetectedPathList
+        detected={detected}
+        configByPath={configByPath}
+        headingRef={detectedHeadingRef}
+        onAdd={handleAdd}
+        onAddAll={handleAddAll}
+        onRemove={handleRemove}
+        onUpdate={handleUpdate}
+        lastChecked={lastChecked}
+        loading={loading}
+        error={error}
+        onRefresh={refresh}
+      />
 
-          {/* Detected paths list */}
-          <DetectedPathList
-            detected={detected}
-            configByPath={configByPath}
-            headingRef={detectedHeadingRef}
-            onAdd={handleAdd}
-            onAddAll={handleAddAll}
-            onRemove={handleRemove}
-            onUpdate={handleUpdate}
-            lastChecked={lastChecked}
-            loading={loading}
-            error={error}
-            onRefresh={refresh}
-          />
-        </Stack>
-      </PanelRoot>
+      <SaveActionBar
+        dirty={dirty}
+        unconfigured={unconfigured}
+        saveRequestedAt={saveReport.requestedAt}
+        onSave={handleSave}
+        onDiscard={handleDiscard}
+      />
     </PanelDefaultsContext.Provider>
   );
 };

@@ -5,19 +5,25 @@ import {
   Button,
   Cluster,
   CollapsibleSection,
-  formatRelativeAge,
+  type FormatRelativeAgeOptions,
   InlineConfirm,
+  LiveRegion,
+  RelativeAge,
   Section,
   Stack,
+  Text,
 } from 'signalk-nearlcrews-ui';
 import { EmptyState } from 'signalk-nearlcrews-ui/composites';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import { plural } from '../../textFormat.js';
 import { type DetectedRow, isRecommendedCombinable } from '../hooks/useDetected.js';
-import { RELATIVE_AGE_FORMAT } from '../relative-age.js';
-import utilities from '../utilities.module.css';
 import styles from './DetectedPathList.module.css';
 import { DetectedPathRow } from './DetectedPathRow.js';
+
+// Every other string in this panel is English, so the age does not follow the
+// browser locale: "last checked hace 5 minutos" would read as a defect. The pin
+// also keeps the browser assertions independent of the runner's locale.
+const RELATIVE_AGE_OPTIONS: FormatRelativeAgeOptions = { locale: 'en' };
 
 function FunnelIcon(): React.ReactElement {
   return (
@@ -35,11 +41,17 @@ function FunnelIcon(): React.ReactElement {
 }
 
 function LastCheckedStamp({ lastChecked }: { lastChecked: number | null }): React.ReactElement {
-  if (lastChecked === null) {
-    return <span className={styles.timestamp}>never checked</span>;
-  }
-  const label = formatRelativeAge(Math.max(0, Date.now() - lastChecked), RELATIVE_AGE_FORMAT);
-  return <span className={styles.timestamp}>last checked {label}</span>;
+  return (
+    <Text className={styles.timestamp} size="xs" tone="muted">
+      {lastChecked === null ? (
+        'never checked'
+      ) : (
+        <>
+          last checked <RelativeAge options={RELATIVE_AGE_OPTIONS} since={lastChecked} />
+        </>
+      )}
+    </Text>
+  );
 }
 
 interface HeaderActionsProps {
@@ -89,7 +101,7 @@ function NotRecommendedGroup({
 
   return (
     <CollapsibleSection
-      headingLevel={3}
+      headingLevel={4}
       mountStrategy="lazy-retain"
       title={`Detected but not recommended (${rows.length})`}
       open={open}
@@ -142,19 +154,14 @@ function CombineAllBar({
         </Button>
       </Cluster>
       <InlineConfirm
-        confirmLabel="Confirm"
+        confirmLabel={`Combine ${count} path${plural(count)}`}
         confirmVariant="primary"
-        headingLevel={3}
-        message={
-          <>
-            Combine {count} detected path{plural(count)} with default settings? You can exclude
-            individual sources afterward.
-          </>
-        }
+        headingLevel={4}
+        message="Each path starts with default settings. You can exclude individual sources afterward."
         onCancel={() => setConfirming(false)}
         onConfirm={handleConfirm}
         open={confirming}
-        title="Combine all detected paths"
+        title={`Combine all ${count} detected path${plural(count)}?`}
       />
     </Stack>
   );
@@ -191,6 +198,23 @@ export function DetectedPathList({
   const effectiveHeadingRef = headingRef ?? internalHeadingRef;
   const prevCountRef = useRef<number | null>(null);
   const [announcement, setAnnouncement] = useState('');
+
+  // Combine and Remove swap the same button in place, so its label changes
+  // under the pointer or the caret with nothing else to say what happened.
+  const handleAdd = useCallback(
+    (path: string): void => {
+      setAnnouncement(`Combining ${path}.`);
+      onAdd(path);
+    },
+    [onAdd]
+  );
+  const handleRemove = useCallback(
+    (path: string): void => {
+      setAnnouncement(`Removed ${path}.`);
+      onRemove(path);
+    },
+    [onRemove]
+  );
 
   const rows = useMemo(() => {
     const merged = [...detected];
@@ -229,16 +253,24 @@ export function DetectedPathList({
   }, [rows, configByPath]);
 
   const totalCount = detected.length;
+  // Retry lives inside the error banner, and a successful refresh unmounts the
+  // banner with the pressed button inside it. Send focus to the section heading
+  // the way the Combine all confirmation does, so it never lands on the body.
+  const errorRef = useRef(error);
+  errorRef.current = error;
   const handleRefresh = useCallback((): void => {
+    const hadError = errorRef.current !== null;
     setAnnouncement('');
     void Promise.resolve(onRefresh())
       .then((succeeded) => {
-        if (succeeded !== false) {
-          setAnnouncement('Detected paths refreshed.');
+        if (succeeded === false) return;
+        setAnnouncement(hadError ? 'Detected paths loaded.' : 'Detected paths refreshed.');
+        if (hadError) {
+          queueMicrotask(() => effectiveHeadingRef.current?.focus());
         }
       })
       .catch(() => undefined);
-  }, [onRefresh]);
+  }, [effectiveHeadingRef, onRefresh]);
 
   useEffect(() => {
     if (prevCountRef.current !== null && prevCountRef.current !== totalCount) {
@@ -249,6 +281,7 @@ export function DetectedPathList({
 
   return (
     <Section
+      headingLevel={3}
       actions={
         <HeaderActions lastChecked={lastChecked} loading={loading} onRefresh={handleRefresh} />
       }
@@ -259,14 +292,7 @@ export function DetectedPathList({
         </span>
       }
     >
-      <span
-        className={utilities.visuallyHidden}
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        {announcement}
-      </span>
+      <LiveRegion message={announcement} />
 
       {error !== null ? (
         <Banner
@@ -297,8 +323,8 @@ export function DetectedPathList({
                 row={row}
                 optedIn={false}
                 config={undefined}
-                onAdd={onAdd}
-                onRemove={onRemove}
+                onAdd={handleAdd}
+                onRemove={handleRemove}
                 onUpdate={onUpdate}
               />
             ))}
@@ -309,8 +335,8 @@ export function DetectedPathList({
                 row={row}
                 optedIn={true}
                 config={configByPath.get(row.path)}
-                onAdd={onAdd}
-                onRemove={onRemove}
+                onAdd={handleAdd}
+                onRemove={handleRemove}
                 onUpdate={onUpdate}
               />
             ))}
@@ -319,15 +345,29 @@ export function DetectedPathList({
           <NotRecommendedGroup
             rows={notRecommendedRows}
             configByPath={configByPath}
-            onAdd={onAdd}
-            onRemove={onRemove}
+            onAdd={handleAdd}
+            onRemove={handleRemove}
             onUpdate={onUpdate}
           />
         </Stack>
-      ) : error === null && !loading ? (
+      ) : error === null ? (
+        // The first poll used to render nothing at all, so a busy server showed
+        // an empty section with only the header spinner. Later polls keep the
+        // rows already on screen, so this only ever fills the opening gap.
         <EmptyState
-          title="No duplicate paths detected yet"
+          title={
+            lastChecked === null
+              ? 'Checking for multi-source paths'
+              : 'No duplicate paths detected yet'
+          }
           description="This plugin watches your live data for paths reported by two or more sources. Leave your instruments running for a minute, then refresh."
+          action={
+            lastChecked === null ? undefined : (
+              <Button loading={loading} loadingLabel="Refreshing" onClick={handleRefresh}>
+                Refresh
+              </Button>
+            )
+          }
         />
       ) : null}
     </Section>

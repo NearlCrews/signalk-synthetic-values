@@ -1,39 +1,92 @@
 import type * as React from 'react';
-import { Badge, Cluster } from 'signalk-nearlcrews-ui';
-import utilities from '../utilities.module.css';
+import { Badge, Button, Cluster } from 'signalk-nearlcrews-ui';
+import { useDisclosure } from 'signalk-nearlcrews-ui/composites';
+import { plural } from '../../textFormat.js';
+import styles from './SourceChips.module.css';
+
+export interface SourceChip {
+  sourceRef: string;
+  /** How this source stands in relation to the combination running on the path. */
+  state: 'live' | 'stale' | 'excluded';
+}
 
 interface SourceChipsProps {
-  sources: string[];
+  chips: SourceChip[];
 }
 
 const VISIBLE_MAX = 3;
 
-// Renders up to 3 source chips, collapsing extras to "+N more".
-//
-// Accessibility:
-// - The container element carries a `title` attribute with the full
-//   comma-separated source list, so hover reveals every source name.
-// - A visually-hidden span enumerates all sources for screen readers,
-//   covering the overflow case where some names are hidden visually.
-//
-// These two affordances together ensure both assistive technology and
-// pointer-driven users can always access every source.
-export function SourceChips({ sources }: SourceChipsProps): React.ReactElement | null {
-  if (sources.length === 0) return null;
+/**
+ * Work out how each detected source stands. `freshSources` is null for a path
+ * that is not configured, where no combination is running and every source is
+ * simply listed.
+ */
+export function sourceChips(
+  sources: string[],
+  freshSources: string[] | null | undefined,
+  excludedSources: string[] | undefined
+): SourceChip[] {
+  const excluded = new Set(excludedSources ?? []);
+  const fresh = freshSources == null ? null : new Set(freshSources);
+  return sources.map((sourceRef) => ({
+    sourceRef,
+    state: excluded.has(sourceRef)
+      ? 'excluded'
+      : fresh === null || fresh.has(sourceRef)
+        ? 'live'
+        : 'stale',
+  }));
+}
 
-  const visible = sources.slice(0, VISIBLE_MAX);
-  const overflow = sources.length - VISIBLE_MAX;
-  const fullList = sources.join(', ');
+// The suffix, not the tone, is what tells a source apart: a chip that reads
+// "gps1, no data" says the same thing to a reader who cannot see the colour or
+// the glyph as it does to one who can.
+function chipLabel({ sourceRef, state }: SourceChip): string {
+  if (state === 'stale') return `${sourceRef}, no data`;
+  if (state === 'excluded') return `${sourceRef}, excluded`;
+  return sourceRef;
+}
+
+function SourceChipBadge({ chip }: { chip: SourceChip }): React.ReactElement {
+  return (
+    <Badge className={styles.chip} tone={chip.state === 'stale' ? 'warning' : 'neutral'}>
+      {chipLabel(chip)}
+    </Badge>
+  );
+}
+
+/**
+ * The sources on a path, the first three inline and the rest behind a
+ * disclosure. The overflow used to be a `title` tooltip, which a touch or
+ * keyboard user never sees, so it is a real control now.
+ */
+export function SourceChips({ chips }: SourceChipsProps): React.ReactElement | null {
+  const overflow = chips.length - VISIBLE_MAX;
+  const { panelProps, open, triggerProps } = useDisclosure();
+  if (chips.length === 0) return null;
 
   return (
-    <Cluster gap={1} title={fullList}>
-      {visible.map((src) => (
-        <Badge key={src} aria-hidden="true">
-          {src}
-        </Badge>
+    <Cluster gap={1}>
+      {chips.slice(0, VISIBLE_MAX).map((chip) => (
+        <SourceChipBadge key={chip.sourceRef} chip={chip} />
       ))}
-      {overflow > 0 ? <Badge aria-hidden="true">{`+${overflow} more`}</Badge> : null}
-      <span className={utilities.visuallyHidden}>Sources: {fullList}</span>
+      {overflow > 0 ? (
+        <>
+          <Button size="compact" variant="ghost" {...triggerProps}>
+            {open ? 'Show fewer' : `${overflow} more source${plural(overflow)}`}
+          </Button>
+          {/* A plain div carries the panel props: `hidden` only hides an
+              element the cascade leaves at its default display, and a Cluster
+              sets display: flex, which would keep the closed panel on screen. */}
+          <div className={styles.overflow} {...panelProps}>
+            <Cluster gap={1}>
+              {chips.slice(VISIBLE_MAX).map((chip) => (
+                <SourceChipBadge key={chip.sourceRef} chip={chip} />
+              ))}
+            </Cluster>
+          </div>
+        </>
+      ) : null}
     </Cluster>
   );
 }

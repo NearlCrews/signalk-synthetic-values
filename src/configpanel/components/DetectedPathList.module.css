@@ -11,8 +11,9 @@
   color: var(--snui-color-text-muted);
 }
 
-.timestamp {
-  color: var(--snui-color-text-muted);
-  font-size: var(--snui-font-size-xs);
+/* Classes that land on a shared UI component repeat their own name so they
+   outrank the package rule they override; see test/configpanel/styles.test.ts.
+   The stamp stays on one line so the header actions wrap it whole. */
+.timestamp.timestamp {
   white-space: nowrap;
 }

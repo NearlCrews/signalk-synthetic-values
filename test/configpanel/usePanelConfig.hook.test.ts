@@ -32,6 +32,7 @@ describe('usePanelConfig resync guard', () => {
       defaultEmitMinIntervalMs: 1000,
       defaultMinSources: 2,
       maxSourcesPerPath: 16,
+      notifications: true,
       paths: [{ path: 'external.path' }],
     };
     rerender({ cfg: external });

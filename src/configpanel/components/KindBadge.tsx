@@ -1,7 +1,6 @@
 import type * as React from 'react';
-import { Badge } from 'signalk-nearlcrews-ui';
+import { Badge, VisuallyHidden } from 'signalk-nearlcrews-ui';
 import { kindMeta } from '../kindMeta.js';
-import utilities from '../utilities.module.css';
 
 interface KindBadgeProps {
   kind: string;
@@ -20,7 +19,7 @@ export function KindBadge({ kind }: KindBadgeProps): React.ReactElement {
   return (
     <Badge tone={meta.tone}>
       <span aria-hidden="true">{meta.label}</span>
-      <span className={utilities.visuallyHidden}>{meta.srLabel}</span>
+      <VisuallyHidden>{meta.srLabel}</VisuallyHidden>
     </Badge>
   );
 }

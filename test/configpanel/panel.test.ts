@@ -18,6 +18,7 @@ const baseConfig: PluginOptions = {
   defaultEmitMinIntervalMs: 500,
   defaultMinSources: 2,
   maxSourcesPerPath: 10,
+  notifications: true,
   paths: [{ path: combinedPath }],
 };
 
@@ -56,6 +57,21 @@ function mockFetch(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// The panel shell mounts one polite and one assertive live region for the whole
+// panel, empty until something is announced, so an assertive banner is never
+// the only element with role="alert". Read every alert instead of assuming one.
+function alertText(): string {
+  return screen
+    .getAllByRole('alert')
+    .map((node) => node.textContent ?? '')
+    .join(' ')
+    .trim();
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -82,7 +98,7 @@ describe('PluginConfigurationPanel', () => {
     render(createElement(PluginConfigurationPanel, { configuration: undefined, save: mockSave }));
     expect(screen.getByText('Synthetic Values')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByTitle(availablePath)).toBeInTheDocument();
+      expect(screen.getByText(availablePath)).toBeInTheDocument();
     });
   });
 
@@ -92,36 +108,40 @@ describe('PluginConfigurationPanel', () => {
     render(createElement(PluginConfigurationPanel, { configuration: {}, save: mockSave }));
     expect(screen.getByText('Synthetic Values')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByTitle(availablePath)).toBeInTheDocument();
+      expect(screen.getByText(availablePath)).toBeInTheDocument();
     });
   });
 
-  it('shows an Enable button when unconfigured and requests a config on click', async () => {
+  it('keeps Save enabled when unconfigured and requests a config on click', async () => {
     // Unconfigured (no saved config) is the only state where the user cannot
-    // reach a save trigger via detected paths, so the panel must offer one.
+    // reach a save trigger via detected paths, so the save bar must offer one.
     const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: undefined, save: mockSave }));
-    const enableBtn = screen.getByRole('button', { name: /enable plugin/i });
-    expect(enableBtn).toBeInTheDocument();
-    fireEvent.click(enableBtn);
+    expect(screen.getByText('Save to enable the plugin')).toBeInTheDocument();
+    const saveButton = screen.getByRole('button', { name: 'Save' });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
     await waitFor(() => {
       expect(mockSave).toHaveBeenCalled();
     });
     // Requesting a configuration write is what enables the plugin server-side.
     const requested = mockSave.mock.calls[0][0] as PluginOptions;
     expect(Array.isArray(requested.paths)).toBe(true);
+    expect(screen.getByText('Save sent to the server')).toBeInTheDocument();
   });
 
-  it('does not show the Enable button when a configuration is already present', async () => {
+  it('disables Save when a configuration is already present and unchanged', async () => {
     const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
-    expect(screen.queryByRole('button', { name: /enable plugin/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Save to enable the plugin')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByText('All changes saved')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByTitle(availablePath)).toBeInTheDocument();
+      expect(screen.getByText(availablePath)).toBeInTheDocument();
     });
   });
 
-  it('surfaces a failed request and retries it from the banner', async () => {
+  it('surfaces a failed request and retries it from the save bar', async () => {
     const mockSave = vi
       .fn()
       .mockImplementationOnce(() => {
@@ -129,21 +149,61 @@ describe('PluginConfigurationPanel', () => {
       })
       .mockImplementation(() => undefined);
     render(createElement(PluginConfigurationPanel, { configuration: undefined, save: mockSave }));
-    fireEvent.click(screen.getByRole('button', { name: /enable plugin/i }));
-    // A synchronous host rejection must surface without claiming persistence.
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    // A synchronous host rejection must surface without claiming persistence,
+    // and the plugin stays unconfigured so Save keeps offering the request.
     await waitFor(() => {
-      expect(screen.getByText(/could not request the configuration update/i)).toBeInTheDocument();
+      expect(alertText()).toMatch(/could not request the configuration update/i);
     });
-    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    const saveButton = screen.getByRole('button', { name: 'Save' });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
     await waitFor(() => {
       expect(mockSave).toHaveBeenCalledTimes(2);
-      expect(
-        screen.queryByText(/could not request the configuration update/i)
-      ).not.toBeInTheDocument();
-      expect(
-        screen.getByText(/configuration update requested from Signal K Admin/i)
-      ).toBeInTheDocument();
+      expect(alertText()).toBe('');
+      expect(screen.getByText('Save sent to the server')).toBeInTheDocument();
     });
+  });
+
+  it('reports queued edits as unsaved and discards them back to the requested snapshot', async () => {
+    const mockSave = vi.fn();
+    render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
+    await waitFor(() => expect(screen.getByText(availablePath)).toBeInTheDocument());
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    vi.useRealTimers();
+
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(screen.getByText('All changes saved')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Combine ${availablePath}` })).toBeInTheDocument();
+  });
+
+  it('sends a queued edit at once when Save is pressed inside the coalescing window', async () => {
+    const mockSave = vi.fn();
+    render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
+    await waitFor(() => expect(screen.getByText(availablePath)).toBeInTheDocument());
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    vi.useRealTimers();
+
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    const requested = mockSave.mock.calls[0]?.[0] as PluginOptions;
+    expect(requested.paths.map((path) => path.path)).toEqual([combinedPath, availablePath]);
+    expect(screen.getByText('Save sent to the server')).toBeInTheDocument();
   });
 
   it('starts a fresh profile in Auto without persisting an implicit preference', async () => {
@@ -154,7 +214,10 @@ describe('PluginConfigurationPanel', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('radiogroup', { name: /panel theme/i })).toBeInTheDocument();
-      expect(screen.getByRole('radio', { name: /auto/i })).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByRole('radio', { name: /match admin/i })).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
       expect(container.querySelector('[data-snui-root]')).not.toHaveAttribute('data-snui-theme');
       expect(window.localStorage.getItem('signalk-nearlcrews-ui.theme.v1')).toBeNull();
     });
@@ -168,7 +231,10 @@ describe('PluginConfigurationPanel', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('radio', { name: /auto/i })).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByRole('radio', { name: /match admin/i })).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
       expect(container.querySelector('[data-snui-root]')).not.toHaveAttribute('data-snui-theme');
       expect(window.localStorage.getItem('signalk-nearlcrews-ui.theme.v1')).toBeNull();
       expect(window.localStorage.getItem('skn-theme')).toBe('night');
@@ -185,7 +251,7 @@ describe('PluginConfigurationPanel', () => {
       createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
     );
 
-    expect(screen.getByRole('alert')).toHaveTextContent(/browser update required/i);
+    expect(screen.getByRole('region', { name: 'Browser update required' })).toBeInTheDocument();
     expect(container.querySelector('[data-snui-root]')).not.toBeInTheDocument();
   });
 
@@ -195,8 +261,8 @@ describe('PluginConfigurationPanel', () => {
 
     await waitFor(() => {
       // Both path strings should appear in the DOM
-      expect(screen.getByTitle(combinedPath)).toBeInTheDocument();
-      expect(screen.getByTitle(availablePath)).toBeInTheDocument();
+      expect(screen.getByText(combinedPath)).toBeInTheDocument();
+      expect(screen.getByText(availablePath)).toBeInTheDocument();
     });
   });
 
@@ -217,7 +283,7 @@ describe('PluginConfigurationPanel', () => {
       expect(screen.getByRole('region', { name: /source priority/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /dismiss priority reminder/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     await waitFor(() => {
       expect(
         screen.getByText('Detected multi-source paths').closest('[tabindex="-1"]')
@@ -234,7 +300,7 @@ describe('PluginConfigurationPanel', () => {
     // The available row is "navigation.headingTrue"; it is not in baseConfig.paths
     // so it renders with a primary "Combine" button (not disabled).
     await waitFor(() => {
-      expect(screen.getByTitle(availablePath)).toBeInTheDocument();
+      expect(screen.getByText(availablePath)).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
@@ -261,7 +327,7 @@ describe('PluginConfigurationPanel', () => {
   it('coalesces nearby writes into the latest snapshot after exactly 300 ms', async () => {
     const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
-    await waitFor(() => expect(screen.getByTitle(availablePath)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(availablePath)).toBeInTheDocument());
 
     vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
@@ -286,7 +352,7 @@ describe('PluginConfigurationPanel', () => {
     const { unmount } = render(
       createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
     );
-    await waitFor(() => expect(screen.getByTitle(availablePath)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(availablePath)).toBeInTheDocument());
 
     vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
@@ -306,7 +372,7 @@ describe('PluginConfigurationPanel', () => {
     const { rerender } = render(
       createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
     );
-    await waitFor(() => expect(screen.getByTitle(availablePath)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(availablePath)).toBeInTheDocument());
 
     vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
@@ -332,7 +398,7 @@ describe('PluginConfigurationPanel', () => {
     const { rerender } = render(
       createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave })
     );
-    await waitFor(() => expect(screen.getByTitle(availablePath)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(availablePath)).toBeInTheDocument());
 
     vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: `Combine ${availablePath}` }));
@@ -362,7 +428,7 @@ describe('PluginConfigurationPanel', () => {
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
 
     await waitFor(() => {
-      expect(screen.getByTitle(combinedPath)).toBeInTheDocument();
+      expect(screen.getByText(combinedPath)).toBeInTheDocument();
     });
 
     // Open the Tune disclosure on the combined row.
@@ -407,7 +473,7 @@ describe('PluginConfigurationPanel', () => {
 
     // Wait for the combined path row to appear (real timers; fetch is a microtask).
     await waitFor(() => {
-      expect(screen.getByTitle(combinedPath)).toBeInTheDocument();
+      expect(screen.getByText(combinedPath)).toBeInTheDocument();
     });
 
     // Open the Tune disclosure on the combined row so the inputs render.

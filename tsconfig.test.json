@@ -11,6 +11,9 @@
     "noEmit": true,
     "noUncheckedIndexedAccess": false
   },
-  "include": ["src/**/*.ts", "test/*.ts"],
-  "exclude": ["node_modules", "dist", "src/configpanel"]
+  // "test/**/*" rather than "test/*.ts": the panel tests live in
+  // test/configpanel and are .ts files that import .tsx panel sources, so a
+  // top-level-only glob left ten of them type-checked by nothing.
+  "include": ["src/**/*.ts", "src/configpanel/**/*", "test/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

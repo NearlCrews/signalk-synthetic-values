@@ -69,6 +69,10 @@ const detectedPayload = {
     {
       path: 'navigation.speedOverGround',
       sources: ['gps.1', 'gps.2'],
+      // gps.2 is listed by discovery but is no longer fresh to the combiner,
+      // which is the case the row has to keep visually distinct.
+      freshSources: ['gps.1'],
+      excludedSources: [],
       kind: 'scalar',
       optedIn: true,
     },
@@ -80,8 +84,9 @@ const detectedPayload = {
       duplicateGroups: [['compass.1', 'compass.rebroadcast']],
     },
     {
+      // Four sources so the row exercises the chip overflow disclosure.
       path: 'navigation.position',
-      sources: ['gps.1', 'gps.2', 'gps.3'],
+      sources: ['gps.1', 'gps.2', 'gps.3', 'gps.4'],
       kind: 'position',
       optedIn: false,
     },

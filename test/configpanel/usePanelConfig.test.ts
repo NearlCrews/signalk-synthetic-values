@@ -19,6 +19,7 @@ const baseOptions: PluginOptions = {
   defaultEmitMinIntervalMs: 500,
   defaultMinSources: 2,
   maxSourcesPerPath: 16,
+  notifications: true,
   paths: [],
 };
 
@@ -37,11 +38,13 @@ describe('normalizeOptions', () => {
   it('drops malformed path entries without discarding valid future fields', () => {
     const normalized = normalizeOptions({
       paths: [null, 'bad', { path: '' }, { path: 'navigation.position', futureSetting: 42 }],
+      // The extra key is the point: the panel must not erase settings it does
+      // not own.
     });
 
     expect(normalized.paths).toEqual([
       { path: 'navigation.position', futureSetting: 42 },
-    ] as RawPathConfig[]);
+    ] as unknown as RawPathConfig[]);
   });
 });
 
@@ -73,7 +76,7 @@ describe('applyAddPath', () => {
   it('does not mutate the input object', () => {
     const frozen = Object.freeze({
       ...baseOptions,
-      paths: Object.freeze([]) as PluginOptions['paths'],
+      paths: Object.freeze([]) as unknown as PluginOptions['paths'],
     });
     const next = applyAddPath(frozen as PluginOptions, 'navigation.headingTrue');
     expect(next).not.toBe(frozen);
@@ -277,7 +280,7 @@ describe('applyUpdatePath: clearing a field', () => {
 
 describe('usePanelConfig hook', () => {
   it('updatePath propagates into options state', () => {
-    const { result } = renderHook(() => usePanelConfig(baseOptions));
+    const { result } = renderHook(() => usePanelConfig(baseOptions, { current: baseOptions }));
 
     act(() => {
       result.current.addPath('navigation.position');
@@ -295,14 +298,15 @@ describe('usePanelConfig hook', () => {
       ...baseOptions,
       paths: [{ path: 'navigation.position', minSources: 3 }],
     };
-    const { result } = renderHook(() => usePanelConfig(initial));
+    const { result } = renderHook(() => usePanelConfig(initial, { current: initial }));
 
     act(() => {
       result.current.updatePath('navigation.position', { minSources: undefined });
     });
 
     const entry = result.current.options.paths.find((p) => p.path === 'navigation.position');
-    expect(Object.hasOwn(entry, 'minSources')).toBe(false);
+    expect(entry).toBeDefined();
+    expect(Object.hasOwn(entry as object, 'minSources')).toBe(false);
   });
 
   it('addAllCombinable adds combinable paths and updates options.paths', () => {
@@ -317,7 +321,7 @@ describe('usePanelConfig hook', () => {
         recommended: false,
       },
     ];
-    const { result } = renderHook(() => usePanelConfig(baseOptions));
+    const { result } = renderHook(() => usePanelConfig(baseOptions, { current: baseOptions }));
 
     act(() => {
       result.current.addAllCombinable(rows);
@@ -334,7 +338,7 @@ describe('usePanelConfig hook', () => {
       ...baseOptions,
       paths: [{ path: 'navigation.position' }, { path: 'environment.depth.belowKeel' }],
     };
-    const { result } = renderHook(() => usePanelConfig(initial));
+    const { result } = renderHook(() => usePanelConfig(initial, { current: initial }));
 
     act(() => {
       result.current.removePath('navigation.position');

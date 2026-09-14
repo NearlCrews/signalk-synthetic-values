@@ -1,46 +1,20 @@
 import type * as React from 'react';
-import { memo, useEffect, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import {
   Banner,
   CollapsibleSection,
   LabeledField,
-  NumberInput,
+  NumberField,
   Select,
   Stack,
+  VisuallyHidden,
 } from 'signalk-nearlcrews-ui';
 import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import { DEFAULT_JUMP_PERSIST_MS, DEFAULT_JUMP_PERSIST_SAMPLES } from '../../config.js';
 import { plural } from '../../textFormat.js';
 import { usePanelDefaults } from '../defaultsContext.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
-import utilities from '../utilities.module.css';
 import { SourceChecklist } from './SourceChecklist.js';
-
-function parseNumericInput(
-  raw: string,
-  opts: {
-    min: number;
-    max?: number;
-    integer?: boolean;
-    exclusiveMin?: boolean;
-    exclusiveMax?: boolean;
-  }
-): number | undefined | null {
-  if (raw.trim() === '') return undefined;
-  const value = Number(raw);
-  const belowBound = opts.exclusiveMin ? value <= opts.min : value < opts.min;
-  const aboveBound =
-    opts.max !== undefined && (opts.exclusiveMax ? value >= opts.max : value > opts.max);
-  if (
-    !Number.isFinite(value) ||
-    belowBound ||
-    aboveBound ||
-    (opts.integer && !Number.isInteger(value))
-  ) {
-    return null;
-  }
-  return value;
-}
 
 interface SelectFieldProps<V extends string> {
   id: string;
@@ -89,63 +63,62 @@ const ANGULAR_CHOICES = [
   { value: 'no', label: 'No' },
 ] as const;
 
+// Which of a path's sources pass the include and exclude filter, matching
+// `sourceAllowed` in the runtime.
+function countIncludedSources(sources: string[], config: RawPathConfig): number {
+  const include = config.includeSources;
+  const exclude = config.excludeSources;
+  return sources.filter(
+    (src) => (!include?.length || include.includes(src)) && !exclude?.includes(src)
+  ).length;
+}
+
 export function PerPathSettings({ row, config, onChange, idPrefix }: Props): React.ReactElement {
   const defaults = usePanelDefaults();
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [draftMinSources, setDraftMinSources] = useState<number | undefined>(config.minSources);
 
-  const sourceCount = row.sources.length;
-  const effectiveMinSources = draftMinSources ?? config.minSources;
-  const showMinSourcesWarning =
-    effectiveMinSources !== undefined && effectiveMinSources > sourceCount;
-
-  // This component renders inside lazy-retain CollapsibleSections, which wrap
-  // their children in React Activity: collapsing runs every effect cleanup in
-  // the subtree and reopening re-runs the effects, while component state
-  // survives. So this is NOT a run-once mount effect, it re-runs on every
-  // reopen. That is safe only because the change handler commits every valid
-  // keystroke upward, which keeps the draft and the committed config in
-  // lockstep, so a re-run re-applies the value the field already shows.
-  // Deferring the commit (to blur, say) would let the draft diverge, and this
-  // effect would then discard an in-progress edit whenever a section is
-  // collapsed and reopened. The browser suite pins the current behavior.
-  useEffect(() => {
-    setDraftMinSources(config.minSources);
-  }, [config.minSources]);
-
-  const methodId = `${idPrefix}-method`;
-  const minSourcesId = `${idPrefix}-min-sources`;
+  // Count the sources that would actually reach the combiner, not every source
+  // the path has ever reported: excluding two of three sources with a minimum
+  // of two leaves a path that cannot combine, and the warning has to see that.
+  const includedCount = countIncludedSources(row.sources, config);
+  // Compare against the value in force, which is the resolved default when the
+  // field is empty. A path detected with one source under a default minimum of
+  // two will never combine, and that is exactly the case worth warning about.
+  const effectiveMinSources = config.minSources ?? defaults.minSources;
+  // Every valid keystroke commits upward, so the committed value is the one
+  // the field shows and the warning follows it directly.
+  const showMinSourcesWarning = effectiveMinSources > includedCount;
 
   return (
     <Stack gap={3}>
       <SelectField
-        id={methodId}
+        id={`${idPrefix}-method`}
         label="Method"
         value={config.method ?? 'median'}
         choices={METHOD_CHOICES}
         onChange={(method) => onChange({ method })}
       />
 
-      <LabeledField density="compact" label="Minimum sources" layout="inline">
-        <NumberInput
-          id={minSourcesId}
-          min={1}
-          step={1}
-          value={draftMinSources ?? ''}
-          placeholder={`default: ${defaults.minSources}`}
-          onChange={(event) => {
-            const parsed = parseNumericInput(event.target.value, { min: 1, integer: true });
-            if (parsed === null) return;
-            setDraftMinSources(parsed);
-            onChange({ minSources: parsed });
-          }}
-        />
-      </LabeledField>
+      <NumberField
+        allowEmpty
+        density="compact"
+        inputProps={{ placeholder: `default: ${defaults.minSources}` }}
+        integer
+        label="Minimum sources"
+        layout="inline"
+        // The runtime drops a path whose minimum exceeds the tracked-source
+        // cap, so the field refuses the value rather than letting a saved
+        // config delete the entry.
+        max={defaults.maxSourcesPerPath}
+        min={1}
+        value={config.minSources}
+        onValueChange={(minSources) => onChange({ minSources })}
+      />
 
       {showMinSourcesWarning ? (
         <Banner live="polite" tone="warning">
-          This path has {sourceCount} source{plural(sourceCount)}. Requiring {effectiveMinSources}{' '}
-          means it will not combine until more sources come online.
+          This path has {includedCount} selected source{plural(includedCount)}. Requiring{' '}
+          {effectiveMinSources} means it will not combine until more sources come online.
         </Banner>
       ) : null}
 
@@ -155,18 +128,17 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
           includeSources={config.includeSources}
           excludeSources={config.excludeSources}
           onChange={onChange}
-          idPrefix={idPrefix}
         />
       ) : null}
 
       <CollapsibleSection
-        headingLevel={4}
+        headingLevel={5}
         mountStrategy="lazy-retain"
         open={advancedOpen}
         onOpenChange={setAdvancedOpen}
         title={
           <>
-            Advanced<span className={utilities.visuallyHidden}> settings for {row.path}</span>
+            Advanced<VisuallyHidden> settings for {row.path}</VisuallyHidden>
           </>
         }
       >
@@ -188,12 +160,12 @@ type NumericKey = keyof Pick<
   | 'slewLimit'
 >;
 
-interface NumberFieldProps {
-  id: string;
+interface PatchNumberFieldProps {
   label: string;
   value: number | undefined;
   placeholder: string;
   fieldKey: NumericKey;
+  unit?: string | undefined;
   min?: number | undefined;
   max?: number | undefined;
   exclusiveMin?: boolean | undefined;
@@ -201,40 +173,81 @@ interface NumberFieldProps {
   onChange: (patch: RawPathConfigPatch) => void;
 }
 
-const NumberField = memo(function NumberField({
-  id,
+/** An optional per-path number that clears back to the plugin default. */
+const PatchNumberField = memo(function PatchNumberField({
   label,
   value,
   placeholder,
   fieldKey,
+  unit,
   min = 0,
   max,
-  exclusiveMin = false,
-  exclusiveMax = false,
+  exclusiveMin,
+  exclusiveMax,
   onChange,
-}: NumberFieldProps): React.ReactElement {
+}: PatchNumberFieldProps): React.ReactElement {
   return (
-    <LabeledField density="compact" label={label} layout="inline">
-      <NumberInput
-        id={id}
-        min={min}
-        max={max}
-        step="any"
-        value={value ?? ''}
-        placeholder={placeholder}
-        onChange={(event) => {
-          const parsed = parseNumericInput(event.target.value, {
-            min,
-            ...(max !== undefined ? { max } : {}),
-            exclusiveMin,
-            exclusiveMax,
-          });
-          if (parsed !== null) onChange({ [fieldKey]: parsed });
-        }}
-      />
-    </LabeledField>
+    <NumberField
+      allowEmpty
+      density="compact"
+      exclusiveMax={exclusiveMax}
+      exclusiveMin={exclusiveMin}
+      inputProps={{ placeholder }}
+      label={label}
+      layout="inline"
+      max={max}
+      min={min}
+      unit={unit}
+      value={value}
+      onValueChange={(next) => onChange({ [fieldKey]: next })}
+    />
   );
 });
+
+/**
+ * The jump-rejection rate, which switches the whole feature on and off.
+ * Clearing it removes `jumpRejection` from the saved config, so the persist
+ * settings ride along in a ref and are restored if the rate comes back. The
+ * README promises this panel preserves those two values rather than editing
+ * them, and without the ref that promise held everywhere except here.
+ */
+function JumpRateField({
+  config,
+  onChange,
+}: {
+  config: RawPathConfig;
+  onChange: (patch: RawPathConfigPatch) => void;
+}): React.ReactElement {
+  const preserved = useRef({
+    persistSamples: config.jumpRejection?.persistSamples ?? DEFAULT_JUMP_PERSIST_SAMPLES,
+    persistMs: config.jumpRejection?.persistMs ?? DEFAULT_JUMP_PERSIST_MS,
+  });
+  if (config.jumpRejection) {
+    preserved.current = {
+      persistSamples: config.jumpRejection.persistSamples ?? preserved.current.persistSamples,
+      persistMs: config.jumpRejection.persistMs ?? preserved.current.persistMs,
+    };
+  }
+
+  return (
+    <NumberField
+      allowEmpty
+      density="compact"
+      exclusiveMin
+      inputProps={{ placeholder: 'disabled' }}
+      label="Jump rejection max rate"
+      layout="inline"
+      min={0}
+      unit="per second"
+      value={config.jumpRejection?.maxRate}
+      onValueChange={(maxRate) =>
+        onChange({
+          jumpRejection: maxRate === undefined ? undefined : { maxRate, ...preserved.current },
+        })
+      }
+    />
+  );
+}
 
 interface AdvancedFieldsProps {
   config: RawPathConfig;
@@ -244,21 +257,17 @@ interface AdvancedFieldsProps {
 
 function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): React.ReactElement {
   const defaults = usePanelDefaults();
-  const angularId = `${idPrefix}-angular`;
-  const jumpMaxRateId = `${idPrefix}-jump-max-rate`;
 
   return (
     <Stack gap={3}>
-      <NumberField
-        id={`${idPrefix}-mad`}
+      <PatchNumberField
         label="Outlier threshold (MAD multiplier)"
         value={config.madThreshold}
         placeholder="default: 3"
         fieldKey="madThreshold"
         onChange={onChange}
       />
-      <NumberField
-        id={`${idPrefix}-reject`}
+      <PatchNumberField
         label="Reject threshold (absolute distance)"
         value={config.rejectThreshold}
         placeholder="not set"
@@ -266,8 +275,7 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         exclusiveMin
         onChange={onChange}
       />
-      <NumberField
-        id={`${idPrefix}-disagree`}
+      <PatchNumberField
         label="Disagree threshold (max spread)"
         value={config.disagreeThreshold}
         placeholder="not set"
@@ -275,17 +283,16 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         exclusiveMin
         onChange={onChange}
       />
-      <NumberField
-        id={`${idPrefix}-angular-spread`}
-        label="Angular spread threshold (radians)"
+      <PatchNumberField
+        label="Angular spread threshold"
+        unit="radians"
         value={config.angularSpreadThreshold}
         placeholder="default: π/2"
         fieldKey="angularSpreadThreshold"
         exclusiveMin
         onChange={onChange}
       />
-      <NumberField
-        id={`${idPrefix}-trim`}
+      <PatchNumberField
         label="Trim fraction (0 to less than 0.5)"
         value={config.trimFraction}
         placeholder="default: 0.25"
@@ -296,58 +303,36 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
       />
 
       <SelectField
-        id={angularId}
+        id={`${idPrefix}-angular`}
         label="Angular (circular averaging)"
         value={config.angular ?? 'auto'}
         choices={ANGULAR_CHOICES}
         onChange={(angular) => onChange({ angular })}
       />
 
-      <LabeledField density="compact" label="Jump rejection max rate" layout="inline">
-        <NumberInput
-          id={jumpMaxRateId}
-          min={0}
-          value={config.jumpRejection?.maxRate ?? ''}
-          placeholder="disabled"
-          onChange={(event) => {
-            const parsed = parseNumericInput(event.target.value, { min: 0, exclusiveMin: true });
-            if (parsed === null) return;
-            onChange({
-              jumpRejection:
-                parsed === undefined
-                  ? undefined
-                  : {
-                      maxRate: parsed,
-                      persistSamples:
-                        config.jumpRejection?.persistSamples ?? DEFAULT_JUMP_PERSIST_SAMPLES,
-                      persistMs: config.jumpRejection?.persistMs ?? DEFAULT_JUMP_PERSIST_MS,
-                    },
-            });
-          }}
-        />
-      </LabeledField>
+      <JumpRateField config={config} onChange={onChange} />
 
-      <NumberField
-        id={`${idPrefix}-slew`}
-        label="Slew limit (units/sec)"
+      <PatchNumberField
+        label="Slew limit"
+        unit="per second"
         value={config.slewLimit}
         placeholder="disabled"
         fieldKey="slewLimit"
         exclusiveMin
         onChange={onChange}
       />
-      <NumberField
-        id={`${idPrefix}-staleness`}
-        label="Staleness timeout (ms)"
+      <PatchNumberField
+        label="Staleness timeout"
+        unit="ms"
         value={config.stalenessTimeoutMs}
         placeholder={`default: ${defaults.stalenessTimeoutMs}`}
         fieldKey="stalenessTimeoutMs"
         exclusiveMin
         onChange={onChange}
       />
-      <NumberField
-        id={`${idPrefix}-emit-interval`}
-        label="Emit min interval (ms)"
+      <PatchNumberField
+        label="Emit min interval"
+        unit="ms"
         value={config.emitMinIntervalMs}
         placeholder={`default: ${defaults.emitMinIntervalMs}`}
         fieldKey="emitMinIntervalMs"

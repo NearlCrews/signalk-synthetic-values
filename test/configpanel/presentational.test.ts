@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KindBadge } from '../../src/configpanel/components/KindBadge';
 import { PriorityBanner } from '../../src/configpanel/components/PriorityBanner';
-import { SourceChips } from '../../src/configpanel/components/SourceChips';
+import { SourceChips, sourceChips } from '../../src/configpanel/components/SourceChips';
 import { kindMeta } from '../../src/configpanel/kindMeta';
 
 // ---- kindMeta unit tests ----
@@ -72,60 +72,92 @@ describe('KindBadge', () => {
 
 // ---- SourceChips component tests ----
 
+describe('sourceChips', () => {
+  const sources = ['gps.1', 'gps.2', 'gps.3'];
+
+  it('marks every source live when the path is not configured', () => {
+    expect(sourceChips(sources, null, undefined).map((c) => c.state)).toEqual([
+      'live',
+      'live',
+      'live',
+    ]);
+  });
+
+  it('marks a source the combiner no longer sees as stale', () => {
+    expect(sourceChips(sources, ['gps.1'], undefined)).toEqual([
+      { sourceRef: 'gps.1', state: 'live' },
+      { sourceRef: 'gps.2', state: 'stale' },
+      { sourceRef: 'gps.3', state: 'stale' },
+    ]);
+  });
+
+  it('excluded wins over stale, because the operator asked for it', () => {
+    expect(sourceChips(sources, ['gps.1'], ['gps.2'])).toEqual([
+      { sourceRef: 'gps.1', state: 'live' },
+      { sourceRef: 'gps.2', state: 'excluded' },
+      { sourceRef: 'gps.3', state: 'stale' },
+    ]);
+  });
+});
+
 describe('SourceChips', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
   });
 
+  const chipsFor = (
+    sources: string[],
+    fresh: string[] | null = null,
+    excluded: string[] | undefined = undefined
+  ) => sourceChips(sources, fresh, excluded);
+
   const five = ['gps.1', 'gps.2', 'gps.3', 'gps.4', 'gps.5'];
 
   it('shows the first 3 chips when there are 5 sources', () => {
-    const { getByText } = render(createElement(SourceChips, { sources: five }));
+    const { getByText } = render(createElement(SourceChips, { chips: chipsFor(five) }));
     expect(getByText('gps.1')).toBeInTheDocument();
     expect(getByText('gps.2')).toBeInTheDocument();
     expect(getByText('gps.3')).toBeInTheDocument();
   });
 
-  it('shows "+2 more" when there are 5 sources', () => {
-    const { getByText } = render(createElement(SourceChips, { sources: five }));
-    expect(getByText('+2 more')).toBeInTheDocument();
+  it('offers the rest through a real control rather than a hover tooltip', () => {
+    const { getByRole } = render(createElement(SourceChips, { chips: chipsFor(five) }));
+    const toggle = getByRole('button', { name: '2 more sources' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(getByRole('button', { name: 'Show fewer' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('gps.4')).toBeVisible();
   });
 
-  it('does not show gps.4 or gps.5 as visible chips when there are 5 sources', () => {
-    const { container } = render(createElement(SourceChips, { sources: five }));
-    const allSpans = Array.from(container.querySelectorAll('span'));
-    const visibleChips = allSpans.filter((element) => element.textContent === 'gps.4');
-    expect(visibleChips).toHaveLength(0);
+  it('keeps the overflow chips out of view until the control is pressed', () => {
+    render(createElement(SourceChips, { chips: chipsFor(five) }));
+    expect(screen.getByText('gps.4')).not.toBeVisible();
   });
 
-  it('renders a visually-hidden enumeration of all 5 sources', () => {
-    render(createElement(SourceChips, { sources: five }));
-    const hiddenText = screen.getByText(/Sources: gps\.1/i).textContent ?? '';
-    for (const src of five) {
-      expect(hiddenText).toContain(src);
-    }
+  it('names a stale source in its own text, not by colour alone', () => {
+    render(createElement(SourceChips, { chips: chipsFor(['gps.1', 'gps.2'], ['gps.1']) }));
+    expect(screen.getByText('gps.2, no data')).toBeInTheDocument();
+    expect(screen.getByText('gps.1')).toBeInTheDocument();
   });
 
-  it('puts the full list in the container title attribute', () => {
-    const { container } = render(createElement(SourceChips, { sources: five }));
-    const root = container.firstElementChild as HTMLElement;
-    const title = root?.title ?? root?.getAttribute('title') ?? '';
-    for (const src of five) {
-      expect(title).toContain(src);
-    }
+  it('names an excluded source in its own text', () => {
+    render(createElement(SourceChips, { chips: chipsFor(['gps.1', 'gps.2'], null, ['gps.2']) }));
+    expect(screen.getByText('gps.2, excluded')).toBeInTheDocument();
   });
 
   it('shows all chips without overflow when there are 3 or fewer sources', () => {
     const three = ['gps.1', 'gps.2', 'gps.3'];
-    const { getByText, queryByText } = render(createElement(SourceChips, { sources: three }));
+    const { getByText, queryByText } = render(
+      createElement(SourceChips, { chips: chipsFor(three) })
+    );
     expect(getByText('gps.1')).toBeInTheDocument();
     expect(getByText('gps.2')).toBeInTheDocument();
     expect(getByText('gps.3')).toBeInTheDocument();
-    expect(queryByText(/more/)).toBeNull();
+    expect(queryByText(/more source/)).toBeNull();
   });
 
   it('renders nothing when no sources are live', () => {
-    const { container } = render(createElement(SourceChips, { sources: [] }));
+    const { container } = render(createElement(SourceChips, { chips: [] }));
     expect(container).toBeEmptyDOMElement();
   });
 });

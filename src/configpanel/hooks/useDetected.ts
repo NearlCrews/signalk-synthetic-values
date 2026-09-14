@@ -9,6 +9,15 @@ export const POLL_MS = 10_000;
 export interface DetectedRow {
   path: string;
   sources: string[];
+  /**
+   * Sources fresh in the combiner right now, or null when the path is not
+   * configured and no freshness is being tracked. Discovery lists a source for
+   * a minute after its last delta; the combiner drops it after the staleness
+   * timeout, so these two differ for up to 59 seconds after a sensor dies.
+   */
+  freshSources?: string[] | null;
+  /** Sources the include or exclude lists keep out of the combination. */
+  excludedSources?: string[];
   kind: Kind | 'unknown';
   optedIn: boolean;
   /** Whether the value can be averaged at all (false for text/objects). Defaults true when absent. */
@@ -76,6 +85,16 @@ function isOptionalDuplicateGroups(value: unknown): value is string[][] | undefi
   );
 }
 
+function isOptionalStringArray(value: unknown): value is string[] | undefined {
+  return value === undefined || isStringArray(value);
+}
+
+// null is a meaningful third state: the path is not configured, so the plugin
+// tracks no freshness for it. An older plugin omits the field entirely.
+function isOptionalFreshSources(value: unknown): value is string[] | null | undefined {
+  return value === null || isOptionalStringArray(value);
+}
+
 function isDetectedRow(value: unknown): value is DetectedRow {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const row = value as Record<string, unknown>;
@@ -85,6 +104,8 @@ function isDetectedRow(value: unknown): value is DetectedRow {
     isStringArray(row.sources) &&
     isDetectedKind(row.kind) &&
     typeof row.optedIn === 'boolean' &&
+    isOptionalFreshSources(row.freshSources) &&
+    isOptionalStringArray(row.excludedSources) &&
     isOptionalBoolean(row.combinable) &&
     isOptionalBoolean(row.recommended) &&
     isOptionalString(row.advisory) &&
