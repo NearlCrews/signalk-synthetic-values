@@ -158,8 +158,7 @@ export function buildSchema(detected: () => DetectedPath[]): object {
               type: 'object',
               title: 'Jump rejection',
               description:
-                'Hold back a sudden spike from a source and re-accept it only after a genuine step is confirmed.',
-              required: ['maxRate'],
+                'Hold back a sudden spike from a source and re-accept it only after a genuine step is confirmed. Clearing the rate switches it off and leaves the persist settings in place.',
               properties: {
                 maxRate: {
                   type: 'number',

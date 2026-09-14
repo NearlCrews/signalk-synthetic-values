@@ -267,12 +267,19 @@ describe('validateConfig: value hardening', () => {
     const impossibleDefault = validateConfig({ ...opts([]), maxSourcesPerPath: 1 });
     expect(impossibleDefault.errors.some((error) => error.path === 'defaultMinSources')).toBe(true);
   });
-  it('rejects a malformed jumpRejection object and a missing maxRate', () => {
+  it('rejects a malformed jumpRejection object', () => {
     const wrongShape = validateConfig(opts([{ path: 'a', jumpRejection: 'fast' }]));
-    const missingRate = validateConfig(opts([{ path: 'a', jumpRejection: {} }]));
     expect(wrongShape.config.paths).toHaveLength(0);
     expect(wrongShape.errors[0]?.message).toContain('object');
-    expect(missingRate.config.paths).toHaveLength(0);
-    expect(missingRate.errors[0]?.message).toContain('maxRate');
+  });
+  it('reads a jumpRejection with no rate as switched off, keeping the path', () => {
+    // Clearing the rate in the panel leaves the persist settings saved beside
+    // it, so a block without a rate is an ordinary off state, not an error.
+    const cleared = validateConfig(
+      opts([{ path: 'a', jumpRejection: { persistSamples: 7, persistMs: 900 } }])
+    );
+    expect(cleared.errors).toHaveLength(0);
+    expect(cleared.config.paths).toHaveLength(1);
+    expect(cleared.config.paths[0].jumpRejection).toBeUndefined();
   });
 });

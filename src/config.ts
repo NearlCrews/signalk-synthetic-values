@@ -17,6 +17,18 @@ export const DEFAULT_ANGULAR_SPREAD_THRESHOLD = Math.PI / 2;
 export const DEFAULT_JUMP_PERSIST_SAMPLES = 3;
 export const DEFAULT_JUMP_PERSIST_MS = 5000;
 
+/**
+ * The saved jump-rejection block. Every field is optional: an absent maxRate
+ * means jump rejection is off, so clearing the rate in any editor leaves the
+ * persist settings beside it intact instead of deleting the whole block. The
+ * validator backfills the persist fields for a config that carries only a rate.
+ */
+interface RawJumpRejection {
+  maxRate?: number | undefined;
+  persistSamples?: number | undefined;
+  persistMs?: number | undefined;
+}
+
 export interface RawPathConfig {
   path: string;
   method?: CombineMethod;
@@ -32,9 +44,7 @@ export interface RawPathConfig {
   minSources?: number;
   stalenessTimeoutMs?: number;
   emitMinIntervalMs?: number;
-  // Saved configs may carry only maxRate (the panel's jump field, older saves,
-  // or hand-edited config.json); the validator backfills the persist fields.
-  jumpRejection?: { maxRate: number; persistSamples?: number; persistMs?: number };
+  jumpRejection?: RawJumpRejection;
   slewLimit?: number;
 }
 
@@ -161,8 +171,8 @@ function readJumpConfig(id: string, value: unknown, errors: ConfigError[]): Jump
   const maxRate = value.maxRate;
   const persistSamples = value.persistSamples;
   const persistMs = value.persistMs;
-  if (!positive(maxRate)) {
-    errors.push({ path: id, message: 'jumpRejection.maxRate must be positive' });
+  if (maxRate !== undefined && !positive(maxRate)) {
+    errors.push({ path: id, message: 'jumpRejection.maxRate must be positive when set' });
   }
   if (persistSamples !== undefined && !positiveInt(persistSamples)) {
     errors.push({ path: id, message: 'jumpRejection.persistSamples must be a positive integer' });
@@ -170,6 +180,8 @@ function readJumpConfig(id: string, value: unknown, errors: ConfigError[]): Jump
   if (persistMs !== undefined && !nonNegative(persistMs)) {
     errors.push({ path: id, message: 'jumpRejection.persistMs must be a non-negative number' });
   }
+  // No rate means the feature is off. The persist settings may still be saved
+  // beside it, waiting for the rate to come back.
   if (!positive(maxRate)) return undefined;
   if (persistSamples !== undefined && !positiveInt(persistSamples)) return undefined;
   if (persistMs !== undefined && !nonNegative(persistMs)) return undefined;

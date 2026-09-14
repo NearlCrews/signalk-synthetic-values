@@ -53,7 +53,9 @@ describe('buildSchema', () => {
     const schema = schemaOf(() => []);
     const jr = schema.properties.paths.items.properties.jumpRejection;
     expect(jr.type).toBe('object');
-    expect(jr.required).toEqual(['maxRate']);
+    // No required field: clearing the rate switches jump rejection off and
+    // leaves the persist settings saved beside it.
+    expect(jr.required).toBeUndefined();
     expect(Object.keys(jr.properties).sort()).toEqual(['maxRate', 'persistMs', 'persistSamples']);
   });
   it('strictly-positive validator fields use exclusiveMinimum so the form cannot accept 0', () => {
