@@ -9,30 +9,51 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.5.6
+## What's new in 0.6.0
 
-Version 0.5.6 rebuilds the configuration panel on the shared component
-library, which gives the panel an explicit save step and number fields that say
-what they expect.
+Version 0.6.0 adds a confidence channel beside every combined value, teaches the
+plugin to spot sensors that have split into groups and feeds that are really one
+sensor, and rebuilds the configuration panel on the shared component library.
 
+- **Confidence notifications.** Each combined path now publishes
+  `notifications.<path>` saying how much the published value can be trusted, so
+  a consumer reading only the value can still tell a clean four-sensor consensus
+  from a value assembled after half the sensors were discarded. Only a
+  suppressed value or a breach of a `disagreeThreshold` you set raises an alert,
+  the plugin never asks the boat to make a sound, and the new top-level
+  `notifications` option switches the channel off.
+- **Split sensors are caught without a threshold.** With three or more readings,
+  a combined value sitting in a gap between two groups of sensors is reported as
+  disagreeing, no units and no tuning required. Setting `disagreeThreshold`
+  still replaces the check on that path.
+- **Duplicate feeds are collapsed.** One sounder forwarded by two gateways is
+  two source names and one sensor. Sources reporting the same changing values
+  are now grouped and counted once, so a re-broadcast feed cannot vote twice or
+  satisfy `minSources` on its own.
+- **Angles follow the Signal K specification.** Full-circle quantities combine
+  circularly even where the server resolves no units, bounded angles such as a
+  rudder angle combine linearly, and a radian path that is neither is named in
+  the status line and left out of "Combine all" rather than being averaged into
+  its own reciprocal.
+- **Jump rejection counts sensor samples.** It runs on each reading as it
+  arrives, so `persistSamples` means what its label promises instead of needing
+  `persistSamples * emitMinIntervalMs` on a fast sounder. Clearing its rate is
+  now how you switch it off, and the persist settings survive that.
+- **A slew limiter that stands aside.** It gives way once it has fallen more
+  than ten seconds behind the combined value, and on the depth paths whenever
+  the water is shoaling, and the status line says so while it is holding the
+  output back.
 - **A save bar you can act on.** The footer of the panel reports the state of
-  your edits: unsaved while they wait, then requested once they go out. **Save**
-  sends queued edits at once instead of waiting out the coalescing window and
-  retries a failed request, **Discard** returns the form to the last requested
-  snapshot, and the browser now asks for confirmation before you leave the page
-  with edits still queued.
-- **The first save enables the plugin.** A plugin that has never been configured
-  reads "Save to enable the plugin." in the save bar, so enabling it is the same
-  action as every save that follows and no longer needs a button of its own.
-- **Number fields that explain themselves.** A rejected value now says why, for
-  example "Enter a number greater than 0.", instead of snapping back silently,
-  and the fields measured in milliseconds, radians, or a rate per second show
-  that unit beside the input.
-- **Shared UI refresh.** The panel takes its shell, save bar, number field,
-  live region, and relative age from `signalk-nearlcrews-ui` rather than local
-  copies, and the packaged screenshots are refreshed to match.
+  your edits, **Save** sends queued edits at once and retries a failed request,
+  **Discard** returns the form to the last requested snapshot, and the first
+  save is what enables the plugin. Number fields say why a value was rejected
+  and show the unit they are measured in.
+- **Panel detail worth having.** The detected-path row separates live, stale,
+  and excluded sources, long source lists sit behind a real disclosure control
+  rather than a tooltip, and every field error leads with a tone mark and its
+  spoken word instead of relying on color alone.
 
-See the [v0.5.6 changelog entry](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/CHANGELOG.md#v056) and the
+See the [v0.6.0 changelog entry](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/CHANGELOG.md#v060) and the
 [full release history](https://github.com/NearlCrews/signalk-synthetic-values/releases).
 
 ## Screenshots
