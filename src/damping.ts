@@ -29,10 +29,22 @@ export interface JumpConfig {
 
 export interface JumpState {
   lastAccepted: { value: SampleValue; ts: number };
-  lastProcessedObservationId?: number;
   // `ts` is the cluster origin (drives the persistMs check); `lastTs` is the
   // most recent pending sample's timestamp (drives the per-step near check).
   pending?: { value: SampleValue; ts: number; lastTs: number; count: number };
+}
+
+/**
+ * When this state last saw a sample, whether that sample was accepted or held
+ * back. The caller prunes on age rather than on absence from one emit cycle, so
+ * a source that reports more slowly than the staleness window keeps its jump
+ * history instead of being re-armed with a clean slate on every fast emit.
+ */
+export function jumpStateLastSeen(state: JumpState): number {
+  const pendingTs = state.pending?.lastTs;
+  return pendingTs !== undefined && pendingTs > state.lastAccepted.ts
+    ? pendingTs
+    : state.lastAccepted.ts;
 }
 
 function rate(kind: Kind, a: SampleValue, b: SampleValue, dtMs: number): number {
@@ -130,7 +142,11 @@ export function applySlew(
   if (!state) return { value, state: { value, ts } };
   const dtSec = Math.max(0, ts - state.ts) / 1000;
   const maxStep = maxRatePerSec * dtSec;
-  if (maxStep === 0) return { value: state.value, state: { value: state.value, ts } };
+  // A zero-width step (two emits sharing a timestamp) can allow no movement at
+  // all. Returning the previous state unchanged leaves the reading to be
+  // applied on the next call with a correctly sized step, instead of dropping
+  // it and advancing the clock past it.
+  if (maxStep === 0) return { value: state.value, state };
   const d = distance(kind, state.value, value);
   if (d <= maxStep) {
     return { value, state: { value, ts } };

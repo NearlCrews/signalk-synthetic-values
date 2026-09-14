@@ -67,3 +67,31 @@ describe('maxCircularSpread', () => {
     expect(maxCircularSpread([d(0), d(5), d(355)])).toBeLessThan(d(11));
   });
 });
+
+describe('normalize2pi boundary', () => {
+  it('a pair straddling north means to 0, never to exactly 2pi', () => {
+    const d = (deg: number) => (deg * Math.PI) / 180;
+    const r = circularMeanRad([d(359.9), d(0.1)]);
+    expect(r.mean).not.toBe(2 * Math.PI);
+    expect(r.mean).toBeGreaterThanOrEqual(0);
+    expect(r.mean).toBeLessThan(2 * Math.PI);
+    expect(r.mean).toBe(0);
+  });
+  it('a tiny negative resultant lands on 0 rather than a full turn', () => {
+    for (const angles of [
+      [-1e-17, 1e-17],
+      [2 * Math.PI - 1e-9, 1e-9],
+    ]) {
+      const mean = circularMeanRad(angles).mean;
+      expect(mean).toBeGreaterThanOrEqual(0);
+      expect(mean).toBeLessThan(2 * Math.PI);
+    }
+  });
+});
+
+describe('empty input', () => {
+  it('mean and median agree on the illegal empty array', () => {
+    expect(mean([])).toBeNaN();
+    expect(median([])).toBeNaN();
+  });
+});

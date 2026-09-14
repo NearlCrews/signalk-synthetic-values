@@ -99,3 +99,28 @@ describe('Registry', () => {
     expect(r.fresh('p', 1000).map((sample) => sample.sourceRef)).toEqual(['b', 'c']);
   });
 });
+
+describe('Registry ordering and reporting cadence', () => {
+  it('returns fresh readings ordered by source reference, not by arrival', () => {
+    const c = fakeClock(0);
+    const r = new Registry(c, 16);
+    r.update('p', 'zulu', 1, 0);
+    r.update('p', 'alpha', 2, 0);
+    r.update('p', 'mike', 3, 0);
+    expect(r.fresh('p', 1000).map((s) => s.sourceRef)).toEqual(['alpha', 'mike', 'zulu']);
+  });
+
+  it('reports the median gap between reports once a source has reported twice', () => {
+    const c = fakeClock(0);
+    const r = new Registry(c, 16);
+    expect(r.medianReportIntervalMs('p')).toBeUndefined();
+    r.update('p', 'a', 1, 0);
+    expect(r.medianReportIntervalMs('p')).toBeUndefined();
+    for (let i = 1; i <= 4; i++) r.update('p', 'a', 1, i * 2000);
+    expect(r.medianReportIntervalMs('p')).toBe(2000);
+  });
+
+  it('has no interval for an unknown path', () => {
+    expect(new Registry(fakeClock(0), 16).medianReportIntervalMs('nope')).toBeUndefined();
+  });
+});

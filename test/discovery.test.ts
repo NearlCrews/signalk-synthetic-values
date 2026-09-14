@@ -179,3 +179,59 @@ describe('Discovery bounded store', () => {
     expect(d.detected()[0]?.sources).toEqual(['b', 'c']);
   });
 });
+
+describe('Discovery duplicate detection across the window', () => {
+  it('catches a re-broadcast that lags behind its origin', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c);
+    for (let i = 0; i < 6; i++) {
+      c.set(i * 1000);
+      d.observe('p', 'origin', 10 + i);
+      // The repeat is two sampling intervals behind, so the newest values never match.
+      d.observe('p', 'repeat', 10 + Math.max(0, i - 2));
+      d.observe('p', 'independent', 10 + i + 0.017);
+    }
+    expect(d.duplicateGroupsFor('p')).toEqual([['origin', 'repeat']]);
+  });
+
+  it('needs more than one shared value, so a single coincidence is not a group', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c);
+    const a = [1, 2, 3, 4];
+    const b = [9, 8, 3, 7];
+    for (let i = 0; i < a.length; i++) {
+      c.set(i * 1000);
+      d.observe('p', 'a', a[i]);
+      d.observe('p', 'b', b[i]);
+    }
+    expect(d.duplicateGroupsFor('p')).toEqual([]);
+  });
+
+  it('unions a feed re-broadcast twice into one group', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c);
+    for (let i = 0; i < 4; i++) {
+      c.set(i * 1000);
+      for (const src of ['origin', 'gw1', 'gw2']) d.observe('p', src, 10 + i);
+    }
+    const groups = d.duplicateGroupsFor('p');
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.slice().sort()).toEqual(['gw1', 'gw2', 'origin']);
+  });
+
+  it('does not group a value quantized on the way round, which stays a documented hazard', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c);
+    for (let i = 0; i < 6; i++) {
+      c.set(i * 1000);
+      const v = 1.234567 + i * 0.01;
+      d.observe('p', 'compassA', v);
+      d.observe('p', 'n2k-echo', Math.round(v / 0.0001) * 0.0001);
+    }
+    expect(d.duplicateGroupsFor('p')).toEqual([]);
+  });
+
+  it('has no groups for an unknown path', () => {
+    expect(new Discovery(fakeClock(0)).duplicateGroupsFor('nope')).toEqual([]);
+  });
+});

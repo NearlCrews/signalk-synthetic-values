@@ -11,8 +11,11 @@ import {
 
 const TWO_PI = 2 * Math.PI;
 
-// Callers must pass non-empty arrays.
+// Callers must pass non-empty arrays. Both mean and median answer NaN on an
+// empty one so the two agree on the illegal input rather than one returning a
+// plausible-looking zero.
 export function mean(xs: number[]): number {
+  if (xs.length === 0) return Number.NaN;
   // Scale before summing so finite same-sign inputs cannot overflow. Neumaier
   // compensation reduces cancellation error without another allocation.
   let sum = 0;
@@ -27,6 +30,7 @@ export function mean(xs: number[]): number {
 }
 
 export function median(xs: number[]): number {
+  if (xs.length === 0) return Number.NaN;
   const s = [...xs].sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);
   // Callers pass non-empty arrays, so m and m - 1 are always in range.
@@ -48,9 +52,11 @@ export function trimmedMean(xs: number[], trimFraction: number): number {
   return mean(kept);
 }
 
+// Adding TWO_PI to a tiny negative remainder rounds back to exactly TWO_PI,
+// which is outside the [0, 2pi) range this promises and publishes a heading of
+// 360.000 degrees. The double modulo lands on 0 instead.
 function normalize2pi(a: number): number {
-  const t = a % TWO_PI;
-  return t < 0 ? t + TWO_PI : t;
+  return ((a % TWO_PI) + TWO_PI) % TWO_PI;
 }
 
 export function circularMeanRad(angles: number[]): { mean: number; R: number } {
@@ -68,22 +74,39 @@ export function maxCircularSpread(angles: number[]): number {
   return maxPairwiseDistance('angular', angles);
 }
 
+// Relative slack on the medoid cost comparison. Tied candidates rarely score
+// bit-for-bit identically once the angles have been through sin and cos, so the
+// tie test needs a little room or a two-source set falls back to positional
+// order again.
+const MEDOID_TIE_EPSILON = 1e-12;
+
 // Circular medoid: the observed angle with the least total angular distance to
 // the others. It is the circular analogue of the median and returns an actual
 // reading, so a single off sensor cannot drag it the way the circular mean is
-// dragged. With a tie (for example two clustered readings) the first wins.
+// dragged. Ties resolve to the circular mean of the tied candidates, taken the
+// short way around, rather than to whichever source happened to register first:
+// with two sources that makes the result the bisector, so the second sensor
+// contributes instead of being discarded, and the output no longer moves when
+// delta arrival order changes.
 export function circularMedoid(angles: number[]): number {
-  let best = angles[0] as number;
   let bestCost = Number.POSITIVE_INFINITY;
+  const costs: number[] = [];
   for (const a of angles) {
     let cost = 0;
     for (const b of angles) cost += angularDistance(a, b);
-    if (cost < bestCost) {
-      bestCost = cost;
-      best = a;
-    }
+    costs.push(cost);
+    if (cost < bestCost) bestCost = cost;
   }
-  return best;
+  const slack = bestCost * MEDOID_TIE_EPSILON;
+  const tied: number[] = [];
+  for (const [i, cost] of costs.entries()) {
+    if (cost <= bestCost + slack) tied.push(angles[i] as number);
+  }
+  const first = tied[0] as number;
+  // Identical readings are the common case, and the trig round trip in the
+  // circular mean would return 0.09999999999999964 for a set of exact 0.1s.
+  if (tied.every((a) => a === first)) return first;
+  return circularMeanRad(tied).mean;
 }
 
 function radiansToLonDegrees(rad: number): number {
@@ -110,6 +133,13 @@ function lonCircularMedoid(lons: number[]): number {
   return radiansToLonDegrees(circularMedoid(lons.map(toRadians)));
 }
 
+// Longitude is combined circularly and is safe across the antimeridian.
+// Latitude uses a plain linear median and has no equivalent handling across a
+// pole: two fixes straddling the pole median to a latitude just short of it
+// rather than to the pole itself. Left as a known limit rather than fixed,
+// because reaching it needs two receivers on opposite sides of a pole and
+// three-dimensional averaging would change position combining everywhere for a
+// case a vessel cannot reach.
 export function robustCenter(kind: Kind, values: SampleValue[]): SampleValue {
   if (kind === 'position') {
     const lats = (values as LatLon[]).map((v) => v.latitude);
@@ -126,10 +156,17 @@ export function robustCenter(kind: Kind, values: SampleValue[]): SampleValue {
   return median(values as number[]);
 }
 
+/**
+ * Which readings survive rejection. `madThreshold` of `undefined` disables the
+ * statistical half, which is what `outlierRejection: false` means: the absolute
+ * `rejectThreshold` is a hard limit rather than a statistical one, so it keeps
+ * working on its own. It is also the only guard that operates below four
+ * sources, where scaled MAD is not meaningful.
+ */
 export function rejectMask(
   kind: Kind,
   values: SampleValue[],
-  madThreshold: number,
+  madThreshold: number | undefined,
   rejectThreshold?: number
 ): boolean[] {
   const n = values.length;
@@ -138,15 +175,16 @@ export function rejectMask(
   const center = robustCenter(kind, values);
   const distances = values.map((v) => distance(kind, v, center));
 
-  let scale = 1.4826 * median(distances);
-  if (scale === 0) {
-    const meanAbs = mean(distances);
-    // Four points minimum for scaled-MAD to be meaningful.
-    scale = meanAbs > 0 && n >= 4 ? 1.2533 * meanAbs : 0;
-  }
-
   let threshold = Number.POSITIVE_INFINITY;
-  if (n >= 4 && scale > 0) threshold = madThreshold * scale;
+  if (madThreshold !== undefined) {
+    let scale = 1.4826 * median(distances);
+    if (scale === 0) {
+      const meanAbs = mean(distances);
+      // Four points minimum for scaled-MAD to be meaningful.
+      scale = meanAbs > 0 && n >= 4 ? 1.2533 * meanAbs : 0;
+    }
+    if (n >= 4 && scale > 0) threshold = madThreshold * scale;
+  }
   if (rejectThreshold != null) threshold = Math.min(threshold, rejectThreshold);
   return Number.isFinite(threshold)
     ? distances.map((d) => d <= threshold)
@@ -164,6 +202,9 @@ export type Outcome =
   | 'allStale'
   | 'diverged'
   | 'disagree'
+  // Emitted, but the slew limiter is still catching up, so the published value
+  // is behind what the sources are reporting.
+  | 'slewLimited'
   | 'skipped';
 
 export interface Sample {
@@ -171,8 +212,6 @@ export interface Sample {
   value: SampleValue;
   /** Receipt time of the source observation, when supplied by the runtime registry. */
   receiptTs?: number;
-  /** Monotonic registry identity, used to distinguish observations received in the same millisecond. */
-  observationId?: number;
 }
 
 export interface CombineOptions {
@@ -192,7 +231,15 @@ export interface CombineResult {
   usedSources: string[];
   freshCount: number;
   outcome: Outcome;
+  /** Max pairwise distance across the used readings, in the kind's units. */
   spread?: number;
+  /** Fresh sources dropped by outlier rejection, so the caller can announce a failing sensor. */
+  rejectedSources?: string[];
+  /**
+   * Set when the published value sits in the gap between two groups of readings
+   * rather than inside one of them, so no source is anywhere near it.
+   */
+  unsupported?: true;
 }
 
 // Mean resultant length below this means angles are too scattered to trust.
@@ -284,6 +331,72 @@ function computeValue(
   return { value: linear(opts.method, values as number[], opts.trimFraction), outcome: 'ok' };
 }
 
+// A combined value counts as unsupported when its nearest reading is further
+// away than this fraction of the whole spread: no source is near what is being
+// published, because the output landed in the gap between two groups. Two even
+// groups put the output at exactly half the spread from either, and an evenly
+// scattered set puts it well under a quarter, so a quarter separates the two
+// cleanly without a unit.
+const SUPPORT_GAP_RATIO = 0.25;
+
+// Fewer than three readings carry no information about grouping: two sources a
+// long way apart look exactly like two sources a short way apart once the units
+// are unknown, so the gap test cannot run and only an operator-set
+// rejectThreshold or disagreeThreshold can catch a two-source split.
+const SUPPORT_MIN_SAMPLES = 3;
+
+/**
+ * True when `value` sits in the gap between groups of readings rather than
+ * inside one of them. Position is deliberately excluded: receivers mounted at
+ * the bow and the stern of one vessel are a legitimate pair of groups whose
+ * midpoint is the answer wanted, so a spread in meters is the operator's call
+ * through `rejectThreshold` or `disagreeThreshold`.
+ */
+function isUnsupported(
+  value: SampleValue,
+  values: SampleValue[],
+  spread: number,
+  kind: Kind
+): boolean {
+  if (kind === 'position') return false;
+  if (values.length < SUPPORT_MIN_SAMPLES || spread <= 0) return false;
+  let nearest = Number.POSITIVE_INFINITY;
+  for (const v of values) {
+    const d = distance(kind, value, v);
+    if (d < nearest) nearest = d;
+  }
+  return nearest > SUPPORT_GAP_RATIO * spread;
+}
+
+/**
+ * Split the fresh samples into the ones that survive rejection and the source
+ * refs of the ones that do not. An absolute `rejectThreshold` is a hard limit
+ * rather than a statistical one, so it applies whether or not the statistical
+ * rejection is switched on.
+ */
+function applyRejection(
+  samples: Sample[],
+  opts: CombineOptions
+): { used: Sample[]; rejected: { rejectedSources?: string[] } } {
+  if (!opts.outlierRejection && opts.rejectThreshold == null) {
+    return { used: samples, rejected: {} };
+  }
+  // Only the rejection path needs the bare value array; build it here so a run
+  // with no rejection at all allocates nothing.
+  const mask = rejectMask(
+    opts.kind,
+    samples.map((s) => s.value),
+    opts.outlierRejection ? opts.madThreshold : undefined,
+    opts.rejectThreshold
+  );
+  const used = samples.filter((_, i) => mask[i]);
+  if (used.length === samples.length) return { used, rejected: {} };
+  return {
+    used,
+    rejected: { rejectedSources: samples.filter((_, i) => !mask[i]).map((s) => s.sourceRef) },
+  };
+}
+
 export function combine(samples: Sample[], opts: CombineOptions): CombineResult {
   const freshCount = samples.length;
   if (freshCount === 0) {
@@ -302,21 +415,14 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
     return { usedSources: samples.map((s) => s.sourceRef), freshCount, outcome: 'belowMin' };
   }
 
-  let used = samples;
-  if (opts.outlierRejection) {
-    // Only the rejection path needs the bare value array; build it here so a
-    // run with rejection disabled allocates nothing.
-    const sampleValues = samples.map((s) => s.value);
-    const mask = rejectMask(opts.kind, sampleValues, opts.madThreshold, opts.rejectThreshold);
-    used = samples.filter((_, i) => mask[i]);
-  }
+  const { used, rejected } = applyRejection(samples, opts);
   const usedSources = used.map((s) => s.sourceRef);
 
   // Rejection can whittle the used set below the configured minimum. Emitting
   // then would present a thin consensus as fully corroborated, so suppress the
   // value as a divergence.
   if (used.length === 0 || used.length < opts.minSources) {
-    return { usedSources, freshCount, outcome: 'diverged' };
+    return { usedSources, freshCount, outcome: 'diverged', ...rejected };
   }
   if (used.length === 1) {
     return {
@@ -324,25 +430,51 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
       usedSources,
       freshCount,
       outcome: 'singleSource',
+      ...rejected,
     };
   }
 
-  // One values array, reused by computeValue and the disagree-spread check.
+  // One values array, reused by computeValue, the spread, and the support test.
   const usedValues = used.map((s) => s.value);
   const computed = computeValue(usedValues, opts);
   if (computed.value === undefined) {
-    return { usedSources, freshCount, outcome: computed.outcome };
+    const divergedSpread = computed.spread !== undefined ? { spread: computed.spread } : {};
+    return { usedSources, freshCount, outcome: computed.outcome, ...divergedSpread, ...rejected };
   }
 
-  let outcome: Outcome = computed.outcome;
-  let spread: number | undefined;
+  // Angular and attitude kinds already computed the pairwise spread inside
+  // computeValue; only scalar and position pay for it here.
+  const spread = computed.spread ?? maxPairwiseDistance(opts.kind, usedValues);
+  return {
+    value: computed.value,
+    usedSources,
+    freshCount,
+    spread,
+    ...disagreement(computed.value, usedValues, spread, computed.outcome, opts),
+    ...rejected,
+  };
+}
+
+/**
+ * Whether the emitted value counts as disagreeing, and why. An operator-set
+ * `disagreeThreshold` governs when there is one. Without it there is no
+ * absolute notion of "too far apart", so the unit-free gap test is the only
+ * thing standing between a split sensor set and a confident midpoint no sensor
+ * reported. It flags rather than suppresses: suppression needs a threshold in
+ * the path's own units, which only the operator can supply.
+ */
+function disagreement(
+  value: SampleValue,
+  values: SampleValue[],
+  spread: number,
+  outcome: Outcome,
+  opts: CombineOptions
+): { outcome: Outcome; unsupported?: true } {
   if (opts.disagreeThreshold != null) {
-    // Angular and attitude kinds already computed the pairwise spread inside
-    // computeValue; only scalar and position pay for it here.
-    spread = computed.spread ?? maxPairwiseDistance(opts.kind, usedValues);
-    if (spread > opts.disagreeThreshold) outcome = 'disagree';
+    return { outcome: spread > opts.disagreeThreshold ? 'disagree' : outcome };
   }
-  const result: CombineResult = { value: computed.value, usedSources, freshCount, outcome };
-  if (outcome === 'disagree' && spread !== undefined) result.spread = spread;
-  return result;
+  if (isUnsupported(value, values, spread, opts.kind)) {
+    return { outcome: 'disagree', unsupported: true };
+  }
+  return { outcome };
 }

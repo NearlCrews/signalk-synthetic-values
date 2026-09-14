@@ -13,10 +13,13 @@ interface DetectedApiResponse {
   paths: {
     path: string;
     sources: string[];
+    freshSources: string[] | null;
+    excludedSources: string[];
     optedIn: boolean;
     kind: string;
     combinable: boolean;
     recommended: boolean;
+    duplicateGroups: string[][];
     advisory?: string;
   }[];
 }
@@ -50,6 +53,10 @@ function makeFakeRouter(): FakeRouter {
 function makeApp() {
   let handler: Handler | null = null;
   const emitted: EmittedDelta[] = [];
+  // Confidence notifications go to notifications.<path>, on the same
+  // handleMessage channel as the values. Splitting them here keeps every
+  // "how many values were emitted" assertion about values.
+  const notifications: EmittedDelta[] = [];
   let router: FakeRouter | null = null;
   const app = {
     selfContext: 'vessels.urn:mrn:imo:mmsi:123',
@@ -57,8 +64,12 @@ function makeApp() {
     registerDeltaInputHandler: (h: Handler) => {
       handler = h;
     },
-    handleMessage: vi.fn((_id: string, message: unknown) => emitted.push(message as EmittedDelta)),
-    getMetadata: () => undefined,
+    handleMessage: vi.fn((_id: string, message: unknown) => {
+      const delta = message as EmittedDelta;
+      const path = delta.updates[0]?.values[0]?.path ?? '';
+      (path.startsWith('notifications.') ? notifications : emitted).push(delta);
+    }),
+    getMetadata: (() => undefined) as (path: string) => { units?: string } | undefined,
     setPluginStatus: vi.fn(),
     setPluginError: vi.fn(),
     error: vi.fn(),
@@ -89,6 +100,16 @@ function makeApp() {
       void plugin.stop();
     },
     emitted,
+    notifications,
+    lastNotification: (path: string): { state: string; message: string } | undefined => {
+      for (let i = notifications.length - 1; i >= 0; i--) {
+        const value = notifications[i]?.updates[0]?.values[0];
+        if (value?.path === `notifications.${path}`) {
+          return value.value as { state: string; message: string };
+        }
+      }
+      return undefined;
+    },
     isRegistered: () => handler !== null,
     captureRouter,
     routerGet,
@@ -541,7 +562,7 @@ describe('plugin integration', () => {
     expect(last.updates[0].values[0].value).toBe(15);
   });
 
-  it('slewLimit: a large jump in combined output is clamped', () => {
+  it('slewLimit: a step inside the lag bound is clamped and reported as lagging', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     plugin.start({
@@ -556,12 +577,58 @@ describe('plugin integration', () => {
     h.fire(delta(h.app.selfContext, 'b', 'p', 10));
     const firstValue = h.emitted[h.emitted.length - 1]?.updates[0].values[0].value as number;
     expect(firstValue).toBe(10);
-    // Now both sources jump to 1000; with slewLimit=1 the large step must be clamped.
+    // A step of 5 is inside the ten-second lag bound at 1 unit/s, so the
+    // limiter holds the output back.
+    h.fire(delta(h.app.selfContext, 'a', 'p', 15));
+    h.fire(delta(h.app.selfContext, 'b', 'p', 15));
+    const clampedValue = h.emitted[h.emitted.length - 1]?.updates[0].values[0].value as number;
+    expect(clampedValue).toBeLessThan(11);
+    expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(
+      expect.stringContaining('held back by the slew limit')
+    );
+    expect(h.lastNotification('p')?.state).toBe('warn');
+  });
+
+  it('slewLimit: a step beyond the lag bound bypasses the limiter', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path: 'p', slewLimit: 1 }],
+    });
+    h.fire(delta(h.app.selfContext, 'a', 'p', 10));
+    h.fire(delta(h.app.selfContext, 'b', 'p', 10));
+    // 990 units at 1 unit/s would leave the output wrong for sixteen minutes.
     h.fire(delta(h.app.selfContext, 'a', 'p', 1000));
     h.fire(delta(h.app.selfContext, 'b', 'p', 1000));
-    const clampedValue = h.emitted[h.emitted.length - 1]?.updates[0].values[0].value as number;
-    // Slew limit clamps the output well below the target of 1000
-    expect(clampedValue).toBeLessThan(100);
+    expect(h.emitted[h.emitted.length - 1]?.updates[0].values[0].value).toBe(1000);
+  });
+
+  it('slewLimit: shoaling water is never smoothed', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    const path = 'environment.depth.belowKeel';
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      // 8 m at 1 m/s is inside the lag bound, so only the shoaling rule can
+      // let this through.
+      paths: [{ path, slewLimit: 1 }],
+    });
+    h.fire(delta(h.app.selfContext, 'a', path, 10));
+    h.fire(delta(h.app.selfContext, 'b', path, 10));
+    h.fire(delta(h.app.selfContext, 'a', path, 2));
+    h.fire(delta(h.app.selfContext, 'b', path, 2));
+    expect(h.emitted[h.emitted.length - 1]?.updates[0].values[0].value).toBe(2);
+    // The same size of step into deeper water is still smoothed.
+    h.fire(delta(h.app.selfContext, 'a', path, 10));
+    h.fire(delta(h.app.selfContext, 'b', path, 10));
+    expect(h.emitted[h.emitted.length - 1]?.updates[0].values[0].value as number).toBeLessThan(3);
   });
 
   it('jumpRejection: a single spike is suppressed', () => {
@@ -833,5 +900,354 @@ describe('plugin integration', () => {
     h.fire(delta(h.app.selfContext, 'b', 'p', 2));
     h.fire(delta(h.app.selfContext, 'c', 'p', 3));
     expect(h.routerGet(router, '/api/detected').paths[0]?.sources).toEqual(['b', 'c']);
+  });
+});
+
+describe('plugin: full-circle paths the specification defines', () => {
+  const deg = (rad: number) => (rad * 180) / Math.PI;
+  const rad = (d: number) => (d * Math.PI) / 180;
+
+  // A bearing reported by two chartplotters either side of north. Combined
+  // linearly this publishes 180 degrees, the reciprocal of the truth.
+  const bearingPaths = [
+    'navigation.courseRhumbline.bearingTrackTrue',
+    'navigation.courseGreatCircle.bearingTrackMagnetic',
+    'navigation.course.calcValues.bearingTrue',
+    'navigation.courseGreatCircle.nextPoint.bearingTrue',
+    'environment.current.setTrue',
+    'steering.autopilot.target.headingTrue',
+    'performance.tackTrue',
+  ];
+
+  for (const path of bearingPaths) {
+    it(`${path} combines circularly, not linearly`, () => {
+      const h = makeApp();
+      const plugin = PluginFactory(h.app);
+      plugin.start({
+        defaultStalenessTimeoutMs: 10000,
+        defaultEmitMinIntervalMs: 0,
+        defaultMinSources: 2,
+        maxSourcesPerPath: 16,
+        paths: [{ path }],
+      });
+      h.fire(delta(h.app.selfContext, 'plotterA', path, rad(359)));
+      h.fire(delta(h.app.selfContext, 'plotterB', path, rad(1)));
+      const value = h.emitted[h.emitted.length - 1]?.updates[0].values[0].value as number;
+      const north = Math.min(deg(value), 360 - deg(value));
+      expect(north).toBeLessThan(0.001);
+    });
+  }
+});
+
+describe('plugin: a radian path the classifier cannot place', () => {
+  const path = 'vendor.custom.someBearing';
+  const rad = (d: number) => (d * Math.PI) / 180;
+
+  function startWith(angular?: 'auto' | 'yes' | 'no') {
+    const h = makeApp();
+    h.app.getMetadata = () => ({ units: 'rad' });
+    const plugin = PluginFactory(h.app);
+    const router = h.captureRouter(plugin);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [angular ? { path, angular } : { path }],
+    });
+    h.fire(delta(h.app.selfContext, 'a', path, rad(359)));
+    h.fire(delta(h.app.selfContext, 'b', path, rad(1)));
+    return { h, plugin, router };
+  }
+
+  it('is named in the status line, the server log, and the panel row', () => {
+    const { h, router } = startWith();
+    expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(
+      expect.stringContaining(`Set angular wrapping on: ${path}.`)
+    );
+    expect(h.app.error).toHaveBeenCalledWith(expect.stringContaining(path));
+    const row = h.routerGet(router, '/api/detected').paths[0];
+    expect(row?.recommended).toBe(false);
+    expect(row?.advisory).toContain('not a Signal K angle this plugin recognizes');
+  });
+
+  it('goes quiet once the operator answers, in either direction', () => {
+    for (const angular of ['yes', 'no'] as const) {
+      const { h, router } = startWith(angular);
+      expect(h.app.setPluginStatus).not.toHaveBeenCalledWith(
+        expect.stringContaining('Set angular wrapping on')
+      );
+      expect(h.app.error).not.toHaveBeenCalled();
+      expect(h.routerGet(router, '/api/detected').paths[0]?.recommended).toBe(true);
+    }
+  });
+
+  it('honours the override in both directions', () => {
+    const deg = (r: number) => (r * 180) / Math.PI;
+    const yes = startWith('yes');
+    const yesValue = yes.h.emitted[yes.h.emitted.length - 1]?.updates[0].values[0].value as number;
+    expect(Math.min(deg(yesValue), 360 - deg(yesValue))).toBeLessThan(0.001);
+    const no = startWith('no');
+    expect(no.h.emitted[no.h.emitted.length - 1]?.updates[0].values[0].value).toBeCloseTo(
+      Math.PI,
+      9
+    );
+  });
+});
+
+describe('plugin: confidence reaches a consumer that only reads the value', () => {
+  const path = 'environment.depth.belowKeel';
+
+  function start(h: ReturnType<typeof makeApp>, options: Record<string, unknown> = {}) {
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path }],
+      ...options,
+    });
+    return plugin;
+  }
+
+  it('advises when the published value matches no source, and still publishes', () => {
+    const h = makeApp();
+    start(h);
+    for (const [src, v] of [
+      ['a', 2.0],
+      ['b', 2.1],
+      ['c', 30.0],
+      ['d', 30.1],
+    ] as [string, number][]) {
+      h.fire(delta(h.app.selfContext, src, path, v));
+    }
+    expect(h.emitted[h.emitted.length - 1]?.updates[0].values[0].value).toBe(16.05);
+    const note = h.lastNotification(path);
+    expect(note?.state).toBe('warn');
+    expect(note?.message).toContain('split into groups');
+    expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(
+      expect.stringContaining('1 disagreeing')
+    );
+  });
+
+  it('alerts on an operator-set disagreement distance, which is a deliberate alarm', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path, disagreeThreshold: 1 }],
+    });
+    h.fire(delta(h.app.selfContext, 'a', path, 2));
+    h.fire(delta(h.app.selfContext, 'b', path, 30));
+    expect(h.lastNotification(path)?.state).toBe('alert');
+  });
+
+  it('announces a rejected sensor in the status line and a notification', () => {
+    const h = makeApp();
+    start(h);
+    for (const [src, v] of [
+      ['a', 2.0],
+      ['b', 2.05],
+      ['c', 2.1],
+      ['d', 30.0],
+    ] as [string, number][]) {
+      h.fire(delta(h.app.selfContext, src, path, v));
+    }
+    expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(
+      expect.stringContaining('1 with a rejected source')
+    );
+    expect(h.lastNotification(path)?.message).toContain('rejected as outliers');
+    expect(h.app.debug).toHaveBeenCalledWith(expect.stringContaining('3 of 4 sources'));
+  });
+
+  it('clears the notification when the sensor comes back', () => {
+    const h = makeApp();
+    start(h);
+    for (const [src, v] of [
+      ['a', 2.0],
+      ['b', 2.05],
+      ['c', 2.1],
+      ['d', 30.0],
+    ] as [string, number][]) {
+      h.fire(delta(h.app.selfContext, src, path, v));
+    }
+    h.fire(delta(h.app.selfContext, 'd', path, 2.06));
+    expect(h.lastNotification(path)?.state).toBe('normal');
+  });
+
+  it('publishes nothing on the notification channel when the switch is off', () => {
+    const h = makeApp();
+    start(h, { notifications: false });
+    h.fire(delta(h.app.selfContext, 'a', path, 2));
+    h.fire(delta(h.app.selfContext, 'b', path, 30));
+    expect(h.notifications).toHaveLength(0);
+  });
+});
+
+describe('plugin: the detected row separates live sources from listed ones', () => {
+  const path = 'environment.depth.belowKeel';
+
+  it('reports fresh and excluded sources for a configured path', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    const router = h.captureRouter(plugin);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path, excludeSources: ['c'] }],
+    });
+    for (const src of ['a', 'b', 'c']) h.fire(delta(h.app.selfContext, src, path, 5));
+    const row = h.routerGet(router, '/api/detected').paths[0];
+    expect(row?.sources.slice().sort()).toEqual(['a', 'b', 'c']);
+    expect(row?.freshSources?.slice().sort()).toEqual(['a', 'b']);
+    expect(row?.excludedSources).toEqual(['c']);
+  });
+
+  it('reports no freshness for a path that is not configured', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    const router = h.captureRouter(plugin);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [],
+    });
+    for (const src of ['a', 'b']) h.fire(delta(h.app.selfContext, src, path, 5));
+    const row = h.routerGet(router, '/api/detected').paths[0];
+    expect(row?.freshSources).toBeNull();
+    expect(row?.excludedSources).toEqual([]);
+  });
+
+  it('reports the kind actually in force, not discovery automatic guess', () => {
+    const path = 'vendor.custom.someBearing';
+    const h = makeApp();
+    h.app.getMetadata = () => ({ units: 'rad' });
+    const plugin = PluginFactory(h.app);
+    const router = h.captureRouter(plugin);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [{ path, angular: 'yes' }],
+    });
+    for (const src of ['a', 'b']) h.fire(delta(h.app.selfContext, src, path, 1));
+    expect(h.routerGet(router, '/api/detected').paths[0]?.kind).toBe('angular');
+  });
+});
+
+describe('plugin: jump rejection counts sensor samples', () => {
+  it('accepts a genuine step once persistSamples samples confirm it, inside one emit window', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    const path = 'environment.depth.belowKeel';
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 1,
+      maxSourcesPerPath: 16,
+      paths: [{ path, jumpRejection: { maxRate: 1, persistSamples: 3, persistMs: 600000 } }],
+    });
+    h.fire(delta(h.app.selfContext, 'a', path, 30));
+    for (let i = 0; i < 5; i++) h.fire(delta(h.app.selfContext, 'a', path, 2));
+    const values = h.emitted.map((e) => e.updates[0].values[0].value);
+    expect(values).toEqual([30, 30, 30, 2, 2, 2]);
+  });
+});
+
+describe('plugin: a feed re-broadcast by two gateways counts once', () => {
+  const path = 'environment.depth.belowKeel';
+
+  it('collapses the duplicate group before combining', () => {
+    vi.useFakeTimers({ toFake: ['performance'] });
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    try {
+      plugin.start({
+        defaultStalenessTimeoutMs: 100000,
+        defaultEmitMinIntervalMs: 0,
+        defaultMinSources: 2,
+        maxSourcesPerPath: 16,
+        paths: [{ path }],
+      });
+      // One sounder forwarded under two source names, plus an independent one.
+      // Discovery samples history at 1 Hz, so the values have to move over time.
+      for (let i = 0; i < 5; i++) {
+        vi.advanceTimersByTime(1000);
+        h.fire(delta(h.app.selfContext, 'n2k-1.35', path, 30 + i));
+        h.fire(delta(h.app.selfContext, 'n2k-2.35', path, 30 + i));
+        h.fire(delta(h.app.selfContext, 'nmea0183.DBT', path, 2 + i));
+      }
+      expect(h.app.debug).toHaveBeenCalledWith(expect.stringContaining('same feed'));
+      // Two independent readings, 34 and 6, not three votes of which two agree.
+      expect(h.emitted[h.emitted.length - 1]?.updates[0].values[0].value).toBe(20);
+    } finally {
+      void plugin.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('says why a path waits when its sources report slower than the staleness window', () => {
+    vi.useFakeTimers({ toFake: ['performance'] });
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    const router = h.captureRouter(plugin);
+    try {
+      plugin.start({
+        defaultEmitMinIntervalMs: 0,
+        defaultMinSources: 2,
+        maxSourcesPerPath: 16,
+        paths: [{ path, stalenessTimeoutMs: 1000 }],
+      });
+      for (let i = 0; i < 6; i++) {
+        vi.advanceTimersByTime(500);
+        h.fire(delta(h.app.selfContext, 'a', path, 5));
+        vi.advanceTimersByTime(1500);
+        h.fire(delta(h.app.selfContext, 'b', path, 5.1));
+      }
+      expect(h.routerGet(router, '/api/detected').paths[0]?.advisory).toContain(
+        'Raise the staleness timeout'
+      );
+      expect(h.app.debug).toHaveBeenCalledWith(expect.stringContaining('rarely fresh together'));
+    } finally {
+      void plugin.stop();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('plugin: an unrecognized radian path that is not opted in', () => {
+  const path = 'vendor.custom.someBearing';
+
+  it('is explained in the panel but not in the status line or the server log', () => {
+    const h = makeApp();
+    h.app.getMetadata = () => ({ units: 'rad' });
+    const plugin = PluginFactory(h.app);
+    const router = h.captureRouter(plugin);
+    plugin.start({
+      defaultStalenessTimeoutMs: 10000,
+      defaultEmitMinIntervalMs: 0,
+      defaultMinSources: 2,
+      maxSourcesPerPath: 16,
+      paths: [],
+    });
+    for (const src of ['a', 'b']) h.fire(delta(h.app.selfContext, src, path, 1));
+
+    const row = h.routerGet(router, '/api/detected').paths[0];
+    expect(row?.recommended).toBe(false);
+    expect(row?.advisory).toContain('not a Signal K angle this plugin recognizes');
+    // Advice about a path nobody opted in to is advice about nothing.
+    expect(h.app.error).not.toHaveBeenCalled();
+    expect(h.app.setPluginStatus).not.toHaveBeenCalledWith(
+      expect.stringContaining('Set angular wrapping on')
+    );
   });
 });

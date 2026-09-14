@@ -42,31 +42,73 @@ function keyOf(value: SampleValue): string {
   return ATTITUDE_COMPONENTS.map((c) => value[c]).join(',');
 }
 
-// Group sources that currently report the same value where that value has been
-// changing. Two independent sensors rarely match to full precision while
-// moving, so an exact match on a varying value flags a re-broadcast feed. The
-// changing check avoids false positives when everything agrees at rest.
+// Distinct values two sources must have reported in common before they count as
+// one feed. Exact equality on a full-precision float is already a strong signal,
+// and requiring a second shared value removes the case where two coarsely
+// quantized sensors happen to land on the same reading once.
+const DUPLICATE_SHARED_VALUES = 2;
+
+// Number of distinct values the two histories share exactly. Comparing across
+// the whole window rather than only the newest sample is what makes this
+// tolerant of a re-broadcast that arrives a second or two behind its origin.
+function sharedValueCount(a: string[], b: string[]): number {
+  const other = new Set(b);
+  const shared = new Set<string>();
+  for (const value of a) {
+    if (other.has(value)) shared.add(value);
+  }
+  return shared.size;
+}
+
+/**
+ * Group sources that report the same values while those values are changing:
+ * the signature of one feed re-broadcast under several source names. Exact
+ * equality is the whole point. Two independent sensors do not match to full
+ * float precision while moving, so this cannot mistake two sensors that merely
+ * agree for one feed, which matters because the combiner collapses each group
+ * to a single reading.
+ *
+ * The limit of the technique is a re-broadcast that has been quantized on the
+ * way round, such as a heading returning over NMEA 2000 at 0.0001 rad
+ * resolution: it is no longer an exact match and is not detected here. Widening
+ * this to a tolerance would also group two good sensors that agree closely,
+ * which would silently drop a real sensor, so the round trip is handled as a
+ * documented configuration hazard instead.
+ */
 function duplicateGroups(entry: Entry): string[][] {
-  const byValue = new Map<string, string[]>();
-  const varying = new Set<string>();
+  const varying: { src: string; ring: string[] }[] = [];
   for (const [src, hist] of entry.sources) {
-    const last = hist.ring[hist.ring.length - 1];
-    if (last === undefined) continue;
-    const group = byValue.get(last);
-    if (group) group.push(src);
-    else byValue.set(last, [src]);
     // Varying if any sample differs from the first: an allocation-free scan
     // instead of building a Set just to count distinct values.
     const first = hist.ring[0];
-    if (hist.ring.some((v) => v !== first)) varying.add(src);
+    if (first !== undefined && hist.ring.some((v) => v !== first)) {
+      varying.push({ src, ring: hist.ring });
+    }
   }
+  // Union the pairwise matches so a feed re-broadcast twice lands in one group
+  // rather than in two overlapping pairs.
+  const groupOf = new Map<string, string[]>();
   const groups: string[][] = [];
-  for (const srcs of byValue.values()) {
-    if (srcs.length >= 2 && srcs.filter((source) => varying.has(source)).length >= 2) {
-      groups.push(srcs);
+  for (let i = 0; i < varying.length; i++) {
+    for (let j = i + 1; j < varying.length; j++) {
+      const a = varying[i] as { src: string; ring: string[] };
+      const b = varying[j] as { src: string; ring: string[] };
+      if (sharedValueCount(a.ring, b.ring) >= DUPLICATE_SHARED_VALUES) {
+        joinGroup(groups, groupOf, a.src, b.src);
+      }
     }
   }
   return groups;
+}
+
+function joinGroup(groups: string[][], groupOf: Map<string, string[]>, a: string, b: string): void {
+  const existing = groupOf.get(a) ?? groupOf.get(b);
+  const group = existing ?? [];
+  if (!existing) groups.push(group);
+  for (const src of [a, b]) {
+    if (!group.includes(src)) group.push(src);
+    groupOf.set(src, group);
+  }
 }
 
 export class Discovery {
@@ -86,6 +128,15 @@ export class Discovery {
 
   kind(path: string): Kind | undefined {
     return this.store.get(path)?.kind;
+  }
+
+  /**
+   * Duplicate groups for one path, so the combiner can collapse a re-broadcast
+   * feed to a single reading instead of letting it outvote an honest sensor.
+   */
+  duplicateGroupsFor(path: string): string[][] {
+    const entry = this.store.get(path);
+    return entry ? duplicateGroups(entry) : [];
   }
 
   observe(path: string, sourceRef: string, value?: SampleValue, kind?: Kind): boolean {

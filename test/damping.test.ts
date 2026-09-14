@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyJump, applySlew, type JumpConfig } from '../src/damping';
+import { applyJump, applySlew, type JumpConfig, jumpStateLastSeen } from '../src/damping';
 import { geoDistance, type LatLon } from '../src/metrics';
 
 const cfg: JumpConfig = { maxRate: 5, persistSamples: 2, persistMs: 3000 };
@@ -174,5 +174,33 @@ describe('applySlew', () => {
     const st = applySlew('position', undefined, a, 0, 1).state;
     const result = applySlew('position', st, b, 1000, 100).value as LatLon;
     expect(geoDistance(a, result)).toBeCloseTo(100, 6);
+  });
+});
+
+describe('jumpStateLastSeen', () => {
+  it('is the accepted timestamp when nothing is pending', () => {
+    const { state } = applyJump('scalar', undefined, 10, 500, {
+      maxRate: 1,
+      persistSamples: 3,
+      persistMs: 5000,
+    });
+    expect(jumpStateLastSeen(state)).toBe(500);
+  });
+  it('advances with a held-back sample, so a slow source is not treated as gone', () => {
+    const cfg = { maxRate: 1, persistSamples: 3, persistMs: 60000 };
+    const first = applyJump('scalar', undefined, 10, 0, cfg).state;
+    const held = applyJump('scalar', first, 100, 1000, cfg);
+    expect(held.accepted).toBe(10);
+    expect(jumpStateLastSeen(held.state)).toBe(1000);
+  });
+});
+
+describe('applySlew with no room to move', () => {
+  it('keeps the reading and the clock so the next call gets a full step', () => {
+    const first = applySlew('scalar', { value: 50, ts: 1000 }, 10, 1000, 0.5);
+    expect(first.value).toBe(50);
+    expect(first.state).toEqual({ value: 50, ts: 1000 });
+    const second = applySlew('scalar', first.state, 10, 2000, 0.5);
+    expect(second.value).toBe(49.5);
   });
 });

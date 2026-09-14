@@ -17,6 +17,7 @@ const opts = (paths: unknown[]): PluginOptions => ({
   defaultEmitMinIntervalMs: 1000,
   defaultMinSources: 2,
   maxSourcesPerPath: 16,
+  notifications: true,
   paths: paths as PluginOptions['paths'],
 });
 
@@ -166,10 +167,39 @@ describe('validateConfig: value hardening', () => {
     expect(r.config.paths).toHaveLength(0);
     expect(r.errors[0].message).toContain('madThreshold');
   });
-  it('accepts madThreshold 0 (schema minimum)', () => {
+  it('rejects madThreshold 0, which suppresses the path instead of disabling rejection', () => {
     const r = validateConfig(opts([{ path: 'a', madThreshold: 0 }]));
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]?.message).toContain('switch outlierRejection off');
+    expect(r.config.paths).toHaveLength(0);
+  });
+
+  it('advises that a two-source path cannot detect a split without a threshold', () => {
+    const r = validateConfig(opts([{ path: 'a' }]));
     expect(r.errors).toHaveLength(0);
-    expect(r.config.paths[0].madThreshold).toBe(0);
+    expect(r.advisories.map((a) => a.message).join(' ')).toContain('50/50 split');
+  });
+
+  it('drops the split advisory once a threshold is set', () => {
+    for (const patch of [{ rejectThreshold: 1 }, { disagreeThreshold: 1 }]) {
+      const r = validateConfig(opts([{ path: 'a', ...patch }]));
+      expect(r.advisories).toHaveLength(0);
+    }
+  });
+
+  it('says rejectThreshold still applies when outlierRejection is off', () => {
+    const r = validateConfig(
+      opts([{ path: 'a', outlierRejection: false, madThreshold: 4, rejectThreshold: 1 }])
+    );
+    expect(r.errors).toHaveLength(0);
+    expect(r.advisories[0]?.message).toContain('rejectThreshold still applies');
+  });
+
+  it('reads the notifications switch and defaults it on', () => {
+    expect(validateConfig({ paths: [] }).config.notifications).toBe(true);
+    expect(validateConfig({ notifications: false, paths: [] }).config.notifications).toBe(false);
+    const bad = validateConfig({ notifications: 'yes', paths: [] });
+    expect(bad.errors[0]?.message).toContain('notifications must be a boolean');
   });
   it('rejects a fractional minSources', () => {
     const r = validateConfig(opts([{ path: 'a', minSources: 1.5 }]));

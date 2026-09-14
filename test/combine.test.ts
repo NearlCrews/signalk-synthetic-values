@@ -214,3 +214,117 @@ describe('combine position', () => {
     expect(v.longitude).toBeCloseTo(20, 3);
   });
 });
+
+describe('combine: an output no source is near', () => {
+  const scalar = { ...base, kind: 'scalar' as const };
+  const four = (...xs: number[]): Sample[] => xs.map((v, i) => s(`s${i + 1}`, v));
+
+  it('flags four sounders split into two pairs, and still emits', () => {
+    const r = combine(four(2.0, 2.1, 30.0, 30.1), scalar);
+    expect(r.value).toBe(16.05);
+    expect(r.outcome).toBe('disagree');
+    expect(r.unsupported).toBe(true);
+    expect(r.spread).toBeCloseTo(28.1, 6);
+  });
+
+  it('flags a mean that lands between clusters at three sources', () => {
+    const r = combine(four(2.0, 2.1, 30.0), { ...scalar, method: 'mean' });
+    expect(r.unsupported).toBe(true);
+  });
+
+  it('leaves an evenly scattered set alone', () => {
+    expect(combine(four(1, 2, 3, 4, 5), scalar).outcome).toBe('ok');
+    expect(combine(four(2.0, 2.05, 2.1, 2.15), scalar).outcome).toBe('ok');
+  });
+
+  it('leaves identical readings alone', () => {
+    const r = combine(four(5, 5, 5, 5), scalar);
+    expect(r.outcome).toBe('ok');
+    expect(r.unsupported).toBeUndefined();
+  });
+
+  it('cannot run below three readings, which is what the config advisory says', () => {
+    const r = combine(four(2, 30), scalar);
+    expect(r.outcome).toBe('ok');
+    expect(r.unsupported).toBeUndefined();
+  });
+
+  it('defers to an operator-set disagreement distance', () => {
+    const within = combine(four(2.0, 2.1, 2.4, 2.5), { ...scalar, disagreeThreshold: 1 });
+    expect(within.outcome).toBe('ok');
+    expect(within.unsupported).toBeUndefined();
+    const beyond = combine(four(2.0, 2.1, 30.0, 30.1), { ...scalar, disagreeThreshold: 1 });
+    expect(beyond.outcome).toBe('disagree');
+    expect(beyond.unsupported).toBeUndefined();
+  });
+
+  it('does not run on position, where two antenna groups are a legitimate pair', () => {
+    const bow = { latitude: 50, longitude: -1 };
+    const stern = { latitude: 50.0001, longitude: -1 };
+    const r = combine([s('a', bow), s('b', bow), s('c', stern), s('d', stern)], {
+      ...base,
+      kind: 'position',
+    });
+    expect(r.outcome).toBe('ok');
+    expect(r.unsupported).toBeUndefined();
+  });
+});
+
+describe('combine: rejectThreshold is an absolute limit', () => {
+  const three = [s('s1', 2.0), s('s2', 2.1), s('s3', 30)];
+  it('applies with outlier rejection on', () => {
+    const r = combine(three, { ...base, kind: 'scalar', rejectThreshold: 1 });
+    expect(r.usedSources).toEqual(['s1', 's2']);
+    expect(r.rejectedSources).toEqual(['s3']);
+  });
+  it('still applies with outlier rejection off', () => {
+    const r = combine(three, {
+      ...base,
+      kind: 'scalar',
+      outlierRejection: false,
+      rejectThreshold: 1,
+    });
+    expect(r.usedSources).toEqual(['s1', 's2']);
+    expect(r.rejectedSources).toEqual(['s3']);
+  });
+  it('with rejection off and no rejectThreshold, nothing is rejected', () => {
+    const r = combine(three, { ...base, kind: 'scalar', outlierRejection: false });
+    expect(r.usedSources).toEqual(['s1', 's2', 's3']);
+    expect(r.rejectedSources).toBeUndefined();
+  });
+});
+
+describe('circularMedoid tie handling', () => {
+  const d = (deg: number) => (deg * Math.PI) / 180;
+  const deg = (rad: number) => (rad * 180) / Math.PI;
+
+  it('returns the bisector for two readings, whichever order they arrive in', () => {
+    expect(deg(circularMedoid([d(10), d(50)]))).toBeCloseTo(30, 9);
+    expect(deg(circularMedoid([d(50), d(10)]))).toBeCloseTo(30, 9);
+  });
+  it('takes the short way around the seam', () => {
+    expect(deg(circularMedoid([d(350), d(30)]))).toBeCloseTo(10, 9);
+    expect(deg(circularMedoid([d(30), d(350)]))).toBeCloseTo(10, 9);
+  });
+  it('keeps identical readings exact rather than routing them through trigonometry', () => {
+    expect(circularMedoid([0.1, 0.1])).toBe(0.1);
+    expect(circularMedoid([1.5, 1.5, 1.5])).toBe(1.5);
+  });
+  it('a clear winner is still an observed reading', () => {
+    expect(deg(circularMedoid([d(359), d(1), d(1)]))).toBeCloseTo(1, 9);
+  });
+  it('the combined angular value does not depend on source order', () => {
+    const angular = { ...base, kind: 'angular' as const };
+    const forward = combine([s('a', d(10)), s('b', d(50))], angular).value as number;
+    const reverse = combine([s('b', d(50)), s('a', d(10))], angular).value as number;
+    expect(forward).toBe(reverse);
+  });
+  it('the combined longitude does not depend on source order', () => {
+    const position = { ...base, kind: 'position' as const };
+    const a: LatLon = { latitude: 50, longitude: -1 };
+    const b: LatLon = { latitude: 50, longitude: -1.0002 };
+    const forward = combine([s('a', a), s('b', b)], position).value as LatLon;
+    const reverse = combine([s('b', b), s('a', a)], position).value as LatLon;
+    expect(forward).toEqual(reverse);
+  });
+});

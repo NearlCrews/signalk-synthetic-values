@@ -69,11 +69,13 @@ export interface PluginOptions {
   defaultEmitMinIntervalMs: number;
   defaultMinSources: number;
   maxSourcesPerPath: number;
+  notifications: boolean;
   paths: RawPathConfig[];
 }
 
 interface ResolvedConfig {
   maxSourcesPerPath: number;
+  notifications: boolean;
   paths: PathConfig[];
 }
 
@@ -90,6 +92,7 @@ export interface ValidationResult {
 
 export const DEFAULT_MAX_SOURCES_PER_PATH = 16;
 export const MAX_SOURCES_PER_PATH = 64;
+export const DEFAULT_NOTIFICATIONS = true;
 
 const METHODS: ReadonlySet<string> = new Set(COMBINE_METHODS);
 const ANGULAR_MODES: ReadonlySet<string> = new Set(ANGULAR_MODES_LIST);
@@ -319,8 +322,15 @@ function validatePathEntry(
   const outlierRejection = typeof outlierValue === 'boolean' ? outlierValue : true;
 
   const madThreshold = raw.madThreshold === undefined ? DEFAULT_MAD_THRESHOLD : raw.madThreshold;
-  if (!nonNegative(madThreshold)) {
-    errors.push({ path: id, message: 'madThreshold must be a non-negative number' });
+  // Zero reads like "no threshold" and means the opposite: every reading with
+  // any spread at all is rejected, so the path stops producing output even when
+  // the sources agree. Turning rejection off is what outlierRejection is for.
+  if (!positive(madThreshold)) {
+    errors.push({
+      path: id,
+      message:
+        'madThreshold must be greater than zero; switch outlierRejection off to disable rejection',
+    });
   }
 
   const rejectThreshold = readOptionalNumber(id, raw, 'rejectThreshold', errors);
@@ -335,7 +345,21 @@ function validatePathEntry(
 
   const advisories: ConfigError[] = [];
   if (!outlierRejection && raw.madThreshold !== undefined) {
-    advisories.push({ path: id, message: 'madThreshold ignored while outlierRejection is off' });
+    advisories.push({
+      path: id,
+      message:
+        'madThreshold ignored while outlierRejection is off; rejectThreshold still applies because it is an absolute limit',
+    });
+  }
+  // Scaled MAD needs four readings, and the unit-free split test needs three,
+  // so a two-source path has nothing that can tell two sensors that agree from
+  // two that are far apart. Only a threshold in the path's own units can.
+  if (scalars.minSources <= 2 && rejectThreshold === undefined && disagreeThreshold === undefined) {
+    advisories.push({
+      path: id,
+      message:
+        'with two sources and neither rejectThreshold nor disagreeThreshold set, a 50/50 split between the sensors cannot be detected and the midpoint is published',
+    });
   }
   return {
     path: {
@@ -380,6 +404,14 @@ function readRoot(input: unknown, errors: ConfigError[]): UnknownRecord {
   if (isRecord(input)) return input;
   errors.push({ path: 'configuration', message: 'configuration must be an object' });
   return {};
+}
+
+function readNotifications(root: UnknownRecord, errors: ConfigError[]): boolean {
+  const value = root.notifications;
+  if (value === undefined) return DEFAULT_NOTIFICATIONS;
+  if (typeof value === 'boolean') return value;
+  errors.push({ path: 'notifications', message: 'notifications must be a boolean' });
+  return DEFAULT_NOTIFICATIONS;
 }
 
 function readMaxSources(root: UnknownRecord, errors: ConfigError[]): number {
@@ -495,6 +527,7 @@ export function validateConfig(input: unknown): ValidationResult {
   const advisories: ConfigError[] = [];
   const root = readRoot(input, errors);
   const maxSourcesPerPath = readMaxSources(root, errors);
+  const notifications = readNotifications(root, errors);
   const defaults = readDefaults(root, maxSourcesPerPath, errors);
   const paths = validatePathEntries(
     readRawPaths(root, errors),
@@ -504,5 +537,5 @@ export function validateConfig(input: unknown): ValidationResult {
     advisories
   );
 
-  return { config: { maxSourcesPerPath, paths }, errors, advisories };
+  return { config: { maxSourcesPerPath, notifications, paths }, errors, advisories };
 }

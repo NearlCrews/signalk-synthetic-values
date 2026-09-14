@@ -75,3 +75,66 @@ describe('Emitter reset', () => {
     expect(e.due('p', 1000)).toBe(true);
   });
 });
+
+describe('Emitter notifications', () => {
+  const app = (): EmitApp => ({ handleMessage: vi.fn() });
+  const calls = (a: EmitApp): number => vi.mocked(a.handleMessage).mock.calls.length;
+
+  it('publishes notifications.<path> with a visual method for an alert', () => {
+    const a = app();
+    new Emitter(a, 'sv', fakeClock(0)).notify(
+      'environment.depth.belowKeel',
+      'alert',
+      'Sources diverge.'
+    );
+    expect(sentDelta(a)).toEqual({
+      updates: [
+        {
+          $source: 'sv',
+          values: [
+            {
+              path: 'notifications.environment.depth.belowKeel',
+              value: { state: 'alert', method: ['visual'], message: 'Sources diverge.' },
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('never asks for sound, because a data-quality problem is not an alarm', () => {
+    const a = app();
+    const e = new Emitter(a, 'sv', fakeClock(0));
+    e.notify('p', 'alert', 'a');
+    e.notify('p', 'warn', 'b');
+    for (let i = 0; i < calls(a); i++) {
+      const value = sentDelta(a, i).updates[0].values[0].value as { method: string[] };
+      expect(value.method).not.toContain('sound');
+    }
+  });
+
+  it('repeats nothing: only a change of state or message reaches the bus', () => {
+    const a = app();
+    const e = new Emitter(a, 'sv', fakeClock(0));
+    e.notify('p', 'warn', 'same');
+    e.notify('p', 'warn', 'same');
+    expect(calls(a)).toBe(1);
+    e.notify('p', 'normal', 'clear');
+    expect(calls(a)).toBe(2);
+  });
+
+  it('does not open with a clear for a path that was never flagged', () => {
+    const a = app();
+    new Emitter(a, 'sv', fakeClock(0)).notify('p', 'normal', 'Combining normally.');
+    expect(calls(a)).toBe(0);
+  });
+
+  it('reset forgets what was published, so a restart re-announces', () => {
+    const a = app();
+    const e = new Emitter(a, 'sv', fakeClock(0));
+    e.notify('p', 'warn', 'same');
+    e.reset();
+    e.notify('p', 'warn', 'same');
+    expect(calls(a)).toBe(2);
+  });
+});
