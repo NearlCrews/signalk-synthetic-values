@@ -122,6 +122,7 @@ describe('classify: an unrecognized radian path is flagged', () => {
   it('a path with no radian units is not flagged', () => {
     expect(classify('environment.depth.belowKeel', 4.2, 'auto', none, 'vessels.self')).toEqual({
       kind: 'scalar',
+      safeDirection: 'decreasing',
     });
   });
   it('an explicit override answers the question, so neither mode flags', () => {

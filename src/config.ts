@@ -107,6 +107,30 @@ export const DEFAULT_NOTIFICATIONS = true;
 const METHODS: ReadonlySet<string> = new Set(COMBINE_METHODS);
 const ANGULAR_MODES: ReadonlySet<string> = new Set(ANGULAR_MODES_LIST);
 
+/** The include and exclude lists that decide which sources reach the combiner. */
+export interface SourceFilter {
+  includeSources?: string[] | undefined;
+  excludeSources?: string[] | undefined;
+}
+
+// Every source passes when a path sets no lists at all, which is the common
+// case, so that path answers without building a closure or a Set.
+const ALLOW_EVERY_SOURCE = (): boolean => true;
+
+/**
+ * Compile one path's include and exclude rule into a predicate. The runtime
+ * applies it to every delta and the panel applies it to count the sources a
+ * path would actually combine, so a single definition keeps the panel's warning
+ * from promising a combination the runtime will not run. An empty include list
+ * means no filter, which is what the runtime has always done.
+ */
+export function sourceFilterFor(filter: SourceFilter): (sourceRef: string) => boolean {
+  const include = filter.includeSources?.length ? new Set(filter.includeSources) : undefined;
+  const exclude = filter.excludeSources?.length ? new Set(filter.excludeSources) : undefined;
+  if (include === undefined && exclude === undefined) return ALLOW_EVERY_SOURCE;
+  return (sourceRef) => (include?.has(sourceRef) ?? true) && !exclude?.has(sourceRef);
+}
+
 function positive(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n) && n > 0;
 }

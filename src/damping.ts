@@ -132,24 +132,30 @@ function stepPosition(a: LatLon, b: LatLon, maxStep: number): LatLon {
   };
 }
 
+/**
+ * Limit one step toward `value`. `clamped` says whether the returned value is
+ * behind the one asked for, which is a fact each return site already knows:
+ * reconstructing it from the result would mean a second full distance
+ * computation, and on a position that is another haversine per emit.
+ */
 export function applySlew(
   kind: Kind,
   state: SlewState | undefined,
   value: SampleValue,
   ts: number,
   maxRatePerSec: number
-): { value: SampleValue; state: SlewState } {
-  if (!state) return { value, state: { value, ts } };
+): { value: SampleValue; state: SlewState; clamped: boolean } {
+  if (!state) return { value, state: { value, ts }, clamped: false };
   const dtSec = Math.max(0, ts - state.ts) / 1000;
   const maxStep = maxRatePerSec * dtSec;
+  const d = distance(kind, state.value, value);
   // A zero-width step (two emits sharing a timestamp) can allow no movement at
   // all. Returning the previous state unchanged leaves the reading to be
   // applied on the next call with a correctly sized step, instead of dropping
   // it and advancing the clock past it.
-  if (maxStep === 0) return { value: state.value, state };
-  const d = distance(kind, state.value, value);
+  if (maxStep === 0) return { value: state.value, state, clamped: d > 0 };
   if (d <= maxStep) {
-    return { value, state: { value, ts } };
+    return { value, state: { value, ts }, clamped: false };
   }
   let limited: SampleValue;
   if (kind === 'position') {
@@ -165,5 +171,5 @@ export function applySlew(
   } else {
     limited = clampScalar(state.value as number, value as number, maxStep);
   }
-  return { value: limited, state: { value: limited, ts } };
+  return { value: limited, state: { value: limited, ts }, clamped: true };
 }

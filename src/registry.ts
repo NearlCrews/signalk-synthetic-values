@@ -1,5 +1,6 @@
 import type { Clock } from './clock';
 import type { Sample } from './combine';
+import { median } from './combine';
 import { oldestKey } from './mapUtil';
 import type { SampleValue } from './metrics';
 
@@ -16,6 +17,10 @@ interface Entry {
 
 export class Registry {
   private store = new Map<string, Map<string, Entry>>();
+  // Median report interval per path, computed on demand and dropped as soon as
+  // a new gap lands. The answer is read once per availability sweep and once
+  // per emit for a path waiting on sources, and it barely moves between them.
+  private medianInterval = new Map<string, number | undefined>();
   private maxSources: number;
 
   constructor(
@@ -34,6 +39,7 @@ export class Registry {
         bySource.delete(oldestRef);
       }
     }
+    this.medianInterval.clear();
   }
 
   update(path: string, sourceRef: string, value: SampleValue, ts: number): void {
@@ -46,13 +52,20 @@ export class Registry {
     if (!previous && bySource.size >= this.maxSources) {
       const oldestRef = oldestKey(bySource, (e) => e.receiptTs);
       if (oldestRef !== undefined) bySource.delete(oldestRef);
+      this.medianInterval.delete(path);
     }
-    const intervals = previous?.intervals ?? [];
     if (previous) {
-      intervals.push(ts - previous.receiptTs);
-      if (intervals.length > INTERVAL_HISTORY) intervals.shift();
+      previous.intervals.push(ts - previous.receiptTs);
+      if (previous.intervals.length > INTERVAL_HISTORY) previous.intervals.shift();
+      this.medianInterval.delete(path);
+      // Mutate in place rather than replacing the entry: this runs once per
+      // delta per source per configured path, and the wrapper carries nothing
+      // the existing one does not already hold.
+      previous.value = value;
+      previous.receiptTs = ts;
+      return;
     }
-    bySource.set(sourceRef, { value, receiptTs: ts, intervals });
+    bySource.set(sourceRef, { value, receiptTs: ts, intervals: [] });
   }
 
   /**
@@ -62,21 +75,25 @@ export class Registry {
    * reaches its minimum source count.
    */
   medianReportIntervalMs(path: string): number | undefined {
+    if (this.medianInterval.has(path)) return this.medianInterval.get(path);
+    const interval = this.computeMedianReportIntervalMs(path);
+    this.medianInterval.set(path, interval);
+    return interval;
+  }
+
+  private computeMedianReportIntervalMs(path: string): number | undefined {
     const bySource = this.store.get(path);
     if (!bySource) return undefined;
     const gaps: number[] = [];
     for (const entry of bySource.values()) gaps.push(...entry.intervals);
-    if (gaps.length === 0) return undefined;
-    gaps.sort((a, b) => a - b);
-    const mid = Math.floor(gaps.length / 2);
-    if (gaps.length % 2) return gaps[mid] as number;
-    return (((gaps[mid - 1] as number) + (gaps[mid] as number)) / 2) as number;
+    return gaps.length === 0 ? undefined : median(gaps);
   }
 
   remove(path: string, sourceRef: string): void {
     const bySource = this.store.get(path);
     if (!bySource) return;
     bySource.delete(sourceRef);
+    this.medianInterval.delete(path);
     if (bySource.size === 0) this.store.delete(path);
   }
 
@@ -104,5 +121,6 @@ export class Registry {
 
   reset(): void {
     this.store.clear();
+    this.medianInterval.clear();
   }
 }

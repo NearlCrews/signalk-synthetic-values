@@ -1,6 +1,21 @@
 import type { CombineMethod, CombineResult, Outcome } from './combine';
+import type { NotificationState } from './emitter';
 import type { Kind } from './metrics';
 import { oxfordJoin, plural } from './textFormat';
+
+/**
+ * Everything a configured path can conclude in one cycle: what the combiner
+ * produced, plus the outcome the damping stage adds once a combined value has
+ * been through the slew limiter. Keeping the wider vocabulary here rather than
+ * in the combiner means an exhaustive switch over a `combine()` result is never
+ * asked to handle a case the combiner cannot return.
+ */
+export type PathOutcome = Outcome | 'slewLimited';
+
+/** A combine result carried through the damping stage, which may widen the outcome. */
+export interface PathResult extends Omit<CombineResult, 'outcome'> {
+  outcome: PathOutcome;
+}
 
 // Unit of the spread the combiner reports, by kind. Without it a spread of 28
 // on an angular path reads as degrees when it is radians.
@@ -16,7 +31,7 @@ function spreadText(spread: number | undefined, kind: Kind): string {
 
 // "3 of 4 sources" when rejection dropped one, "3 sources" when it did not, so
 // a newly rejected sensor changes the line the operator reads.
-function sourceCount(result: CombineResult): string {
+function sourceCount(result: PathResult): string {
   const used = result.usedSources.length;
   if (result.freshCount > used) return `${used} of ${result.freshCount} sources`;
   return `${used} source${plural(used)}`;
@@ -24,11 +39,11 @@ function sourceCount(result: CombineResult): string {
 
 export function pathStatus(
   path: string,
-  result: CombineResult,
+  result: PathResult,
   sourceLabel: string,
   effectiveMin: number,
   method: CombineMethod,
-  kind: Kind = 'scalar'
+  kind: Kind
 ): string {
   switch (result.outcome) {
     case 'singleSource':
@@ -63,11 +78,124 @@ export function pathStatus(
   }
 }
 
-/** What the aggregate status needs to know about one configured path. */
+/**
+ * The last outcome recorded for one configured path. The aggregate status
+ * buckets `outcome` and `rejectedCount`; the counts are what decide whether
+ * this cycle tells an operator anything the last one did not, so a path that
+ * keeps reporting the same picture costs no message building at all.
+ */
 export interface PathState {
-  outcome: Outcome;
+  outcome: PathOutcome;
   /** Fresh sources dropped by outlier rejection on the last combine. */
   rejectedCount: number;
+  /** Sources fresh enough to take part in the last combine. */
+  freshCount: number;
+  /** Sources that survived rejection and produced the last value. */
+  usedCount: number;
+}
+
+/**
+ * How much confidence the last cycle leaves in the published value. `alert`
+ * means the value should not be trusted as published, `warn` means the plugin
+ * is running degraded, and `normal` clears a previous notification. Undefined
+ * means there is nothing worth saying on this channel.
+ *
+ * `hasEmitted` is whether the path has published a value in this run: a path
+ * that never started is a configuration matter, one that stopped is an event.
+ */
+function confidence(
+  result: PathResult,
+  hasEmitted: boolean
+): { state: NotificationState; message: string } | undefined {
+  switch (result.outcome) {
+    case 'diverged':
+      return {
+        state: 'alert',
+        message: `Sources diverge, so no combined value is being published (${result.freshCount} fresh sources).`,
+      };
+    case 'disagree':
+      // An operator-set disagreement distance is a deliberate alarm, so a
+      // breach of it alerts. The unit-free split test is a heuristic that
+      // cannot tell two sounders mounted a boat length apart from two that
+      // have failed, so it advises rather than alerts. Alerting on it would
+      // leave a permanent warning on a correctly configured vessel, which
+      // teaches an operator to ignore the channel.
+      return result.unsupported
+        ? {
+            state: 'warn',
+            message: `Sources split into groups and the published value matches none of them (${sourceCount(result)}). Set a disagreement distance for this path to say how far apart is acceptable.`,
+          }
+        : {
+            state: 'alert',
+            message: `Sources disagree by more than the configured distance, and the combined value is being published anyway (${sourceCount(result)}).`,
+          };
+    case 'slewLimited':
+      return {
+        state: 'warn',
+        message: 'The slew limit is holding the published value behind what the sources report.',
+      };
+    case 'singleSource':
+      return result.freshCount > 1
+        ? {
+            state: 'warn',
+            message: `Only 1 of ${result.freshCount} sources is being used, so there is no redundancy.`,
+          }
+        : { state: 'normal', message: 'Combining normally.' };
+    case 'belowMin':
+    case 'allStale':
+      return hasEmitted
+        ? {
+            state: 'warn',
+            message: `Not enough fresh sources to combine (${result.freshCount} fresh), so the value has stopped updating.`,
+          }
+        : undefined;
+    case 'ok':
+      return result.rejectedSources.length > 0
+        ? {
+            state: 'warn',
+            message: `${result.rejectedSources.length} of ${result.freshCount} sources rejected as outliers; combining the remaining ${result.usedSources.length}.`,
+          }
+        : { state: 'normal', message: 'Combining normally.' };
+    case 'skipped':
+      return undefined;
+  }
+}
+
+/** What one recorded outcome says to each audience, built from one switch each. */
+export interface OutcomeReport {
+  /** Per-path detail for the debug log. */
+  line: string;
+  /** The confidence notification, or undefined when there is nothing to publish. */
+  notification: { state: NotificationState; message: string } | undefined;
+}
+
+export interface OutcomeContext {
+  path: string;
+  result: PathResult;
+  sourceLabel: string;
+  minSources: number;
+  method: CombineMethod;
+  kind: Kind;
+  hasEmitted: boolean;
+}
+
+/**
+ * Everything the runtime says about one recorded outcome, so the log line and
+ * the notification are built from the same module and cannot drift into two
+ * descriptions of one condition.
+ */
+export function outcomeReport(context: OutcomeContext): OutcomeReport {
+  return {
+    line: pathStatus(
+      context.path,
+      context.result,
+      context.sourceLabel,
+      context.minSources,
+      context.method,
+      context.kind
+    ),
+    notification: confidence(context.result, context.hasEmitted),
+  };
 }
 
 /**

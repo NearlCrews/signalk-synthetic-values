@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { type CombineOptions, circularMedoid, combine, type Sample } from '../src/combine';
 import type { LatLon, SampleValue } from '../src/metrics';
+import { toDegrees, toRadians } from '../src/metrics';
 
 const base: Omit<CombineOptions, 'kind'> = {
   method: 'median',
@@ -91,25 +92,24 @@ describe('combine scalar', () => {
 });
 
 describe('circularMedoid', () => {
-  const d = (x: number) => (x * Math.PI) / 180;
   it('returns the reading with the least total angular distance', () => {
-    expect((circularMedoid([d(4.2), d(9.4), d(9.4)]) * 180) / Math.PI).toBeCloseTo(9.4, 6);
+    expect(
+      (circularMedoid([toRadians(4.2), toRadians(9.4), toRadians(9.4)]) * 180) / Math.PI
+    ).toBeCloseTo(9.4, 6);
   });
   it('handles the wrap boundary (readings near north)', () => {
     // 359 deg, 1 deg, 1 deg cluster near north; medoid is one of the 1 deg readings.
-    const m = (circularMedoid([d(359), d(1), d(1)]) * 180) / Math.PI;
+    const m = (circularMedoid([toRadians(359), toRadians(1), toRadians(1)]) * 180) / Math.PI;
     expect(m).toBeCloseTo(1, 6);
   });
   it('returns the sole reading for a single angle', () => {
-    expect(circularMedoid([d(42)])).toBeCloseTo(d(42), 9);
+    expect(circularMedoid([toRadians(42)])).toBeCloseTo(toRadians(42), 9);
   });
 });
 
 describe('combine angular', () => {
-  const d = (x: number) => (x * Math.PI) / 180;
-
   it('uses the circular mean for method=mean', () => {
-    const r = combine([s('a', d(0)), s('b', d(10)), s('c', d(350))], {
+    const r = combine([s('a', toRadians(0)), s('b', toRadians(10)), s('c', toRadians(350))], {
       ...base,
       kind: 'angular',
       method: 'mean',
@@ -122,7 +122,7 @@ describe('combine angular', () => {
   it('uses the circular medoid for method=median, tracking the consensus not the mean', () => {
     // Two compasses agree at 9.4 deg, one reads 4.2 deg. The circular mean is
     // ~7.6 deg (dragged by the outlier); the medoid is the consensus 9.4 deg.
-    const r = combine([s('a', d(4.2)), s('b', d(9.4)), s('c', d(9.4))], {
+    const r = combine([s('a', toRadians(4.2)), s('b', toRadians(9.4)), s('c', toRadians(9.4))], {
       ...base,
       kind: 'angular',
       method: 'median',
@@ -145,16 +145,15 @@ describe('combine angular', () => {
 });
 
 describe('combine attitude', () => {
-  const d = (x: number) => (x * Math.PI) / 180;
   const att = (roll: number, pitch: number, yaw: number) => ({ roll, pitch, yaw });
 
   it('combines each component, tracking the consensus per axis', () => {
     // Two sources agree on roll/pitch/yaw, one is off on yaw only.
     const r = combine(
       [
-        s('a', att(d(2), d(-5), d(90))),
-        s('b', att(d(2), d(-5), d(90))),
-        s('c', att(d(2), d(-5), d(80))),
+        s('a', att(toRadians(2), toRadians(-5), toRadians(90))),
+        s('b', att(toRadians(2), toRadians(-5), toRadians(90))),
+        s('c', att(toRadians(2), toRadians(-5), toRadians(80))),
       ],
       { ...base, kind: 'attitude' }
     );
@@ -290,33 +289,35 @@ describe('combine: rejectThreshold is an absolute limit', () => {
   it('with rejection off and no rejectThreshold, nothing is rejected', () => {
     const r = combine(three, { ...base, kind: 'scalar', outlierRejection: false });
     expect(r.usedSources).toEqual(['s1', 's2', 's3']);
-    expect(r.rejectedSources).toBeUndefined();
+    expect(r.rejectedSources).toEqual([]);
   });
 });
 
 describe('circularMedoid tie handling', () => {
-  const d = (deg: number) => (deg * Math.PI) / 180;
-  const deg = (rad: number) => (rad * 180) / Math.PI;
-
   it('returns the bisector for two readings, whichever order they arrive in', () => {
-    expect(deg(circularMedoid([d(10), d(50)]))).toBeCloseTo(30, 9);
-    expect(deg(circularMedoid([d(50), d(10)]))).toBeCloseTo(30, 9);
+    expect(toDegrees(circularMedoid([toRadians(10), toRadians(50)]))).toBeCloseTo(30, 9);
+    expect(toDegrees(circularMedoid([toRadians(50), toRadians(10)]))).toBeCloseTo(30, 9);
   });
   it('takes the short way around the seam', () => {
-    expect(deg(circularMedoid([d(350), d(30)]))).toBeCloseTo(10, 9);
-    expect(deg(circularMedoid([d(30), d(350)]))).toBeCloseTo(10, 9);
+    expect(toDegrees(circularMedoid([toRadians(350), toRadians(30)]))).toBeCloseTo(10, 9);
+    expect(toDegrees(circularMedoid([toRadians(30), toRadians(350)]))).toBeCloseTo(10, 9);
   });
   it('keeps identical readings exact rather than routing them through trigonometry', () => {
     expect(circularMedoid([0.1, 0.1])).toBe(0.1);
     expect(circularMedoid([1.5, 1.5, 1.5])).toBe(1.5);
   });
   it('a clear winner is still an observed reading', () => {
-    expect(deg(circularMedoid([d(359), d(1), d(1)]))).toBeCloseTo(1, 9);
+    expect(toDegrees(circularMedoid([toRadians(359), toRadians(1), toRadians(1)]))).toBeCloseTo(
+      1,
+      9
+    );
   });
   it('the combined angular value does not depend on source order', () => {
     const angular = { ...base, kind: 'angular' as const };
-    const forward = combine([s('a', d(10)), s('b', d(50))], angular).value as number;
-    const reverse = combine([s('b', d(50)), s('a', d(10))], angular).value as number;
+    const forward = combine([s('a', toRadians(10)), s('b', toRadians(50))], angular)
+      .value as number;
+    const reverse = combine([s('b', toRadians(50)), s('a', toRadians(10))], angular)
+      .value as number;
     expect(forward).toBe(reverse);
   });
   it('the combined longitude does not depend on source order', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { circularMeanRad, maxCircularSpread, mean, median, trimmedMean } from '../src/combine';
+import { toRadians } from '../src/metrics';
 
 describe('median', () => {
   it('odd length', () => expect(median([3, 1, 2])).toBe(2));
@@ -63,15 +64,15 @@ describe('maxCircularSpread', () => {
     expect(maxCircularSpread([0, Math.PI / 2, Math.PI])).toBeCloseTo(Math.PI, 9);
   });
   it('tight cluster 0,5,355 degrees has a small spread', () => {
-    const d = (x: number) => (x * Math.PI) / 180;
-    expect(maxCircularSpread([d(0), d(5), d(355)])).toBeLessThan(d(11));
+    expect(maxCircularSpread([toRadians(0), toRadians(5), toRadians(355)])).toBeLessThan(
+      toRadians(11)
+    );
   });
 });
 
 describe('normalize2pi boundary', () => {
   it('a pair straddling north means to 0, never to exactly 2pi', () => {
-    const d = (deg: number) => (deg * Math.PI) / 180;
-    const r = circularMeanRad([d(359.9), d(0.1)]);
+    const r = circularMeanRad([toRadians(359.9), toRadians(0.1)]);
     expect(r.mean).not.toBe(2 * Math.PI);
     expect(r.mean).toBeGreaterThanOrEqual(0);
     expect(r.mean).toBeLessThan(2 * Math.PI);

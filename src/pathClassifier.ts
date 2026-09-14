@@ -117,6 +117,16 @@ const BOUNDED_ANGLE_PATHS: ReadonlySet<string> = new Set([
 // middle, so it needs the same prefix plus leaf treatment as the bearings.
 const THRUST_ANGLE_SUFFIX = '.drive.thrustAngle';
 
+// Depth paths where a smaller number means less water under the vessel. They
+// live beside the other Signal K path tables so a reviewer extending one sees
+// all three, rather than in the runtime where the damping stage happens to
+// consult them.
+const SHOALING_DEPTH_PATHS: ReadonlySet<string> = new Set([
+  'environment.depth.belowKeel',
+  'environment.depth.belowTransducer',
+  'environment.depth.belowSurface',
+]);
+
 function leafOf(path: string): string {
   const dot = path.lastIndexOf('.');
   return dot === -1 ? path : path.slice(dot + 1);
@@ -173,6 +183,21 @@ export interface Classification {
    * bearing, so the runtime announces it rather than guessing in silence.
    */
   unrecognizedAngle?: true;
+  /**
+   * The direction of change that must never be smoothed. `decreasing` marks a
+   * depth: a rise toward shallower water is a grounding hazard, and there is no
+   * safe reason to report more water under the vessel than the sounders see.
+   */
+  safeDirection?: 'decreasing';
+}
+
+// A scalar depth carries the shoaling rule; every other kind and path does not.
+// Written as one helper so both the `no` override and the automatic path build
+// the same classification.
+function scalarClassification(path: string): Classification {
+  return SHOALING_DEPTH_PATHS.has(path)
+    ? { kind: 'scalar', safeDirection: 'decreasing' }
+    : { kind: 'scalar' };
 }
 
 export function classify(
@@ -190,7 +215,7 @@ export function classify(
   // for one it does. They are the escape hatch when this classifier is wrong,
   // so neither consults the family or the units.
   if (angularMode === 'yes') return { kind: 'angular' };
-  if (angularMode === 'no') return { kind: 'scalar' };
+  if (angularMode === 'no') return scalarClassification(path);
   const family = angleFamily(path);
   // A known full-circle path is angular whatever the metadata says. The server
   // does not resolve units for every specification path (nextPoint bearings and
@@ -199,5 +224,7 @@ export function classify(
   if (family === 'fullCircle') return { kind: 'angular' };
   if (family === 'bounded') return { kind: 'scalar' };
   const units = getUnits(`${context}.${path}`)?.units;
-  return units === 'rad' ? { kind: 'scalar', unrecognizedAngle: true } : { kind: 'scalar' };
+  return units === 'rad'
+    ? { ...scalarClassification(path), unrecognizedAngle: true }
+    : scalarClassification(path);
 }

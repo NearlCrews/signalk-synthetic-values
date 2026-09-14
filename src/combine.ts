@@ -54,12 +54,24 @@ export function trimmedMean(xs: number[], trimFraction: number): number {
 
 // Adding TWO_PI to a tiny negative remainder rounds back to exactly TWO_PI,
 // which is outside the [0, 2pi) range this promises and publishes a heading of
-// 360.000 degrees. The double modulo lands on 0 instead.
+// 360.000 degrees. The double modulo lands on 0 instead. An angle already in
+// range skips the modulo entirely, because the round trip is not exact: 0.1
+// comes back as 0.09999999999999964.
 function normalize2pi(a: number): number {
+  if (a >= 0 && a < TWO_PI) return a;
   return ((a % TWO_PI) + TWO_PI) % TWO_PI;
 }
 
 export function circularMeanRad(angles: number[]): { mean: number; R: number } {
+  const first = angles[0];
+  // Identical readings are the common case, and the sin/cos/atan2 round trip
+  // loses the exact value: a set of exact 0.1s comes back as
+  // 0.09999999999999964. Answering here rather than at one call site means
+  // every caller, including the 'mean' method and the longitude path, gets the
+  // exact reading back.
+  if (first !== undefined && angles.every((a) => a === first)) {
+    return { mean: normalize2pi(first), R: 1 };
+  }
   let sumSin = 0;
   let sumCos = 0;
   for (const a of angles) {
@@ -88,13 +100,12 @@ const MEDOID_TIE_EPSILON = 1e-12;
 // with two sources that makes the result the bisector, so the second sensor
 // contributes instead of being discarded, and the output no longer moves when
 // delta arrival order changes.
-export function circularMedoid(angles: number[]): number {
+// The medoid given the total angular distance from each angle to all the
+// others. Split out so a caller that already walked the pairwise matrix, as the
+// angular combine does for its spread, does not walk it a second time.
+function medoidFromCosts(angles: number[], costs: number[]): number {
   let bestCost = Number.POSITIVE_INFINITY;
-  const costs: number[] = [];
-  for (const a of angles) {
-    let cost = 0;
-    for (const b of angles) cost += angularDistance(a, b);
-    costs.push(cost);
+  for (const cost of costs) {
     if (cost < bestCost) bestCost = cost;
   }
   const slack = bestCost * MEDOID_TIE_EPSILON;
@@ -102,11 +113,16 @@ export function circularMedoid(angles: number[]): number {
   for (const [i, cost] of costs.entries()) {
     if (cost <= bestCost + slack) tied.push(angles[i] as number);
   }
-  const first = tied[0] as number;
-  // Identical readings are the common case, and the trig round trip in the
-  // circular mean would return 0.09999999999999964 for a set of exact 0.1s.
-  if (tied.every((a) => a === first)) return first;
   return circularMeanRad(tied).mean;
+}
+
+export function circularMedoid(angles: number[]): number {
+  const costs = angles.map((a) => {
+    let cost = 0;
+    for (const b of angles) cost += angularDistance(a, b);
+    return cost;
+  });
+  return medoidFromCosts(angles, costs);
 }
 
 function radiansToLonDegrees(rad: number): number {
@@ -195,6 +211,10 @@ export function rejectMask(
 // config validator both derive from this tuple.
 export const COMBINE_METHODS = ['median', 'trimmedMean', 'mean'] as const;
 export type CombineMethod = (typeof COMBINE_METHODS)[number];
+// What combining one set of readings can conclude. Only these are reachable
+// from combine(); the damping stage adds its own outcome downstream, so an
+// exhaustive switch over a combine() result is not asked to handle a case the
+// combiner cannot produce.
 export type Outcome =
   | 'ok'
   | 'singleSource'
@@ -202,9 +222,6 @@ export type Outcome =
   | 'allStale'
   | 'diverged'
   | 'disagree'
-  // Emitted, but the slew limiter is still catching up, so the published value
-  // is behind what the sources are reporting.
-  | 'slewLimited'
   | 'skipped';
 
 export interface Sample {
@@ -233,8 +250,12 @@ export interface CombineResult {
   outcome: Outcome;
   /** Max pairwise distance across the used readings, in the kind's units. */
   spread?: number;
-  /** Fresh sources dropped by outlier rejection, so the caller can announce a failing sensor. */
-  rejectedSources?: string[];
+  /**
+   * Fresh sources dropped by outlier rejection, so the caller can announce a
+   * failing sensor. Always present, empty when nothing was rejected, so a
+   * reader counts rather than reasoning about an absent array.
+   */
+  rejectedSources: string[];
   /**
    * Set when the published value sits in the gap between two groups of readings
    * rather than inside one of them, so no source is anywhere near it.
@@ -244,6 +265,10 @@ export interface CombineResult {
 
 // Mean resultant length below this means angles are too scattered to trust.
 const R_MIN = 0.2;
+
+// Shared empty rejection list, so a run that rejects nothing allocates nothing.
+// Never mutated: applyRejection builds a fresh array when it has names to add.
+const NOTHING_REJECTED: string[] = [];
 
 function linear(method: CombineMethod, xs: number[], trimFraction: number): number {
   if (method === 'mean') return mean(xs);
@@ -263,13 +288,26 @@ function combineAngular(
   const { mean: cm, R } = circularMeanRad(angles);
   // Skip the O(n^2) spread loop when R already gates the output.
   if (R < R_MIN) return {};
-  const spread = maxCircularSpread(angles);
+  // One walk of the pairwise matrix answers both questions: the widest
+  // separation gates the output, and the per-angle totals pick the medoid.
+  // Every separation is an atan2 over a sin and a cos, so walking it once
+  // rather than once per question is the bulk of the trig on an angular emit.
+  const costs = new Array<number>(angles.length).fill(0);
+  let spread = 0;
+  for (let i = 0; i < angles.length; i++) {
+    for (let j = i + 1; j < angles.length; j++) {
+      const separation = angularDistance(angles[i] as number, angles[j] as number);
+      costs[i] = (costs[i] as number) + separation;
+      costs[j] = (costs[j] as number) + separation;
+      if (separation > spread) spread = separation;
+    }
+  }
   if (spread > opts.angularSpreadThreshold) return { spread };
   // 'mean' averages (splits the difference); the robust methods both use the
   // circular medoid so a lone off reading does not drag the result. There is
   // no wrap-correct trimming, so 'median' and 'trimmedMean' are identical on
   // angular paths and trimFraction has no effect here.
-  return { value: opts.method === 'mean' ? cm : circularMedoid(angles), spread };
+  return { value: opts.method === 'mean' ? cm : medoidFromCosts(angles, costs), spread };
 }
 
 function combineAttitude(
@@ -377,9 +415,9 @@ function isUnsupported(
 function applyRejection(
   samples: Sample[],
   opts: CombineOptions
-): { used: Sample[]; rejected: { rejectedSources?: string[] } } {
+): { used: Sample[]; rejectedSources: string[] } {
   if (!opts.outlierRejection && opts.rejectThreshold == null) {
-    return { used: samples, rejected: {} };
+    return { used: samples, rejectedSources: NOTHING_REJECTED };
   }
   // Only the rejection path needs the bare value array; build it here so a run
   // with no rejection at all allocates nothing.
@@ -390,17 +428,14 @@ function applyRejection(
     opts.rejectThreshold
   );
   const used = samples.filter((_, i) => mask[i]);
-  if (used.length === samples.length) return { used, rejected: {} };
-  return {
-    used,
-    rejected: { rejectedSources: samples.filter((_, i) => !mask[i]).map((s) => s.sourceRef) },
-  };
+  if (used.length === samples.length) return { used, rejectedSources: NOTHING_REJECTED };
+  return { used, rejectedSources: samples.filter((_, i) => !mask[i]).map((s) => s.sourceRef) };
 }
 
 export function combine(samples: Sample[], opts: CombineOptions): CombineResult {
   const freshCount = samples.length;
   if (freshCount === 0) {
-    return { usedSources: [], freshCount, outcome: 'allStale' };
+    return { usedSources: [], freshCount, outcome: 'allStale', rejectedSources: NOTHING_REJECTED };
   }
   const only = samples[0];
   if (freshCount === 1 && only && opts.minSources <= 1) {
@@ -409,20 +444,27 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
       usedSources: [only.sourceRef],
       freshCount,
       outcome: 'singleSource',
+      rejectedSources: NOTHING_REJECTED,
     };
   }
   if (freshCount < opts.minSources) {
-    return { usedSources: samples.map((s) => s.sourceRef), freshCount, outcome: 'belowMin' };
+    return {
+      usedSources: samples.map((s) => s.sourceRef),
+      freshCount,
+      outcome: 'belowMin',
+      rejectedSources: NOTHING_REJECTED,
+    };
   }
 
-  const { used, rejected } = applyRejection(samples, opts);
+  const { used, rejectedSources } = applyRejection(samples, opts);
   const usedSources = used.map((s) => s.sourceRef);
 
   // Rejection can whittle the used set below the configured minimum. Emitting
   // then would present a thin consensus as fully corroborated, so suppress the
-  // value as a divergence.
-  if (used.length === 0 || used.length < opts.minSources) {
-    return { usedSources, freshCount, outcome: 'diverged', ...rejected };
+  // value as a divergence. `minSources` is a positive integer, so this covers
+  // an empty used set too.
+  if (used.length < opts.minSources) {
+    return { usedSources, freshCount, outcome: 'diverged', rejectedSources };
   }
   if (used.length === 1) {
     return {
@@ -430,7 +472,7 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
       usedSources,
       freshCount,
       outcome: 'singleSource',
-      ...rejected,
+      rejectedSources,
     };
   }
 
@@ -439,7 +481,13 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
   const computed = computeValue(usedValues, opts);
   if (computed.value === undefined) {
     const divergedSpread = computed.spread !== undefined ? { spread: computed.spread } : {};
-    return { usedSources, freshCount, outcome: computed.outcome, ...divergedSpread, ...rejected };
+    return {
+      usedSources,
+      freshCount,
+      outcome: computed.outcome,
+      ...divergedSpread,
+      rejectedSources,
+    };
   }
 
   // Angular and attitude kinds already computed the pairwise spread inside
@@ -451,7 +499,7 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
     freshCount,
     spread,
     ...disagreement(computed.value, usedValues, spread, computed.outcome, opts),
-    ...rejected,
+    rejectedSources,
   };
 }
 

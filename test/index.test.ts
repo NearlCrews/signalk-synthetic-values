@@ -2,6 +2,7 @@
 import type { Plugin, ServerAPI } from '@signalk/server-api';
 import { describe, expect, it, vi } from 'vitest';
 import createPlugin from '../src/index';
+import { toDegrees, toRadians } from '../src/metrics';
 
 type Handler = (delta: unknown, next: (d: unknown) => void) => void;
 
@@ -13,7 +14,7 @@ interface DetectedApiResponse {
   paths: {
     path: string;
     sources: string[];
-    freshSources: string[] | null;
+    freshSources: string[];
     excludedSources: string[];
     optedIn: boolean;
     kind: string;
@@ -123,17 +124,29 @@ function delta(context: string, $source: string, path: string, value: unknown) {
   };
 }
 
+// The top-level options every case shares. A test passes the paths it combines
+// plus the one option it deliberately varies, so the line that differs from the
+// baseline is the line worth reading.
+const START_DEFAULTS = {
+  defaultStalenessTimeoutMs: 10000,
+  defaultEmitMinIntervalMs: 0,
+  defaultMinSources: 2,
+  maxSourcesPerPath: 16,
+};
+
+function start(
+  plugin: TestPlugin,
+  paths: unknown[],
+  overrides: Record<string, unknown> = {}
+): void {
+  plugin.start({ ...START_DEFAULTS, paths, ...overrides });
+}
+
 describe('plugin integration', () => {
   it('combines two sources on an opted-in path and emits a synthetic value', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'environment.depth.belowTransducer' }],
-    });
+    start(plugin, [{ path: 'environment.depth.belowTransducer' }]);
     h.fire(delta(h.app.selfContext, 'gps1', 'environment.depth.belowTransducer', 10));
     h.fire(delta(h.app.selfContext, 'gps2', 'environment.depth.belowTransducer', 12));
     const last = h.emitted[h.emitted.length - 1];
@@ -145,13 +158,7 @@ describe('plugin integration', () => {
   it('ignores its own emitted source (no feedback amplification)', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.fire(delta(h.app.selfContext, 'b', 'p', 20));
     const countAfterTwo = h.emitted.length;
@@ -163,13 +170,7 @@ describe('plugin integration', () => {
   it('ignores non-self context', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     h.fire(delta('vessels.urn:mrn:other', 'a', 'p', 10));
     h.fire(delta('vessels.urn:mrn:other', 'b', 'p', 20));
     expect(h.emitted).toHaveLength(0);
@@ -178,35 +179,17 @@ describe('plugin integration', () => {
   it('re-registers the handler on a restart (stop then start)', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     h.serverStop(plugin);
     h.fire(delta(h.app.selfContext, 'a', 'p', 10)); // handler gone; nothing happens
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     expect(h.isRegistered()).toBe(true);
   });
 
   it('drops a null value mid-stream and emits median of remaining sources with no NaN', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.fire(delta(h.app.selfContext, 'b', 'p', 12));
     h.fire(delta(h.app.selfContext, 'c', 'p', 14));
@@ -226,13 +209,7 @@ describe('plugin integration', () => {
   it('a path whose first sample is null is not cached as other and combines once a finite value arrives', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'q' }],
-    });
+    start(plugin, [{ path: 'q' }]);
     // send null first - should not cache as 'other'
     h.fire(delta(h.app.selfContext, 'a', 'q', null));
     h.fire(delta(h.app.selfContext, 'b', 'q', null));
@@ -248,13 +225,7 @@ describe('plugin integration', () => {
   it('a path locked "other" by a text sample recovers once combinable values arrive', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'q' }],
-    });
+    start(plugin, [{ path: 'q' }]);
     // A text value poisons the classification cache with 'other'.
     h.fire(delta(h.app.selfContext, 'a', 'q', 'not-a-number'));
     expect(h.emitted).toHaveLength(0);
@@ -275,13 +246,7 @@ describe('plugin integration', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     const router = h.captureRouter(plugin);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [],
-    });
+    start(plugin, []);
     h.fire(delta(h.app.selfContext, 'a', 'vessel.name', 'Alpha'));
     h.fire(delta(h.app.selfContext, 'b', 'vessel.name', 'Alpha'));
     expect(h.routerGet(router, '/api/detected').paths).toEqual([
@@ -298,13 +263,7 @@ describe('plugin integration', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     const router = h.captureRouter(plugin);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [],
-    });
+    start(plugin, []);
     h.fire(delta(h.app.selfContext, 'a', 'p', 'bad'));
     h.fire(delta(h.app.selfContext, 'b', 'p', 'bad'));
     h.fire(delta(h.app.selfContext, 'a', 'p', 1));
@@ -317,13 +276,7 @@ describe('plugin integration', () => {
   it('refreshes status immediately when a configured path becomes non-combinable', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     h.fire(delta(h.app.selfContext, 'a', 'p', 'bad'));
     expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(expect.stringContaining('skipped: p'));
   });
@@ -333,13 +286,7 @@ describe('plugin integration', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     try {
-      plugin.start({
-        defaultStalenessTimeoutMs: 1000,
-        defaultEmitMinIntervalMs: 0,
-        defaultMinSources: 2,
-        maxSourcesPerPath: 16,
-        paths: [{ path: 'p' }],
-      });
+      start(plugin, [{ path: 'p' }], { defaultStalenessTimeoutMs: 1000 });
       h.fire(delta(h.app.selfContext, 'a', 'p', 10));
       h.fire(delta(h.app.selfContext, 'b', 'p', 20));
       const emittedBeforeSweep = h.emitted.length;
@@ -361,13 +308,7 @@ describe('plugin integration', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     try {
-      plugin.start({
-        defaultStalenessTimeoutMs: 1000,
-        defaultEmitMinIntervalMs: 0,
-        defaultMinSources: 2,
-        maxSourcesPerPath: 16,
-        paths: [{ path: 'p' }],
-      });
+      start(plugin, [{ path: 'p' }], { defaultStalenessTimeoutMs: 1000 });
       h.fire(delta(h.app.selfContext, 'a', 'p', 'bad'));
 
       vi.advanceTimersByTime(2000);
@@ -385,13 +326,7 @@ describe('plugin integration', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     // madThreshold with outlierRejection off is an advisory: the path still runs.
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p', outlierRejection: false, madThreshold: 3 }],
-    });
+    start(plugin, [{ path: 'p', outlierRejection: false, madThreshold: 3 }]);
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.fire(delta(h.app.selfContext, 'b', 'p', 12));
     expect(h.emitted.length).toBeGreaterThan(0);
@@ -410,14 +345,10 @@ describe('plugin integration', () => {
     try {
       const h = makeApp();
       const plugin = PluginFactory(h.app);
-      plugin.start({
-        defaultStalenessTimeoutMs: 10000,
-        defaultEmitMinIntervalMs: 0,
+      // No persistSamples or persistMs: the validator must backfill defaults,
+      // or the first rate-exceeding step freezes the output forever.
+      start(plugin, [{ path: 'p', minSources: 1, jumpRejection: { maxRate: 5 } }], {
         defaultMinSources: 1,
-        maxSourcesPerPath: 16,
-        // No persistSamples or persistMs: the validator must backfill defaults,
-        // or the first rate-exceeding step freezes the output forever.
-        paths: [{ path: 'p', minSources: 1, jumpRejection: { maxRate: 5 } }],
       });
       h.fire(delta(h.app.selfContext, 'a', 'p', 0));
       // A genuine step: rejected at first, then re-accepted once it persists
@@ -438,13 +369,7 @@ describe('plugin integration', () => {
   it('partial position is skipped for the cycle without crashing or emitting NaN', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'navigation.position' }],
-    });
+    start(plugin, [{ path: 'navigation.position' }]);
     // valid positions first
     h.fire(
       delta(h.app.selfContext, 'gps1', 'navigation.position', { latitude: 51.5, longitude: -0.1 })
@@ -469,13 +394,7 @@ describe('plugin integration', () => {
   it('combines a multi-source attitude path and emits a blended roll/pitch/yaw', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'navigation.attitude' }],
-    });
+    start(plugin, [{ path: 'navigation.attitude' }]);
     h.fire(
       delta(h.app.selfContext, 'src1', 'navigation.attitude', { roll: 0.1, pitch: 0.2, yaw: 1.5 })
     );
@@ -492,13 +411,7 @@ describe('plugin integration', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     // no opted-in paths
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [],
-    });
+    start(plugin, []);
     h.fire(delta(h.app.selfContext, 'gps1', 'navigation.position', { latitude: 1, longitude: 2 }));
     h.fire(
       delta(h.app.selfContext, 'gps2', 'navigation.position', { latitude: 1.1, longitude: 2.1 })
@@ -522,13 +435,7 @@ describe('plugin integration', () => {
   it('flags GNSS fix metadata as combinable but not recommended', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [],
-    });
+    start(plugin, []);
     h.fire(delta(h.app.selfContext, 'gps1', 'navigation.gnss.satellites', 9));
     h.fire(delta(h.app.selfContext, 'gps2', 'navigation.gnss.satellites', 11));
     const router = h.captureRouter(plugin);
@@ -546,13 +453,7 @@ describe('plugin integration', () => {
   it('excludeSources: the excluded source is ignored even when fresh', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p', excludeSources: ['bad'] }],
-    });
+    start(plugin, [{ path: 'p', excludeSources: ['bad'] }]);
     // 'bad' is excluded; only 'a' and 'b' should count
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.fire(delta(h.app.selfContext, 'bad', 'p', 9999));
@@ -565,13 +466,8 @@ describe('plugin integration', () => {
   it('slewLimit: a step inside the lag bound is clamped and reported as lagging', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p', slewLimit: 1 }], // 1 unit/s slew rate
-    });
+    // 1 unit/s slew rate
+    start(plugin, [{ path: 'p', slewLimit: 1 }]);
     // Establish a baseline of 10
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.fire(delta(h.app.selfContext, 'b', 'p', 10));
@@ -592,13 +488,7 @@ describe('plugin integration', () => {
   it('slewLimit: a step beyond the lag bound bypasses the limiter', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p', slewLimit: 1 }],
-    });
+    start(plugin, [{ path: 'p', slewLimit: 1 }]);
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.fire(delta(h.app.selfContext, 'b', 'p', 10));
     // 990 units at 1 unit/s would leave the output wrong for sixteen minutes.
@@ -611,15 +501,9 @@ describe('plugin integration', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     const path = 'environment.depth.belowKeel';
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      // 8 m at 1 m/s is inside the lag bound, so only the shoaling rule can
-      // let this through.
-      paths: [{ path, slewLimit: 1 }],
-    });
+    // 8 m at 1 m/s is inside the lag bound, so only the shoaling rule can
+    // let this through.
+    start(plugin, [{ path, slewLimit: 1 }]);
     h.fire(delta(h.app.selfContext, 'a', path, 10));
     h.fire(delta(h.app.selfContext, 'b', path, 10));
     h.fire(delta(h.app.selfContext, 'a', path, 2));
@@ -634,13 +518,9 @@ describe('plugin integration', () => {
   it('jumpRejection: a single spike is suppressed', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p', jumpRejection: { maxRate: 5, persistSamples: 3, persistMs: 10000 } }],
-    });
+    start(plugin, [
+      { path: 'p', jumpRejection: { maxRate: 5, persistSamples: 3, persistMs: 10000 } },
+    ]);
     // Establish baseline at 10
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.fire(delta(h.app.selfContext, 'b', 'p', 10));
@@ -658,19 +538,17 @@ describe('plugin integration', () => {
     try {
       const h = makeApp();
       const plugin = PluginFactory(h.app);
-      plugin.start({
-        defaultStalenessTimeoutMs: 10000,
-        defaultEmitMinIntervalMs: 0,
-        defaultMinSources: 1,
-        maxSourcesPerPath: 16,
-        paths: [
+      start(
+        plugin,
+        [
           {
             path: 'p',
             includeSources: ['a'],
             jumpRejection: { maxRate: 5, persistSamples: 3, persistMs: 100000 },
           },
         ],
-      });
+        { defaultMinSources: 1 }
+      );
       h.fire(delta(h.app.selfContext, 'a', 'p', 0));
       vi.advanceTimersByTime(1000);
       h.fire(delta(h.app.selfContext, 'a', 'p', 100));
@@ -688,13 +566,8 @@ describe('plugin integration', () => {
   it('disagreeThreshold: result fires but outcome reflects disagreement', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p', disagreeThreshold: 1 }], // threshold: 1 unit
-    });
+    // threshold: 1 unit
+    start(plugin, [{ path: 'p', disagreeThreshold: 1 }]);
     // Sources disagree by 100 units, well above disagreeThreshold=1
     h.fire(delta(h.app.selfContext, 'a', 'p', 0));
     h.fire(delta(h.app.selfContext, 'b', 'p', 100));
@@ -711,26 +584,14 @@ describe('plugin integration', () => {
   it('stop/start restart: stale source from first run does not survive into second run', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     // Feed two sources so registry has data
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.fire(delta(h.app.selfContext, 'b', 'p', 20));
     expect(h.emitted.length).toBeGreaterThan(0);
 
     h.serverStop(plugin);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     const countAfterRestart = h.emitted.length;
     // Only one source fires; minSources=2 so no emit should happen from the fresh run.
     h.fire(delta(h.app.selfContext, 'a', 'p', 99));
@@ -741,13 +602,7 @@ describe('plugin integration', () => {
   it('starts configured paths in a waiting state', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }, { path: 'q' }],
-    });
+    start(plugin, [{ path: 'p' }, { path: 'q' }]);
     expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(
       expect.stringContaining('2 waiting for sources')
     );
@@ -756,13 +611,7 @@ describe('plugin integration', () => {
   it('skips malformed delta pieces, processes later values, and always calls next', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     const next = vi.fn();
     h.fire(
       {
@@ -786,13 +635,7 @@ describe('plugin integration', () => {
   it('rejects a mixed combinable shape without corrupting the sample set', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.fire(delta(h.app.selfContext, 'wrong-shape', 'p', { latitude: 1, longitude: 2 }));
     expect(h.emitted).toHaveLength(0);
@@ -805,13 +648,7 @@ describe('plugin integration', () => {
   it('escapes a bus-supplied source label before logging it', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     h.fire(delta(h.app.selfContext, 'good-source', 'p', 10));
     h.fire(delta(h.app.selfContext, 'forged\nsource', 'p', { latitude: 1, longitude: 2 }));
 
@@ -823,13 +660,7 @@ describe('plugin integration', () => {
   it('applies source filters before configured classification and storage', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 2,
-      paths: [{ path: 'p', includeSources: ['a', 'b'] }],
-    });
+    start(plugin, [{ path: 'p', includeSources: ['a', 'b'] }], { maxSourcesPerPath: 2 });
     h.fire(delta(h.app.selfContext, 'excluded', 'p', { latitude: 1, longitude: 2 }));
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.fire(delta(h.app.selfContext, 'b', 'p', 20));
@@ -839,13 +670,7 @@ describe('plugin integration', () => {
   it('removes a source from the live registry when it reports an invalid value', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p' }],
-    });
+    start(plugin, [{ path: 'p' }]);
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.fire(delta(h.app.selfContext, 'b', 'p', 20));
     const emittedBeforeInvalid = h.emitted.length;
@@ -863,13 +688,7 @@ describe('plugin integration', () => {
   it('keeps a failed output retryable and does not report it as emitting', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 10000,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path: 'p', slewLimit: 1 }],
-    });
+    start(plugin, [{ path: 'p', slewLimit: 1 }], { defaultEmitMinIntervalMs: 10000 });
     h.fire(delta(h.app.selfContext, 'a', 'p', 10));
     h.app.handleMessage.mockImplementationOnce(() => {
       throw new Error('send failed');
@@ -889,13 +708,7 @@ describe('plugin integration', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     const router = h.captureRouter(plugin);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 2,
-      paths: [],
-    });
+    start(plugin, [], { maxSourcesPerPath: 2 });
     h.fire(delta(h.app.selfContext, 'a', 'p', 1));
     h.fire(delta(h.app.selfContext, 'b', 'p', 2));
     h.fire(delta(h.app.selfContext, 'c', 'p', 3));
@@ -904,9 +717,6 @@ describe('plugin integration', () => {
 });
 
 describe('plugin: full-circle paths the specification defines', () => {
-  const deg = (rad: number) => (rad * 180) / Math.PI;
-  const rad = (d: number) => (d * Math.PI) / 180;
-
   // A bearing reported by two chartplotters either side of north. Combined
   // linearly this publishes 180 degrees, the reciprocal of the truth.
   const bearingPaths = [
@@ -923,17 +733,11 @@ describe('plugin: full-circle paths the specification defines', () => {
     it(`${path} combines circularly, not linearly`, () => {
       const h = makeApp();
       const plugin = PluginFactory(h.app);
-      plugin.start({
-        defaultStalenessTimeoutMs: 10000,
-        defaultEmitMinIntervalMs: 0,
-        defaultMinSources: 2,
-        maxSourcesPerPath: 16,
-        paths: [{ path }],
-      });
-      h.fire(delta(h.app.selfContext, 'plotterA', path, rad(359)));
-      h.fire(delta(h.app.selfContext, 'plotterB', path, rad(1)));
+      start(plugin, [{ path }]);
+      h.fire(delta(h.app.selfContext, 'plotterA', path, toRadians(359)));
+      h.fire(delta(h.app.selfContext, 'plotterB', path, toRadians(1)));
       const value = h.emitted[h.emitted.length - 1]?.updates[0].values[0].value as number;
-      const north = Math.min(deg(value), 360 - deg(value));
+      const north = Math.min(toDegrees(value), 360 - toDegrees(value));
       expect(north).toBeLessThan(0.001);
     });
   }
@@ -941,22 +745,15 @@ describe('plugin: full-circle paths the specification defines', () => {
 
 describe('plugin: a radian path the classifier cannot place', () => {
   const path = 'vendor.custom.someBearing';
-  const rad = (d: number) => (d * Math.PI) / 180;
 
   function startWith(angular?: 'auto' | 'yes' | 'no') {
     const h = makeApp();
     h.app.getMetadata = () => ({ units: 'rad' });
     const plugin = PluginFactory(h.app);
     const router = h.captureRouter(plugin);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [angular ? { path, angular } : { path }],
-    });
-    h.fire(delta(h.app.selfContext, 'a', path, rad(359)));
-    h.fire(delta(h.app.selfContext, 'b', path, rad(1)));
+    start(plugin, [angular ? { path, angular } : { path }]);
+    h.fire(delta(h.app.selfContext, 'a', path, toRadians(359)));
+    h.fire(delta(h.app.selfContext, 'b', path, toRadians(1)));
     return { h, plugin, router };
   }
 
@@ -983,10 +780,9 @@ describe('plugin: a radian path the classifier cannot place', () => {
   });
 
   it('honours the override in both directions', () => {
-    const deg = (r: number) => (r * 180) / Math.PI;
     const yes = startWith('yes');
     const yesValue = yes.h.emitted[yes.h.emitted.length - 1]?.updates[0].values[0].value as number;
-    expect(Math.min(deg(yesValue), 360 - deg(yesValue))).toBeLessThan(0.001);
+    expect(Math.min(toDegrees(yesValue), 360 - toDegrees(yesValue))).toBeLessThan(0.001);
     const no = startWith('no');
     expect(no.h.emitted[no.h.emitted.length - 1]?.updates[0].values[0].value).toBeCloseTo(
       Math.PI,
@@ -998,22 +794,15 @@ describe('plugin: a radian path the classifier cannot place', () => {
 describe('plugin: confidence reaches a consumer that only reads the value', () => {
   const path = 'environment.depth.belowKeel';
 
-  function start(h: ReturnType<typeof makeApp>, options: Record<string, unknown> = {}) {
+  function startPath(h: ReturnType<typeof makeApp>, options: Record<string, unknown> = {}) {
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path }],
-      ...options,
-    });
+    start(plugin, [{ path }], options);
     return plugin;
   }
 
   it('advises when the published value matches no source, and still publishes', () => {
     const h = makeApp();
-    start(h);
+    startPath(h);
     for (const [src, v] of [
       ['a', 2.0],
       ['b', 2.1],
@@ -1034,13 +823,7 @@ describe('plugin: confidence reaches a consumer that only reads the value', () =
   it('alerts on an operator-set disagreement distance, which is a deliberate alarm', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path, disagreeThreshold: 1 }],
-    });
+    start(plugin, [{ path, disagreeThreshold: 1 }]);
     h.fire(delta(h.app.selfContext, 'a', path, 2));
     h.fire(delta(h.app.selfContext, 'b', path, 30));
     expect(h.lastNotification(path)?.state).toBe('alert');
@@ -1048,7 +831,7 @@ describe('plugin: confidence reaches a consumer that only reads the value', () =
 
   it('announces a rejected sensor in the status line and a notification', () => {
     const h = makeApp();
-    start(h);
+    startPath(h);
     for (const [src, v] of [
       ['a', 2.0],
       ['b', 2.05],
@@ -1066,7 +849,7 @@ describe('plugin: confidence reaches a consumer that only reads the value', () =
 
   it('clears the notification when the sensor comes back', () => {
     const h = makeApp();
-    start(h);
+    startPath(h);
     for (const [src, v] of [
       ['a', 2.0],
       ['b', 2.05],
@@ -1081,7 +864,7 @@ describe('plugin: confidence reaches a consumer that only reads the value', () =
 
   it('publishes nothing on the notification channel when the switch is off', () => {
     const h = makeApp();
-    start(h, { notifications: false });
+    startPath(h, { notifications: false });
     h.fire(delta(h.app.selfContext, 'a', path, 2));
     h.fire(delta(h.app.selfContext, 'b', path, 30));
     expect(h.notifications).toHaveLength(0);
@@ -1095,13 +878,7 @@ describe('plugin: the detected row separates live sources from listed ones', () 
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     const router = h.captureRouter(plugin);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path, excludeSources: ['c'] }],
-    });
+    start(plugin, [{ path, excludeSources: ['c'] }]);
     for (const src of ['a', 'b', 'c']) h.fire(delta(h.app.selfContext, src, path, 5));
     const row = h.routerGet(router, '/api/detected').paths[0];
     expect(row?.sources.slice().sort()).toEqual(['a', 'b', 'c']);
@@ -1113,16 +890,10 @@ describe('plugin: the detected row separates live sources from listed ones', () 
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     const router = h.captureRouter(plugin);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [],
-    });
+    start(plugin, []);
     for (const src of ['a', 'b']) h.fire(delta(h.app.selfContext, src, path, 5));
     const row = h.routerGet(router, '/api/detected').paths[0];
-    expect(row?.freshSources).toBeNull();
+    expect(row?.freshSources).toEqual([]);
     expect(row?.excludedSources).toEqual([]);
   });
 
@@ -1132,13 +903,7 @@ describe('plugin: the detected row separates live sources from listed ones', () 
     h.app.getMetadata = () => ({ units: 'rad' });
     const plugin = PluginFactory(h.app);
     const router = h.captureRouter(plugin);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [{ path, angular: 'yes' }],
-    });
+    start(plugin, [{ path, angular: 'yes' }]);
     for (const src of ['a', 'b']) h.fire(delta(h.app.selfContext, src, path, 1));
     expect(h.routerGet(router, '/api/detected').paths[0]?.kind).toBe('angular');
   });
@@ -1149,12 +914,8 @@ describe('plugin: jump rejection counts sensor samples', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     const path = 'environment.depth.belowKeel';
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
+    start(plugin, [{ path, jumpRejection: { maxRate: 1, persistSamples: 3, persistMs: 600000 } }], {
       defaultMinSources: 1,
-      maxSourcesPerPath: 16,
-      paths: [{ path, jumpRejection: { maxRate: 1, persistSamples: 3, persistMs: 600000 } }],
     });
     h.fire(delta(h.app.selfContext, 'a', path, 30));
     for (let i = 0; i < 5; i++) h.fire(delta(h.app.selfContext, 'a', path, 2));
@@ -1171,13 +932,7 @@ describe('plugin: a feed re-broadcast by two gateways counts once', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     try {
-      plugin.start({
-        defaultStalenessTimeoutMs: 100000,
-        defaultEmitMinIntervalMs: 0,
-        defaultMinSources: 2,
-        maxSourcesPerPath: 16,
-        paths: [{ path }],
-      });
+      start(plugin, [{ path }], { defaultStalenessTimeoutMs: 100000 });
       // One sounder forwarded under two source names, plus an independent one.
       // Discovery samples history at 1 Hz, so the values have to move over time.
       for (let i = 0; i < 5; i++) {
@@ -1201,12 +956,7 @@ describe('plugin: a feed re-broadcast by two gateways counts once', () => {
     const plugin = PluginFactory(h.app);
     const router = h.captureRouter(plugin);
     try {
-      plugin.start({
-        defaultEmitMinIntervalMs: 0,
-        defaultMinSources: 2,
-        maxSourcesPerPath: 16,
-        paths: [{ path, stalenessTimeoutMs: 1000 }],
-      });
+      start(plugin, [{ path, stalenessTimeoutMs: 1000 }], { defaultStalenessTimeoutMs: undefined });
       for (let i = 0; i < 6; i++) {
         vi.advanceTimersByTime(500);
         h.fire(delta(h.app.selfContext, 'a', path, 5));
@@ -1232,13 +982,7 @@ describe('plugin: an unrecognized radian path that is not opted in', () => {
     h.app.getMetadata = () => ({ units: 'rad' });
     const plugin = PluginFactory(h.app);
     const router = h.captureRouter(plugin);
-    plugin.start({
-      defaultStalenessTimeoutMs: 10000,
-      defaultEmitMinIntervalMs: 0,
-      defaultMinSources: 2,
-      maxSourcesPerPath: 16,
-      paths: [],
-    });
+    start(plugin, []);
     for (const src of ['a', 'b']) h.fire(delta(h.app.selfContext, src, path, 1));
 
     const row = h.routerGet(router, '/api/detected').paths[0];

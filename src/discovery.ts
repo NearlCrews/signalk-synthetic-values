@@ -34,6 +34,15 @@ interface Entry {
   sources: Map<string, SourceHist>;
   lastSeen: number;
   kind?: Kind;
+  /**
+   * Bumped whenever a source's value history or the source membership changes.
+   * The duplicate-group analysis is a pairwise scan over the whole entry and
+   * its answer cannot move between bumps, so the cache below is keyed on this
+   * rather than recomputed on every emit.
+   */
+  ringVersion: number;
+  cachedGroups?: string[][];
+  cachedGroupsVersion?: number;
 }
 
 function keyOf(value: SampleValue): string {
@@ -48,16 +57,24 @@ function keyOf(value: SampleValue): string {
 // quantized sensors happen to land on the same reading once.
 const DUPLICATE_SHARED_VALUES = 2;
 
-// Number of distinct values the two histories share exactly. Comparing across
-// the whole window rather than only the newest sample is what makes this
-// tolerant of a re-broadcast that arrives a second or two behind its origin.
-function sharedValueCount(a: string[], b: string[]): number {
-  const other = new Set(b);
-  const shared = new Set<string>();
-  for (const value of a) {
-    if (other.has(value)) shared.add(value);
+/** One source's changing value history, hashed once per analysis. */
+interface VaryingSource {
+  src: string;
+  values: ReadonlySet<string>;
+}
+
+// Whether the two histories share DUPLICATE_SHARED_VALUES distinct values
+// exactly. Comparing across the whole window rather than only the newest sample
+// is what makes this tolerant of a re-broadcast that arrives a second or two
+// behind its origin. Counting stops at the threshold, and the smaller set is
+// the one walked, so a pair costs no allocation at all.
+function sharesEnoughValues(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  const [smaller, larger] = a.size <= b.size ? [a, b] : [b, a];
+  let shared = 0;
+  for (const value of smaller) {
+    if (larger.has(value) && ++shared >= DUPLICATE_SHARED_VALUES) return true;
   }
-  return shared.size;
+  return false;
 }
 
 /**
@@ -76,39 +93,54 @@ function sharedValueCount(a: string[], b: string[]): number {
  * documented configuration hazard instead.
  */
 function duplicateGroups(entry: Entry): string[][] {
-  const varying: { src: string; ring: string[] }[] = [];
+  const varying: VaryingSource[] = [];
   for (const [src, hist] of entry.sources) {
     // Varying if any sample differs from the first: an allocation-free scan
-    // instead of building a Set just to count distinct values.
+    // before paying for the Set.
     const first = hist.ring[0];
     if (first !== undefined && hist.ring.some((v) => v !== first)) {
-      varying.push({ src, ring: hist.ring });
+      // Hashed once here rather than once per pair, so n sources cost n sets
+      // instead of the n squared the pairwise loop below would otherwise build.
+      varying.push({ src, values: new Set(hist.ring) });
     }
   }
   // Union the pairwise matches so a feed re-broadcast twice lands in one group
   // rather than in two overlapping pairs.
   const groupOf = new Map<string, string[]>();
   const groups: string[][] = [];
-  for (let i = 0; i < varying.length; i++) {
-    for (let j = i + 1; j < varying.length; j++) {
-      const a = varying[i] as { src: string; ring: string[] };
-      const b = varying[j] as { src: string; ring: string[] };
-      if (sharedValueCount(a.ring, b.ring) >= DUPLICATE_SHARED_VALUES) {
-        joinGroup(groups, groupOf, a.src, b.src);
-      }
+  for (const [i, a] of varying.entries()) {
+    for (const b of varying.slice(i + 1)) {
+      if (sharesEnoughValues(a.values, b.values)) joinGroup(groups, groupOf, a.src, b.src);
     }
   }
   return groups;
+}
+
+// Membership is answered by the map that is being maintained anyway, rather
+// than by scanning the group. The comparison is against this group in
+// particular, so a source already held by a different group still joins.
+function addToGroup(group: string[], groupOf: Map<string, string[]>, src: string): void {
+  if (groupOf.get(src) !== group) group.push(src);
+  groupOf.set(src, group);
 }
 
 function joinGroup(groups: string[][], groupOf: Map<string, string[]>, a: string, b: string): void {
   const existing = groupOf.get(a) ?? groupOf.get(b);
   const group = existing ?? [];
   if (!existing) groups.push(group);
-  for (const src of [a, b]) {
-    if (!group.includes(src)) group.push(src);
-    groupOf.set(src, group);
+  addToGroup(group, groupOf, a);
+  addToGroup(group, groupOf, b);
+}
+
+/** The duplicate groups for one entry, recomputed only after its history moved. */
+function cachedDuplicateGroups(entry: Entry): string[][] {
+  if (entry.cachedGroups !== undefined && entry.cachedGroupsVersion === entry.ringVersion) {
+    return entry.cachedGroups;
   }
+  const groups = duplicateGroups(entry);
+  entry.cachedGroups = groups;
+  entry.cachedGroupsVersion = entry.ringVersion;
+  return groups;
 }
 
 export class Discovery {
@@ -136,7 +168,7 @@ export class Discovery {
    */
   duplicateGroupsFor(path: string): string[][] {
     const entry = this.store.get(path);
-    return entry ? duplicateGroups(entry) : [];
+    return entry ? cachedDuplicateGroups(entry) : [];
   }
 
   observe(path: string, sourceRef: string, value?: SampleValue, kind?: Kind): boolean {
@@ -146,7 +178,7 @@ export class Discovery {
     if (!entry) {
       if (this.store.size >= this.maxPaths)
         membershipChanged = this.evictOldest() || membershipChanged;
-      entry = { sources: new Map(), lastSeen: now };
+      entry = { sources: new Map(), lastSeen: now, ringVersion: 0 };
       this.store.set(path, entry);
     }
     let hist = entry.sources.get(sourceRef);
@@ -154,6 +186,7 @@ export class Discovery {
       if (entry.sources.size >= this.maxSourcesPerPath) this.evictOldestSource(entry);
       hist = { ring: [], lastSampledAt: Number.NEGATIVE_INFINITY, lastSeen: now };
       entry.sources.set(sourceRef, hist);
+      entry.ringVersion++;
       membershipChanged = true;
     }
     hist.lastSeen = now;
@@ -163,11 +196,13 @@ export class Discovery {
       hist.ring.push(keyOf(value));
       if (hist.ring.length > HISTORY) hist.ring.shift();
       hist.lastSampledAt = now;
-    } else if (value === undefined) {
+      entry.ringVersion++;
+    } else if (value === undefined && hist.ring.length > 0) {
       // A source that switches to a non-combinable value must not retain old
       // numeric history and appear to duplicate a live numeric source.
       hist.ring.length = 0;
       hist.lastSampledAt = Number.NEGATIVE_INFINITY;
+      entry.ringVersion++;
     }
     entry.lastSeen = now;
     if (kind !== undefined) entry.kind = kind;
@@ -188,7 +223,9 @@ export class Discovery {
 
   private evictOldestSource(entry: Entry): boolean {
     const oldestSource = oldestKey(entry.sources, (history) => history.lastSeen);
-    return oldestSource === undefined ? false : entry.sources.delete(oldestSource);
+    if (oldestSource === undefined) return false;
+    entry.ringVersion++;
+    return entry.sources.delete(oldestSource);
   }
 
   private trimSources(entry: Entry): void {
@@ -214,7 +251,7 @@ export class Discovery {
         const detected: DetectedPath = {
           path,
           sources: [...entry.sources.keys()],
-          duplicateGroups: duplicateGroups(entry),
+          duplicateGroups: cachedDuplicateGroups(entry),
         };
         if (entry.kind !== undefined) detected.kind = entry.kind;
         out.push(detected);
@@ -238,7 +275,9 @@ export class Discovery {
     let changed = false;
     for (const [path, entry] of this.store) {
       for (const [sourceRef, hist] of entry.sources) {
-        if (hist.lastSeen <= cutoff) changed = entry.sources.delete(sourceRef) || changed;
+        if (hist.lastSeen > cutoff) continue;
+        entry.ringVersion++;
+        changed = entry.sources.delete(sourceRef) || changed;
       }
       if (entry.sources.size === 0) changed = this.store.delete(path) || changed;
     }

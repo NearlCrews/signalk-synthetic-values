@@ -5,15 +5,15 @@ import {
   NON_MEANINGFUL_ADVISORY,
   NON_NUMERIC_ADVISORY,
 } from './combinability';
-import type { CombineOptions, CombineResult, Sample } from './combine';
+import type { CombineOptions, Sample } from './combine';
 import { combine } from './combine';
 import type { PathConfig } from './config';
-import { DEFAULT_MAX_SOURCES_PER_PATH, validateConfig } from './config';
+import { DEFAULT_MAX_SOURCES_PER_PATH, sourceFilterFor, validateConfig } from './config';
 import type { JumpConfig, SlewState } from './damping';
 import { applyJump, applySlew, type JumpState, jumpStateLastSeen } from './damping';
+import type { DetectedApiRow } from './detected';
 import type { DetectedPath } from './discovery';
 import { Discovery } from './discovery';
-import type { NotificationState } from './emitter';
 import { Emitter } from './emitter';
 import type { Kind, SampleValue } from './metrics';
 import { distance } from './metrics';
@@ -21,8 +21,8 @@ import type { Classification, MetadataLookup, ValueCategory } from './pathClassi
 import { classify, isCombinableCategory, valueCategory } from './pathClassifier';
 import { Registry } from './registry';
 import { buildSchema } from './schema';
-import type { PathState } from './status';
-import { aggregateStatus, pathStatus } from './status';
+import type { PathResult, PathState } from './status';
+import { aggregateStatus, outcomeReport } from './status';
 
 const PLUGIN_ID = 'signalk-synthetic-values';
 // Built once: isOwnSource runs for every source on every delta, so the prefix
@@ -46,14 +46,14 @@ const JUMP_STATE_RETENTION_WINDOWS = 10;
 // misreporting a real change indefinitely.
 const SLEW_MAX_LAG_SECONDS = 10;
 
-// Depth paths where a smaller number means less water under the vessel. A rise
-// toward shallower water is never smoothed: the limiter is there to damp noise,
-// and there is no safe reason to report more water than the sounders see.
-const SHOALING_DEPTH_PATHS: ReadonlySet<string> = new Set([
-  'environment.depth.belowKeel',
-  'environment.depth.belowTransducer',
-  'environment.depth.belowSurface',
-]);
+// Shared empty list for the healthy case, where no path reports radians the
+// classifier could not confirm. refreshStatus runs once per path per second, so
+// the common answer must not allocate.
+const NO_ANGLE_REVIEW: string[] = [];
+
+// Shared empty list for the availability outcomes, which reject nothing because
+// they never reached the combiner.
+const NO_REJECTED_SOURCES: string[] = [];
 
 // Shown in the panel for a path that reports radians but is neither a known
 // full-circle quantity nor a known bounded angle, so scalar combining is a
@@ -68,28 +68,6 @@ interface RouterResponse {
   json(body: unknown): void;
 }
 
-// One row of the /api/detected response. The panel's DetectedRow mirrors this
-// shape; naming it here documents the contract the route serves.
-interface DetectedApiRow {
-  path: string;
-  sources: string[];
-  /**
-   * Sources fresh in the combiner right now, or null when the path is not
-   * configured and no freshness is being tracked. Discovery keeps a source
-   * listed for a minute; the combiner drops it after the staleness timeout, so
-   * without this the panel shows a dead sensor as a contributing one.
-   */
-  freshSources: string[] | null;
-  /** Sources the include or exclude lists keep out of the combination. */
-  excludedSources: string[];
-  kind: Kind | 'unknown';
-  optedIn: boolean;
-  combinable: boolean;
-  recommended: boolean;
-  duplicateGroups: string[][];
-  advisory?: string;
-}
-
 export default function createPlugin(appBase: ServerAPI): Plugin {
   const app = appBase;
   let generation = 0;
@@ -100,22 +78,30 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   const emitter = new Emitter(app, PLUGIN_ID, systemClock);
   const jumpState = new Map<string, Map<string, JumpState>>();
   const slewState = new Map<string, SlewState>();
-  const classification = new Map<string, Kind>();
-  const kindWarnings = new Set<string>();
+  const classification = new Map<string, Classification>();
+  // Which sources each configured path accepts, compiled once from the saved
+  // include and exclude lists. Rebuilt only when the configuration is re-read,
+  // so the delta hot path answers by set membership rather than by rescanning
+  // an array for every source on every delta.
+  const sourceFilters = new Map<string, (sourceRef: string) => boolean>();
+  // Combine options per path, which are fixed once the path's kind settles, so
+  // an emit reads one object instead of rebuilding nine fields.
+  const combineOptions = new Map<string, CombineOptions>();
+  // Messages already written once for a path, keyed by `<topic>:<path>`. One
+  // set rather than one per topic, so adding a once-only message is a call site
+  // and not a fifth declaration, a fifth reset, and a fifth guard.
+  const loggedOnce = new Set<string>();
   // Paths reporting radians that the classifier could not confirm as
   // full-circle. They combine linearly, which is a guess, so they are named in
   // the status line, logged once, and marked in the panel rather than left to
   // publish a reciprocal bearing in silence.
   const unrecognizedAngles = new Set<string>();
-  const angleWarningLogged = new Set<string>();
   // Paths whose sources report less often than the staleness window, which is
   // why they never reach their minimum source count.
   const slowReporting = new Map<string, number>();
-  const slowReportingLogged = new Set<string>();
   // Paths that have published at least one value in this run. A path that never
   // started is not worth a notification; one that started and stopped is.
   const hasEmitted = new Set<string>();
-  const duplicatesLogged = new Set<string>();
   // Last combine outcome per configured path, used to build the aggregate
   // status line. Updated on each emit; never read on a hot non-emit path.
   const pathState = new Map<string, PathState>();
@@ -135,13 +121,11 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     // wrapping on a path they have not opted in to is advice about nothing. The
     // panel row still explains it, and marks it not recommended so "Combine all"
     // leaves it alone.
-    const next = aggregateStatus(
-      byPath.size,
-      pathState,
-      detectedCount,
-      skipped,
-      [...unrecognizedAngles].filter((path) => byPath.has(path))
-    );
+    const review =
+      unrecognizedAngles.size === 0
+        ? NO_ANGLE_REVIEW
+        : [...unrecognizedAngles].filter((path) => byPath.has(path));
+    const next = aggregateStatus(byPath.size, pathState, detectedCount, skipped, review);
     if (next !== lastStatus) {
       lastStatus = next;
       app.setPluginStatus(next);
@@ -195,16 +179,32 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     jumpState.clear();
     slewState.clear();
     classification.clear();
-    kindWarnings.clear();
+    sourceFilters.clear();
+    combineOptions.clear();
+    loggedOnce.clear();
     unrecognizedAngles.clear();
-    angleWarningLogged.clear();
     slowReporting.clear();
-    slowReportingLogged.clear();
     hasEmitted.clear();
-    duplicatesLogged.clear();
     pathState.clear();
     skipped.length = 0;
     lastStatus = '';
+  }
+
+  /**
+   * Write a message to the debug log the first time a path raises it, so a
+   * condition that persists for a whole voyage costs one line rather than one
+   * per emit. `key` namespaces the topic so two topics on one path do not
+   * silence each other.
+   */
+  function logOnce(key: string, message: string): void {
+    if (loggedOnce.has(key)) return;
+    loggedOnce.add(key);
+    app.debug(message);
+  }
+
+  /** Re-arm a once-only message, so a condition that lifts and returns is said again. */
+  function clearLogged(key: string): void {
+    loggedOnce.delete(key);
   }
 
   /**
@@ -254,28 +254,30 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   function collapseDuplicates(path: string, samples: Sample[]): Sample[] {
     const groups = discovery.duplicateGroupsFor(path);
     if (groups.length === 0) {
-      duplicatesLogged.delete(path);
+      clearLogged(`duplicates:${path}`);
       return samples;
     }
+    // One pass over the samples answers membership for every group member,
+    // rather than rescanning the sample list per source reference per group.
+    const present = new Set(samples.map((sample) => sample.sourceRef));
     const dropped = new Set<string>();
     for (const group of groups) {
-      const present = group.filter((ref) => samples.some((s) => s.sourceRef === ref)).sort();
-      for (const ref of present.slice(1)) dropped.add(ref);
+      const live = group.filter((ref) => present.has(ref)).sort();
+      for (const ref of live.slice(1)) dropped.add(ref);
     }
     if (dropped.size === 0) return samples;
-    if (!duplicatesLogged.has(path)) {
-      duplicatesLogged.add(path);
-      app.debug(
-        `${path}: ${[...dropped].join(', ')} report the same feed as another source, so they are counted once.`
-      );
-    }
+    logOnce(
+      `duplicates:${path}`,
+      `${path}: ${[...dropped].join(', ')} report the same feed as another source, so they are counted once.`
+    );
     return samples.filter((s) => !dropped.has(s.sourceRef));
   }
 
-  function sourceAllowed(sourceRef: string, cfg: PathConfig): boolean {
-    if (cfg.includeSources?.length && !cfg.includeSources.includes(sourceRef)) return false;
-    if (cfg.excludeSources?.includes(sourceRef)) return false;
-    return true;
+  // Every source passes on a path with no saved lists, and on a path this run
+  // never configured, which is what the detected route asks about.
+  function sourceAllowed(sourceRef: string, path: string): boolean {
+    const allowed = sourceFilters.get(path);
+    return allowed === undefined || allowed(sourceRef);
   }
 
   function dropSource(path: string, sourceRef: string): void {
@@ -290,7 +292,14 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       usedSources: samples.map((sample) => sample.sourceRef),
       freshCount: samples.length,
       outcome: samples.length === 0 ? 'allStale' : 'belowMin',
+      rejectedSources: NO_REJECTED_SOURCES,
     });
+  }
+
+  // One sentence for two audiences: the server log prefixes the path, the panel
+  // row reads it on a row that already names one.
+  function slowReportingMessage(interval: number, stalenessTimeoutMs: number): string {
+    return `Sources report about every ${Math.round(interval)} ms but the staleness timeout is ${stalenessTimeoutMs} ms, so they are rarely fresh together. Raise the staleness timeout for this path.`;
   }
 
   // A path whose sources report less often than the staleness window rarely has
@@ -303,10 +312,9 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       return;
     }
     slowReporting.set(path, interval);
-    if (slowReportingLogged.has(path)) return;
-    slowReportingLogged.add(path);
-    app.debug(
-      `${path}: sources report about every ${Math.round(interval)} ms but the staleness timeout is ${cfg.stalenessTimeoutMs} ms, so they are rarely fresh together. Raise the staleness timeout for this path.`
+    logOnce(
+      `slowReporting:${path}`,
+      `${path}: ${slowReportingMessage(interval, cfg.stalenessTimeoutMs)}`
     );
   }
 
@@ -315,77 +323,15 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     if (interval === undefined) return undefined;
     const cfg = byPath.get(path);
     if (!cfg) return undefined;
-    return `Sources report about every ${Math.round(interval)} ms but the staleness timeout is ${cfg.stalenessTimeoutMs} ms, so they are rarely fresh at the same moment. Raise the staleness timeout for this path.`;
+    return slowReportingMessage(interval, cfg.stalenessTimeoutMs);
   }
 
-  // How much confidence the last combine leaves in the published value. `alert`
-  // means the value should not be trusted as published, `warn` means the plugin
-  // is running degraded, and `normal` clears a previous notification.
-  function confidence(
-    path: string,
-    result: CombineResult
-  ): { state: NotificationState; message: string } | undefined {
-    const rejected = result.rejectedSources?.length ?? 0;
-    switch (result.outcome) {
-      case 'diverged':
-        return {
-          state: 'alert',
-          message: `Sources diverge, so no combined value is being published (${result.freshCount} fresh sources).`,
-        };
-      case 'disagree':
-        // An operator-set disagreement distance is a deliberate alarm, so a
-        // breach of it alerts. The unit-free split test is a heuristic that
-        // cannot tell two sounders mounted a boat length apart from two that
-        // have failed, so it advises rather than alerts. Alerting on it would
-        // leave a permanent warning on a correctly configured vessel, which
-        // teaches an operator to ignore the channel.
-        return result.unsupported
-          ? {
-              state: 'warn',
-              message: `Sources split into groups and the published value matches none of them (${result.usedSources.length} of ${result.freshCount} sources). Set a disagreement distance for this path to say how far apart is acceptable.`,
-            }
-          : {
-              state: 'alert',
-              message: `Sources disagree by more than the configured distance, and the combined value is being published anyway (${result.usedSources.length} of ${result.freshCount} sources).`,
-            };
-      case 'slewLimited':
-        return {
-          state: 'warn',
-          message: 'The slew limit is holding the published value behind what the sources report.',
-        };
-      case 'singleSource':
-        return result.freshCount > 1
-          ? {
-              state: 'warn',
-              message: `Only 1 of ${result.freshCount} sources is being used, so there is no redundancy.`,
-            }
-          : { state: 'normal', message: 'Combining normally.' };
-      case 'belowMin':
-      case 'allStale':
-        // Silent until the path has produced something: a path that never
-        // started is a configuration matter, one that stopped is an event.
-        return hasEmitted.has(path)
-          ? {
-              state: 'warn',
-              message: `Not enough fresh sources to combine (${result.freshCount} fresh), so the value has stopped updating.`,
-            }
-          : undefined;
-      case 'ok':
-        return rejected > 0
-          ? {
-              state: 'warn',
-              message: `${rejected} of ${result.freshCount} sources rejected as outliers; combining the remaining ${result.usedSources.length}.`,
-            }
-          : { state: 'normal', message: 'Combining normally.' };
-      case 'skipped':
-        return undefined;
-    }
-  }
-
-  function recordOutcome(path: string, cfg: PathConfig, result: CombineResult): void {
+  function recordOutcome(path: string, cfg: PathConfig, result: PathResult, kind?: Kind): void {
     const previous = pathState.get(path);
-    const rejectedCount = result.rejectedSources?.length ?? 0;
-    pathState.set(path, { outcome: result.outcome, rejectedCount });
+    const rejectedCount = result.rejectedSources.length;
+    const freshCount = result.freshCount;
+    const usedCount = result.usedSources.length;
+    pathState.set(path, { outcome: result.outcome, rejectedCount, freshCount, usedCount });
     // A path that never reaches its minimum source count may simply have a
     // staleness window shorter than the reporting period, so check that here
     // rather than only on the availability sweep.
@@ -395,21 +341,30 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       slowReporting.delete(path);
     }
     // Per-path detail goes to the debug log, not the status bar, so the bar
-    // shows one stable summary. Logging only changes avoids hot-path noise, and
-    // the used and fresh counts are part of the change so a newly rejected
-    // sensor is announced rather than hidden behind an unchanged outcome.
+    // shows one stable summary. Every sentence either audience reads is built
+    // from these four facts, so an unchanged picture is not described twice: it
+    // costs no message building, and the notification channel would drop the
+    // repeat anyway.
     const changed =
       previous === undefined ||
       previous.outcome !== result.outcome ||
-      previous.rejectedCount !== rejectedCount;
+      previous.rejectedCount !== rejectedCount ||
+      previous.freshCount !== freshCount ||
+      previous.usedCount !== usedCount;
     if (changed) {
-      app.debug(
-        pathStatus(path, result, PLUGIN_ID, cfg.minSources, cfg.method, classification.get(path))
-      );
-    }
-    if (notificationsEnabled) {
-      const state = confidence(path, result);
-      if (state) emitter.notify(path, state.state, state.message);
+      const report = outcomeReport({
+        path,
+        result,
+        sourceLabel: PLUGIN_ID,
+        minSources: cfg.minSources,
+        method: cfg.method,
+        kind: kind ?? classification.get(path)?.kind ?? 'scalar',
+        hasEmitted: hasEmitted.has(path),
+      });
+      app.debug(report.line);
+      if (notificationsEnabled && report.notification) {
+        emitter.notify(path, report.notification.state, report.notification.message);
+      }
     }
     refreshStatus();
   }
@@ -417,54 +372,50 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   /**
    * Whether the slew limiter must stand aside for this step. Two cases: the
    * emitted value has fallen further behind than the limiter could plausibly be
-   * intended to hold it, or a depth path is moving toward shallower water,
-   * where under-reporting the change is a grounding hazard and smoothing has no
-   * safe purpose.
+   * intended to hold it, or the quantity is moving in the direction the
+   * classifier marked unsafe to smooth, which today means a depth shoaling
+   * toward less water under the vessel.
    */
   function slewBypassed(
-    path: string,
-    kind: Kind,
+    classified: Classification,
     previous: SlewState,
     combined: SampleValue,
     slewLimit: number
   ): boolean {
     if (
-      SHOALING_DEPTH_PATHS.has(path) &&
+      classified.safeDirection === 'decreasing' &&
+      // A safe direction is only ever set on a scalar path, but SampleValue is
+      // a union, so the narrowing is what lets the comparison read the numbers.
       typeof previous.value === 'number' &&
       typeof combined === 'number' &&
       combined < previous.value
     ) {
       return true;
     }
-    return distance(kind, previous.value, combined) > slewLimit * SLEW_MAX_LAG_SECONDS;
+    return distance(classified.kind, previous.value, combined) > slewLimit * SLEW_MAX_LAG_SECONDS;
   }
 
   function limitSlew(
     path: string,
     cfg: PathConfig,
-    kind: Kind,
+    classified: Classification,
     combined: SampleValue,
     now: number
-  ): { value: SampleValue; state?: SlewState } {
-    if (cfg.slewLimit == null) return { value: combined };
+  ): { value: SampleValue; state?: SlewState; clamped: boolean } {
+    if (cfg.slewLimit == null) return { value: combined, clamped: false };
     const previous = slewState.get(path);
-    if (previous && slewBypassed(path, kind, previous, combined, cfg.slewLimit)) {
-      return { value: combined, state: { value: combined, ts: now } };
+    if (previous && slewBypassed(classified, previous, combined, cfg.slewLimit)) {
+      return { value: combined, state: { value: combined, ts: now }, clamped: false };
     }
-    const limited = applySlew(kind, previous, combined, now, cfg.slewLimit);
-    return { value: limited.value, state: limited.state };
+    const limited = applySlew(classified.kind, previous, combined, now, cfg.slewLimit);
+    return { value: limited.value, state: limited.state, clamped: limited.clamped };
   }
 
-  function maybeEmit(path: string, cfg: PathConfig): void {
-    if (!emitter.due(path, cfg.emitMinIntervalMs)) return;
-
-    const kind = classification.get(path);
-    if (!kind || kind === 'other') return;
-
-    const now = systemClock.now();
-    pruneJumpState(path, cfg, now);
-    const samples = collapseDuplicates(path, registry.fresh(path, cfg.stalenessTimeoutMs));
-
+  // The combine settings for a path, which are fixed for the run once the kind
+  // has settled, so an emit reads one cached object.
+  function combineOptionsFor(path: string, cfg: PathConfig, kind: Kind): CombineOptions {
+    const cached = combineOptions.get(path);
+    if (cached !== undefined) return cached;
     const opts: CombineOptions = {
       kind,
       method: cfg.method,
@@ -476,14 +427,27 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       angularSpreadThreshold: cfg.angularSpreadThreshold,
       trimFraction: cfg.trimFraction,
     };
-    const result = combine(samples, opts);
+    combineOptions.set(path, opts);
+    return opts;
+  }
+
+  function maybeEmit(path: string, cfg: PathConfig, classified: Classification): void {
+    if (!emitter.due(path, cfg.emitMinIntervalMs)) return;
+
+    const kind = classified.kind;
+    if (kind === 'other') return;
+
+    const now = systemClock.now();
+    pruneJumpState(path, cfg, now);
+    const samples = collapseDuplicates(path, registry.fresh(path, cfg.stalenessTimeoutMs));
+
+    const result = combine(samples, combineOptionsFor(path, cfg, kind));
     if (result.value === undefined) {
-      recordOutcome(path, cfg, result);
+      recordOutcome(path, cfg, result, kind);
       return;
     }
 
-    const combined = result.value;
-    const { value, state } = limitSlew(path, cfg, kind, combined, now);
+    const { value, state, clamped } = limitSlew(path, cfg, classified, result.value, now);
     emitter.emit(path, value);
     hasEmitted.add(path);
     if (state) slewState.set(path, state);
@@ -491,13 +455,30 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     // sources report. Reporting `ok` here would present a lagging value as a
     // current one, which on a depth or a heading is exactly the wrong thing to
     // hide.
-    const lagging = value !== combined && distance(kind, value, combined) > 0;
-    recordOutcome(path, cfg, lagging ? { ...result, outcome: 'slewLimited' } : result);
+    recordOutcome(path, cfg, clamped ? { ...result, outcome: 'slewLimited' } : result, kind);
   }
 
   // Record discovery for every fresh combinable value seen from any self-context
   // source, regardless of whether this path is configured. The isOwnSource guard
   // in observe() ensures the synthetic source is never recorded here.
+  /**
+   * The kind to record for a discovered value, or undefined to leave the one
+   * discovery already holds. A non-combinable value is always 'other'; a
+   * combinable one is classified only while discovery has nothing better, and
+   * classifying is also what announces an unrecognized angle.
+   */
+  function discoveryKind(
+    pv: { path: string; value: unknown },
+    combinable: boolean,
+    knownKind: Kind | undefined
+  ): Kind | undefined {
+    if (!combinable) return 'other';
+    if (knownKind !== undefined && knownKind !== 'other') return undefined;
+    const classified = classify(pv.path, pv.value as SampleValue, 'auto', getUnits, selfContext);
+    noteClassification(pv.path, classified);
+    return classified.kind;
+  }
+
   function recordDiscovery(
     pv: { path: string; value: unknown },
     src: string,
@@ -505,22 +486,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
   ): void {
     if (cat === 'invalid') return;
     const combinable = isCombinableCategory(cat);
-    const knownKind = discovery.kind(pv.path);
-    let kind: Kind | undefined = 'other';
-    if (combinable) {
-      kind = undefined;
-      if (knownKind === undefined || knownKind === 'other') {
-        const classified = classify(
-          pv.path,
-          pv.value as SampleValue,
-          'auto',
-          getUnits,
-          selfContext
-        );
-        noteClassification(pv.path, classified);
-        kind = classified.kind;
-      }
-    }
+    const kind = discoveryKind(pv, combinable, discovery.kind(pv.path));
     const discoveryChanged = discovery.observe(
       pv.path,
       src,
@@ -539,8 +505,9 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
    */
   function noteClassification(path: string, classified: Classification): void {
     const mode = byPath.get(path)?.angular ?? 'auto';
+    const logKey = `unrecognizedAngle:${path}`;
     if (!classified.unrecognizedAngle || mode !== 'auto') {
-      angleWarningLogged.delete(path);
+      clearLogged(logKey);
       if (unrecognizedAngles.delete(path)) refreshStatus();
       return;
     }
@@ -548,12 +515,11 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     unrecognizedAngles.add(path);
     // Reaches the server log rather than only the debug log, but only once the
     // path is actually being combined: a bearing averaged linearly publishes the
-    // reciprocal, and debug is off by default.
-    if (byPath.has(path) && !angleWarningLogged.has(path)) {
-      angleWarningLogged.add(path);
-      app.error(
-        `${path} reports radians but is not a Signal K angle this plugin recognizes, so it is being averaged linearly. If it wraps at 360 degrees, set this path's angular wrapping to "yes"; if it does not, set it to "no" to silence this.`
-      );
+    // reciprocal, and debug is off by default. The explanation is the one the
+    // panel row carries, so the two cannot describe the condition differently.
+    if (byPath.has(path) && !loggedOnce.has(logKey)) {
+      loggedOnce.add(logKey);
+      app.error(`${path}: ${UNRECOGNIZED_ANGLE_ADVISORY}`);
     }
     if (!known) refreshStatus();
   }
@@ -577,6 +543,7 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
         usedSources: [],
         freshCount: 0,
         outcome: 'skipped',
+        rejectedSources: NO_REJECTED_SOURCES,
       });
     } else {
       recordAvailability(path, cfg);
@@ -590,30 +557,34 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     return (kind === 'scalar' || kind === 'angular') && cat === 'number';
   }
 
+  /**
+   * The classification in force for a configured path, or undefined when this
+   * reading's shape does not match it and the source was dropped. Returning the
+   * classification rather than a boolean is what lets the emit path use it
+   * without looking the same key up again.
+   */
   function acceptConfiguredKind(
     path: string,
     src: string,
     value: SampleValue,
     cfg: PathConfig,
     cat: ValueCategory
-  ): boolean {
-    const configuredKind = classification.get(path);
-    if (!configuredKind) {
+  ): Classification | undefined {
+    const configured = classification.get(path);
+    if (!configured) {
       const classified = classify(path, value, cfg.angular, getUnits, selfContext);
       noteClassification(path, classified);
-      classification.set(path, classified.kind);
-      return true;
+      classification.set(path, classified);
+      return classified;
     }
-    if (kindMatchesCategory(configuredKind, cat)) return true;
+    if (kindMatchesCategory(configured.kind, cat)) return configured;
     dropSource(path, src);
     recordAvailability(path, cfg);
-    if (!kindWarnings.has(path)) {
-      kindWarnings.add(path);
-      app.debug(
-        `${path}: ignored ${JSON.stringify(src)} because its value shape does not match the ${configuredKind} path`
-      );
-    }
-    return false;
+    logOnce(
+      `kindMismatch:${path}`,
+      `${path}: ignored ${JSON.stringify(src)} because its value shape does not match the ${configured.kind} path`
+    );
+    return undefined;
   }
 
   function observeValue(pv: { path: string; value: unknown }, src: string): void {
@@ -621,20 +592,20 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     recordDiscovery(pv, src, cat);
     const cfg = byPath.get(pv.path);
     if (!cfg) return;
-    if (!sourceAllowed(src, cfg)) return;
+    if (!sourceAllowed(src, pv.path)) return;
     if (unavailableConfiguredValue(pv.path, src, cat, cfg)) return;
 
     const value = pv.value as SampleValue;
-    if (!acceptConfiguredKind(pv.path, src, value, cfg, cat)) return;
+    const classified = acceptConfiguredKind(pv.path, src, value, cfg, cat);
+    if (!classified) return;
     clearSkip(pv.path, NON_COMBINABLE_REASON);
     const now = systemClock.now();
-    const kind = classification.get(pv.path);
     const stored =
-      cfg.jumpRejection && kind && kind !== 'other'
-        ? dampObservation(pv.path, cfg.jumpRejection, kind, src, value, now)
+      cfg.jumpRejection && classified.kind !== 'other'
+        ? dampObservation(pv.path, cfg.jumpRejection, classified.kind, src, value, now)
         : value;
     registry.update(pv.path, src, stored, now);
-    maybeEmit(pv.path, cfg);
+    maybeEmit(pv.path, cfg, classified);
   }
 
   function logObserveError(error: unknown): void {
@@ -674,11 +645,6 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     for (const update of delta.updates) observeUpdate(update);
   }
 
-  // Build the /api/detected row for a path. `combinable` is whether the value
-  // can be averaged at all (false for text and objects); `recommended` is
-  // whether averaging is meaningful (false for GNSS fix metadata). `advisory`
-  // explains either negative case for the panel. `duplicateGroups` flags sources
-  // that look like the same feed re-broadcast.
   // Everything the panel should say about a row, joined into the single string
   // the row renders. Several can apply at once: a slow-reporting path can also
   // be one whose angular wrapping is unconfirmed.
@@ -697,25 +663,31 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
     return advisories.join(' ');
   }
 
+  // Build the /api/detected row for a path. `combinable` is whether the value
+  // can be averaged at all (false for text and objects); `recommended` is
+  // whether averaging is meaningful (false for GNSS fix metadata). `advisory`
+  // explains either negative case for the panel. `duplicateGroups` flags sources
+  // that look like the same feed re-broadcast. `freshSources` is empty on a path
+  // that is not configured, where nothing is being combined and `optedIn` is
+  // what says freshness carries no meaning.
   function detectedRow(d: DetectedPath): DetectedApiRow {
     const cfg = byPath.get(d.path);
     // The runtime classification is the one actually in force, so it wins over
     // discovery's automatic guess. Discovery always classifies with `auto`, so
     // without this a path forced to angular still reads as scalar in the panel,
     // which is the row an operator consults to decide whether to force it.
-    const kind = classification.get(d.path) ?? d.kind ?? 'unknown';
+    const kind = classification.get(d.path)?.kind ?? d.kind ?? 'unknown';
     const combinable = kind !== 'other' && kind !== 'unknown';
     const meaningful = isMeaningfulToCombine(d.path);
     const unrecognizedAngle = unrecognizedAngles.has(d.path);
     const advisory = rowAdvisory(d.path, combinable, meaningful, unrecognizedAngle);
-    const freshSources = cfg
-      ? registry.fresh(d.path, cfg.stalenessTimeoutMs).map((sample) => sample.sourceRef)
-      : null;
     return {
       path: d.path,
       sources: d.sources,
-      freshSources,
-      excludedSources: cfg ? d.sources.filter((src) => !sourceAllowed(src, cfg)) : [],
+      freshSources: cfg
+        ? registry.fresh(d.path, cfg.stalenessTimeoutMs).map((sample) => sample.sourceRef)
+        : [],
+      excludedSources: cfg ? d.sources.filter((src) => !sourceAllowed(src, d.path)) : [],
       kind,
       optedIn: cfg !== undefined,
       combinable,
@@ -739,8 +711,14 @@ export default function createPlugin(appBase: ServerAPI): Plugin {
       registry.setMaxSourcesPerPath(config.maxSourcesPerPath);
       discovery.setMaxSourcesPerPath(config.maxSourcesPerPath);
       byPath = new Map(config.paths.map((p) => [p.path, p]));
-      for (const path of byPath.keys()) {
-        pathState.set(path, { outcome: 'allStale', rejectedCount: 0 });
+      for (const [path, cfg] of byPath) {
+        pathState.set(path, {
+          outcome: 'allStale',
+          rejectedCount: 0,
+          freshCount: 0,
+          usedCount: 0,
+        });
+        sourceFilters.set(path, sourceFilterFor(cfg));
       }
       selfContext = app.selfContext ?? 'vessels.self';
       // Errors drop the path entry, so they surface in the status bar as
