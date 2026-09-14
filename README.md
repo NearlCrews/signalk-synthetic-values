@@ -166,9 +166,9 @@ paths remain visible while offline. The runtime accepts every option below, but
 the panel preserves rather than edits `outlierRejection`,
 `jumpRejection.persistSamples`, and `jumpRejection.persistMs`. To change one of
 those three, edit `~/.signalk/plugin-config-data/signalk-synthetic-values.json`
-by hand and restart the server. Clearing the jump rejection rate in the panel
-removes the whole `jumpRejection` block, but the panel remembers the persist
-values for the rest of the session and restores them if the rate comes back.
+by hand and restart the server. Clearing the jump rejection rate switches jump
+rejection off and leaves the persist settings saved beside it, so they come back
+with the rate whichever editor cleared it.
 
 | Option | Default | Description |
 | ------ | ------- | ----------- |
@@ -186,7 +186,7 @@ values for the rest of the session and restores them if the rate comes back.
 | `minSources` | global default | Per-path override for the minimum fresh sources required. |
 | `stalenessTimeoutMs` | global default | Per-path override for the staleness timeout. |
 | `emitMinIntervalMs` | global default | Per-path override for the minimum emit interval. |
-| `jumpRejection` | unset | Per-source jump rejection: `{ maxRate, persistSamples, persistMs }`. Rejects a sudden spike and re-accepts after a genuine step is confirmed. `persistSamples` counts sensor samples as they arrive, not emit cycles, so a fast sounder confirms a real step in three readings rather than three seconds. Only `maxRate` is required; `persistSamples` defaults to `3` and `persistMs` to `5000`. |
+| `jumpRejection` | unset | Per-source jump rejection: `{ maxRate, persistSamples, persistMs }`. Rejects a sudden spike and re-accepts after a genuine step is confirmed. `persistSamples` counts sensor samples as they arrive, not emit cycles, so a fast sounder confirms a real step in three readings rather than three seconds. Every field is optional: without `maxRate` jump rejection is off, `persistSamples` defaults to `3`, and `persistMs` to `5000`. |
 | `slewLimit` | unset | Maximum change of the emitted value per second, in kind units. Clamps the output to suppress sudden jumps that survive rejection. The limiter is bypassed once it would fall more than ten seconds of catch-up behind the combined value, and on `environment.depth.belowKeel`, `belowTransducer`, or `belowSurface` whenever the water is shoaling, so it can damp noise without hiding a real change. While it is holding the output back, the path reports as held back by the slew limit rather than as combining normally. |
 
 ## Make the synthetic source win

@@ -100,6 +100,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read "3 of 4 sources" when rejection dropped one, count paths with a rejected
   source, and point at Data, Priorities, which is where the current Signal K
   Admin keeps them.
+- Jump rejection is switched off by clearing its rate rather than by deleting
+  the whole block, so `persistSamples` and `persistMs` stay in the saved
+  configuration and come back with the rate whichever editor cleared it. A
+  `jumpRejection` carrying no rate now reads as off instead of as an error that
+  dropped the path, and the panel writes only the rate it was given, leaving the
+  persist defaults to the plugin.
+- `GET /api/detected` always sends `freshSources` as an array, empty on a path
+  that is not configured, where `optedIn` is what says freshness carries no
+  meaning. It was `null` on such a path before.
+- A path whose picture has not changed since the last cycle no longer rebuilds
+  its debug line or its confidence notification, and both are built from the
+  same used-against-fresh phrase, which reads "4 sources" rather than "4 of 4
+  sources" when rejection dropped nothing. A change in the fresh or used count
+  now reaches both, where before only a changed outcome or rejection count did.
+- Angular results always land on the 0 to 2pi branch, including a set of
+  readings that are identical to the last bit, which was passed through
+  unnormalized while a near tie was not.
 - The lint, workflow-contract, dead-code, and type checks run once on the Node
   22 lane instead of three times across the matrix, matching the coverage
   upload and the audit beside them.
@@ -113,6 +130,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An angular path whose sources report the same reading exactly publishes that
+  reading exactly through every method, not only through the median and the
+  trimmed mean: the circular mean no longer sends an unchanged set through sin,
+  cos, and atan2, which returned 0.09999999999999964 for a set of exact 0.1s.
 - `mean` and `median` answer `NaN` on an empty array rather than one of them
   returning a plausible-looking zero.
 - An angle normalized from a tiny negative remainder no longer rounds back to
