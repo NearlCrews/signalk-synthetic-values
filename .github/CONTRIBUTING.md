@@ -32,13 +32,13 @@ and build toolchain requires Node `^22.22.2 || ^24.15.0 || ^26.0.0`. The checked
 tree recorded in `package-lock.json`.
 
 The test toolchain starts at Node 22: Vitest, jsdom, and jest-dom all declare
-that floor. The advisory armv7 Cerbo GX lane in the official Signal K plugin
-workflow therefore installs and builds the plugin but cannot run the unit
-suite; upstream declares that lane `continue-on-error`, so it never gated a
-release. What defends the published runtime floor is the blocking `node-20-runtime` job in
-`.github/workflows/ci.yml`: it type-checks, builds the declaration and runtime
-bundles, and imports the built artifact on 20.18. Keep `@types/node` on the
-major named by `engines.node` so a Node API the floor cannot run never passes
+that floor, so the unit suite runs only on Node 22 and newer. The official
+Signal K plugin workflow tests Node 22 and 24 only. Upstream removed its
+advisory armv7 Cerbo GX lane, so no CI job runs on 32-bit ARM. What defends the
+published runtime floor is the blocking `node-20-runtime` job in
+`.github/workflows/ci.yml`, the only Node 20 job in CI: it type-checks, builds
+the declaration and runtime bundles, and imports the built artifact on 20.18.
+Keep `@types/node` on the major named by `engines.node` so a Node API the floor cannot run never passes
 the type checks; `scripts/check-package.mjs` enforces the pairing. Vitest
 declares an optional `@types/node` peer at Node 22 types or newer, so the
 `overrides` block in `package.json` holds that peer at the root pin. It changes

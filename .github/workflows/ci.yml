@@ -86,9 +86,10 @@ jobs:
   # find module '@rolldown/binding-*'". The panel webpack build cannot run
   # either: require of ES modules arrived in 20.19, and babel-loader fails
   # with ERR_REQUIRE_ESM loading the ESM @babel/core. Both are covered by
-  # the 22-plus matrix; the armv7 plugin-ci lane tracks the NEWEST Node 20
-  # and is advisory, so it defends neither the exact floor nor anything
-  # else. Node 20 ships npm 10, so this job uses the system npm.
+  # the 22-plus matrix. This is the only Node 20 job in CI: the official
+  # plugin workflow removed its advisory armv7 lane, so no job runs a Node
+  # 20 release newer than the floor, and none runs on 32-bit ARM. Node 20
+  # ships npm 10, so this job uses the system npm.
   node-20-runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 30

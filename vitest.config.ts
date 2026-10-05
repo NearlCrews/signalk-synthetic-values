@@ -7,7 +7,7 @@ export default defineConfig({
     include: ['test/**/*.test.ts'],
     setupFiles: ['test/setup.ts'],
     // DOM tests that finish quickly in isolation can cross Vitest's five-second watchdog under
-    // coverage instrumentation or armv7 QEMU. Fifteen seconds still catches a real hang promptly.
+    // coverage instrumentation. Fifteen seconds still catches a real hang promptly.
     testTimeout: 15_000,
     coverage: {
       provider: 'v8',

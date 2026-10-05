@@ -168,12 +168,10 @@ if (typeof typesNodeRange !== 'string' || !typesNodeRange.startsWith(`^${engineF
 }
 
 // The test toolchain no longer starts on the runtime floor: Vitest 5, jsdom 30,
-// and jest-dom 7 all require Node 22 or newer, so the advisory armv7 Cerbo GX
-// lane in the official plugin workflow can install and build the plugin but can
-// no longer run the unit suite. That lane is declared continue-on-error
-// upstream, so it never gated a release. Floor coverage stays with ci.yml's
-// node-20-runtime job, which runs the type checks, the runtime build, and an
-// import smoke on 20.18.
+// and jest-dom 7 all require Node 22 or newer, so the unit suite runs only on
+// Node 22 and newer. The official plugin workflow runs nothing on Node 20, so
+// floor coverage rests on ci.yml's node-20-runtime job, which runs the type
+// checks, the runtime build, and an import smoke on 20.18.
 //
 // Vitest declares an optional @types/node peer at Node 22 types or newer, which
 // the pinned major above cannot satisfy, so the manifest holds that peer at the

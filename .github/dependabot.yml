@@ -14,10 +14,10 @@ updates:
       include: "scope"
     ignore:
       # The test toolchain now starts at Node 22: Vitest 5, jsdom 30, and
-      # jest-dom 7 all declare that floor, so the advisory armv7 Cerbo GX lane
-      # in the official Signal K plugin workflow installs and builds but can no
-      # longer run the unit suite. Runtime coverage on the published floor
-      # stays in ci.yml's node-20-runtime job, so no major is held for it.
+      # jest-dom 7 all declare that floor, so the unit suite runs only on Node
+      # 22 and newer. Runtime coverage on the published floor stays in ci.yml's
+      # node-20-runtime job, the only Node 20 job in CI, so no major is held
+      # for it.
       #
       # The node types describe the runtime floor in engines.node, so their
       # major moves only when that floor does. scripts/check-package.mjs

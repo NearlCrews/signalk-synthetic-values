@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The official Signal K plugin workflow moves to its 2026-10-04 master commit,
+  which removes the advisory armv7 Cerbo GX lane on Node 20 and installs with
+  npm 11 on the Node 22 lanes. The caller drops the retired armv7 input. No CI
+  job now runs on 32-bit ARM, and Node 20 coverage rests on the blocking job
+  that type-checks, builds, and imports the runtime artifact on 20.18. The
+  runtime the plugin supports is unchanged.
+
 <a id="v060"></a>
 
 ## [0.6.0] - 2026-09-14
