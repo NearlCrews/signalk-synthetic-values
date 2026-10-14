@@ -107,7 +107,7 @@
     "screenshots": "npm run build && node scripts/capture-screenshots.mjs",
     "lint": "npm run lint:code && npm run lint:docs && npm run spellcheck",
     "lint:code": "biome check .",
-    "lint:docs": "markdownlint-cli2 \"README.md\" \"CHANGELOG.md\" \"assets/*.md\" \".github/*.md\"",
+    "lint:docs": "node scripts/check-markdown.mjs",
     "lint:fix": "biome check --write .",
     "spellcheck": "cspell --no-progress --show-suggestions README.md CHANGELOG.md assets/*.md \".github/**/*.{md,yml,yaml}\"",
     "ci:workflows": "node scripts/check-workflows.mjs",
@@ -144,12 +144,11 @@
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^5.0.0",
     "babel-loader": "^10.1.1",
-    "cspell": "10.3.1",
+    "cspell": "10.4.0",
     "esbuild": "^0.28.2",
-    "husky": "^9.1.7",
     "jsdom": "^30.0.1",
     "knip": "^6.35.1",
-    "markdownlint-cli2": "0.23.2",
+    "markdownlint": "0.41.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "signalk-nearlcrews-ui": "0.11.1",
@@ -166,8 +165,7 @@
     },
     "@vitest/coverage-v8": {
       "@types/node": "$@types/node"
-    },
-    "smol-toml": "1.8.0"
+    }
   },
   "allowScripts": {
     "esbuild@0.28.2": true
