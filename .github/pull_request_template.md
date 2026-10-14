@@ -15,10 +15,9 @@
 
 ## Verification
 
-- [ ] `npm run check` passes
-- [ ] `npm run validate` passes
-- [ ] `npm run test:browser:cross` passes for panel changes
-- [ ] `npm run test:integration` passes for Signal K integration changes
+- [ ] `npm run verify` passes (the pre-push hook runs it)
+- [ ] `npm run verify:browser` passes for configuration panel changes
+- [ ] `npm run test:integration` passes against a running Signal K server for integration changes
 - [ ] CHANGELOG.md updated (for user-visible changes)
 
 ## Signal K paths affected

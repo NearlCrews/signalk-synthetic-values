@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
+import { findRelativeReadmeLinks } from './repo-guards.mjs';
 
 const execFileAsync = promisify(execFile);
 const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
@@ -152,6 +153,16 @@ const readme = await readFile('README.md', 'utf8');
 if (!readme.includes(`\`signalk-nearlcrews-ui\` ${uiPin}`)) {
   throw new Error(`README.md must name the bundled signalk-nearlcrews-ui ${uiPin}.`);
 }
+// The Signal K App Store renders README link targets unmodified and rewrites
+// only image paths, so a relative link that works on GitHub is dead there.
+const relativeLinks = findRelativeReadmeLinks(readme);
+if (relativeLinks.length > 0) {
+  throw new Error(
+    `README.md must use absolute link targets for the App Store: ${relativeLinks
+      .map(({ line, target }) => `line ${line} links to "${target}"`)
+      .join(', ')}.`
+  );
+}
 // @types/node must describe the runtime floor this package advertises, not a
 // newer Node. Deriving the major from engines.node keeps the two in step: a
 // floor raise that forgets the types, or a types bump that outruns the floor,
@@ -186,32 +197,6 @@ for (const scope of vitestPackages) {
       `overrides["${scope}"]["@types/node"] must be "$@types/node" so npm resolves the Vitest peer on the Node ${engineFloorMajor} types.`
     );
   }
-}
-
-/** Whether a pinned version is at or above a floor, so a routine bump passes. */
-function meetsFloor(pin, floor) {
-  const parsed = /^(\d+)\.(\d+)\.(\d+)/.exec(String(pin ?? ''));
-  if (parsed === null) return false;
-  for (const [index, minimum] of floor.entries()) {
-    const part = Number(parsed[index + 1]);
-    if (part > minimum) return true;
-    if (part < minimum) return false;
-  }
-  return true;
-}
-
-// smol-toml before 1.8.0 is the development-only advisory that turned this
-// repository's security audit red (GHSA-c83g-rgw3-j3cx and the fast-uri set
-// arrived at the same time and were fixed by an ordinary refresh; this one
-// needed a pin because cspell, knip, and markdownlint-cli2 all resolved an
-// older transitive copy). Recorded here because package.json cannot carry a
-// comment. Asserted as a floor rather than an exact version so raising the pin
-// is an ordinary dependency bump. Drop the pin once every consumer resolves
-// 1.8.0 or newer on its own, which `npm ls smol-toml --all` will show.
-if (!meetsFloor(packageJson.overrides?.['smol-toml'], [1, 8, 0])) {
-  throw new Error(
-    'overrides["smol-toml"] must hold 1.8.0 or newer while cspell, knip, and markdownlint-cli2 still resolve an older transitive copy.'
-  );
 }
 
 console.log(`Packed package passed: ${files.size} files in ${packResult.filename}.`);

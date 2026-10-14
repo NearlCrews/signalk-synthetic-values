@@ -1,0 +1,5 @@
+#!/bin/sh
+# Fast gate on every commit: lint, workflow contracts, and dead code.
+set -eu
+
+npm run verify:commit

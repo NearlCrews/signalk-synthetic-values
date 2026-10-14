@@ -98,6 +98,11 @@ cd ~/.signalk
 npm install signalk-synthetic-values
 ```
 
+The plugin runs on Signal K servers that provide `@signalk/server-api` 2.24 or
+newer. The configuration panel needs Signal K 2.25.0 or newer: the 2.24 Admin
+UI cannot load it, so upgrade the server to configure the plugin from the
+Admin UI.
+
 From source:
 
 The published plugin supports Node 20.18 or newer at runtime. Building from
@@ -317,21 +322,27 @@ cd signalk-synthetic-values
 npm ci                       # install the locked dependencies
 npm run build                # build and verify dist/ and the panel remote
 npm test                     # Vitest suite, single run
-npm run check                # local lint, workflow, dead-code, type, and unit checks
 npm run test:browser         # Chromium production-remote tests
 npm run test:browser:cross   # Chromium, Firefox, WebKit, and mobile Chromium
 npm run type-check           # runtime, backend tests, panel, and browser-fixture type checks
 npm run lint                 # source, Markdown, and spelling checks
 npm run lint:fix             # lint and auto-fix
-npm run ci:workflows         # validate GitHub Actions syntax and pinned actions
+npm run ci:workflows         # check workflow pins, triggers, audits, and browser installs
 npm run knip                 # dead files, exports, and dependencies
-npm run package:check        # inspect the files included by npm pack
+npm run package:check        # inspect the packed files and the README link targets
 npm run audit:runtime        # audit production dependencies
 npm run audit:full           # audit the complete dependency tree
 npm run screenshots          # refresh the configuration-panel screenshots
+npm run verify:commit        # lint, workflow contracts, and dead code
 npm run verify               # complete non-browser validation
-npm run verify:release       # release validation, browser matrix, and full audit
+npm run verify:browser       # verify plus the browser matrix
+npm run verify:release       # verify:browser plus the full dependency audit
+npm run hooks                # enable the Git hooks in this clone
 ```
+
+`npm run hooks` points Git at the hooks in `.githooks`: the pre-commit hook
+runs `npm run verify:commit` and the pre-push hook runs `npm run verify`. They
+are opt-in, because nothing installs them during `npm ci`.
 
 Install the browser engines once before running browser tests:
 
@@ -339,9 +350,14 @@ Install the browser engines once before running browser tests:
 npx --no-install playwright install chromium firefox webkit
 ```
 
-An optional live-host check verifies that Signal K registers the plugin, serves
-its detected-path API, and serves its configuration remote. Supply the complete
-authorization header when the server protects its administration API:
+The Signal K integration check verifies that a running server loads and
+enables the plugin, serves its detected-path API and its configuration remote,
+and mounts the production panel in its Admin UI in a real browser. CI runs it
+against a fresh install of Signal K 2.25.0 and the latest release. To run it
+against your own server, install the Playwright Chromium engine (or set
+`SIGNALK_BROWSER_CHANNEL=chrome` to use an installed Google Chrome) and supply
+the complete authorization header when the server protects its administration
+API:
 
 ```bash
 SIGNALK_URL=http://127.0.0.1:3000 \

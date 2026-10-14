@@ -15,6 +15,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   job now runs on 32-bit ARM, and Node 20 coverage rests on the blocking job
   that type-checks, builds, and imports the runtime artifact on 20.18. The
   runtime the plugin supports is unchanged.
+- A new Signal K Admin CI job installs the packed plugin into Signal K 2.25.0
+  and the latest release and mounts the production configuration panel in a
+  real browser, so a panel the Admin host refuses to load fails CI before a
+  release.
+- The full dependency audit, which includes development tools, runs weekly and
+  on demand in the workflow security workflow instead of on every push, so a
+  development-only advisory no longer fails unrelated changes. The runtime audit still gates every push and pull
+  request, and `npm run verify:release` still runs the full audit.
+- CI runs unit tests on Node 22.22.2 and 26 and the coverage thresholds once;
+  the official plugin workflow covers Node 24. Plugin CI no longer runs on
+  release tags, because the release commit's push run is the one the plugin
+  registry credits. It runs weekly instead, after every other scheduled
+  workflow, so a plugin CI run always stays among the newest 20 runs the
+  registry reads for a release commit.
+- The README states that the configuration panel needs Signal K 2.25.0 or
+  newer. The plugin still runs on servers with `@signalk/server-api` 2.24, but
+  the 2.24 Admin UI cannot load the panel.
+- The package check rejects relative link targets in the README, the panel
+  check rejects strict Module Federation shares, and the workflow check
+  requires every browser engine the Playwright config launches to be installed
+  wherever a browser suite runs.
+- Development tooling clears its moderate and high advisories: cspell moves to
+  10.4.0, the Markdown check calls the markdownlint library directly instead
+  of markdownlint-cli2, whose glob dependencies carried an advisory with no
+  fixed release, and the smol-toml pin is gone because cspell and knip now
+  resolve a fixed release on their own. None of these ship in the plugin.
+- Local Git hooks move from an inactive husky setup to `.githooks`, enabled
+  with `npm run hooks`: pre-commit runs `npm run verify:commit` and pre-push
+  runs `npm run verify`. `npm run verify:browser` adds the browser matrix.
 
 <a id="v060"></a>
 

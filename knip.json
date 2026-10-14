@@ -5,7 +5,7 @@
     "fixtures/browser/main.tsx",
     "fixtures/browser/vite.config.ts"
   ],
-  "ignoreDependencies": ["@types/express"],
+  "ignoreDependencies": ["@types/express", "signalk-server", "@signalk/server-admin-ui"],
   "project": [
     "src/**/*.{ts,tsx}",
     "test/**/*.ts",

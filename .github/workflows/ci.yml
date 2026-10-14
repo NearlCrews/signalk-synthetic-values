@@ -19,10 +19,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # 22.22.2 is the development toolchain floor and the only leg that runs the
+    # Node-independent gates and the coverage thresholds. Node 26 adds the
+    # newest supported runtime, which the official plugin workflow does not run.
+    # There is no Node 24 leg: the official plugin workflow already installs,
+    # builds, and tests on Node 24 across Linux, macOS, and Windows.
     strategy:
       fail-fast: false
       matrix:
-        node-version: [22.22.2, 24, 26]
+        node-version: [22.22.2, 26]
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,9 +43,9 @@ jobs:
       - name: Install dependencies
         run: npx --yes npm@12.0.2 ci
 
-      # Biome, markdownlint, cspell, the workflow contract script, knip, and tsc
-      # all produce identical results on every Node in the matrix, so they run
-      # once rather than three times, matching the Codecov and audit steps below.
+      # Biome, markdownlint, cspell, the workflow contract script, knip, tsc,
+      # and the coverage thresholds produce identical results on every Node in
+      # the matrix, so they run once, on the floor leg.
       - name: Run linter
         if: matrix.node-version == '22.22.2'
         run: npm run lint
@@ -58,7 +63,12 @@ jobs:
         run: npm run type-check
 
       - name: Run tests with coverage
+        if: matrix.node-version == '22.22.2'
         run: npm run test:coverage
+
+      - name: Run tests
+        if: matrix.node-version != '22.22.2'
+        run: npm test
 
       - name: Upload coverage reports to Codecov
         if: matrix.node-version == '22.22.2'
@@ -70,10 +80,6 @@ jobs:
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Run security audit
-        if: matrix.node-version == '22.22.2'
-        run: npm run audit:full
 
   # Blocking coverage for the published >=20.18 runtime floor, scoped to what
   # a FRESH install on that exact Node can genuinely do (verified against a
@@ -167,3 +173,90 @@ jobs:
 
       - name: Run configuration panel browser tests
         run: npm run test:browser:cross:built
+
+  # Installs the packed tarball into a real Signal K server, starts it, and
+  # mounts the production configuration panel through the Admin UI in a real
+  # browser, which catches a remote the Admin refuses, such as one with a strict
+  # React share. 2.25.0 is the oldest server that loads an ESM Module Federation
+  # remote: 2.24.0 injects every remote as a classic script and reads only the
+  # window global, so this panel cannot mount there. latest catches drift in the
+  # current Admin. The browser is the runner's preinstalled Google Chrome, so no
+  # Playwright install step runs.
+  signalk-admin:
+    name: Signal K Admin (${{ matrix.signalk_server }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        signalk_server: ['2.25.0', latest]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22.22.2
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.22.2
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npx --yes npm@12.0.2 ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Pack the plugin
+        run: |
+          mkdir -p "$RUNNER_TEMP/package"
+          npx --yes npm@12.0.2 pack --ignore-scripts --pack-destination "$RUNNER_TEMP/package"
+
+      - name: Install the tarball in Signal K ${{ matrix.signalk_server }}
+        env:
+          SIGNALK_SERVER_VERSION: ${{ matrix.signalk_server }}
+        # zizmor: ignore[adhoc-packages] The job installs the exact matrix server and the
+        # locally packed tarball because those are what the integration check validates.
+        run: |
+          set -euo pipefail
+          host="$RUNNER_TEMP/signalk-host"
+          mkdir -p "$host/plugin-config-data"
+          (
+            cd "$host"
+            npm init --yes > /dev/null
+            npm install "signalk-server@${SIGNALK_SERVER_VERSION}"
+            npm install "$RUNNER_TEMP"/package/*.tgz --ignore-scripts
+          )
+          node scripts/link-signalk-admin.mjs "$host"
+          echo '{"enabled":true,"configuration":{}}' > "$host/plugin-config-data/signalk-synthetic-values.json"
+
+      - name: Start Signal K and mount the production panel
+        env:
+          PORT: 3000
+          SIGNALK_BROWSER_CHANNEL: chrome
+          SIGNALK_URL: http://127.0.0.1:3000
+        run: |
+          set -euo pipefail
+          host="$RUNNER_TEMP/signalk-host"
+          log="$RUNNER_TEMP/signalk.log"
+          SIGNALK_NODE_CONFIG_DIR="$host" "$host/node_modules/.bin/signalk-server" > "$log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for _ in $(seq 1 45); do
+            if curl --fail --silent "$SIGNALK_URL/signalk" > /dev/null; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != true ]; then
+            cat "$log"
+            exit 1
+          fi
+          if ! npm run test:integration; then
+            cat "$log"
+            exit 1
+          fi

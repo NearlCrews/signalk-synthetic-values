@@ -48,12 +48,17 @@ resolution only: TypeScript still reads the root `@types/node`.
 
 1. Fork the repository and create a feature branch from `main`.
 2. Install dependencies with `npm ci`, then build with `npm run build`.
-   Optional: enable the local pre-commit check with `npm run hooks` (it is not
-   auto-installed). It runs `npm run check`; the full validation and browser
-   matrix remain required before pushing.
+   Enable the Git hooks once with `npm run hooks`; nothing installs them
+   automatically. The pre-commit hook runs `npm run verify:commit` (lint,
+   workflow contracts, and dead code). The pre-push hook runs `npm run verify`
+   (the commit gate plus type checks, unit tests with coverage, the build, the
+   package check, and the runtime audit). Without the hooks, run the same two
+   commands by hand.
 3. Make focused commits with clear messages (see below).
 4. Add tests for any new functionality and keep the existing suite green.
-5. Run `npm run verify:release` before preparing a release.
+5. For a configuration panel change, also run `npm run verify:browser`, which
+   adds the browser matrix to `npm run verify`. CI runs the browser matrix and
+   the Signal K Admin integration check on every pull request.
 6. Update documentation (`README.md` and `CHANGELOG.md`) as needed.
 7. Open a pull request with a clear description of the change. For changes that
    touch the Signal K paths the plugin reads or emits, note the affected paths
@@ -90,9 +95,9 @@ resolution only: TypeScript still reads the root `@types/node`.
   `npx --no-install playwright install chromium firefox webkit`, then run
   `npm run test:browser:cross`.
 - `test:browser:cross` and `test:browser:cross:built` run the same command. The
-  first has a `pretest` hook that builds; the second does not, and exists for CI,
-  where the `build` job has already produced the panel remote. Use the plain one
-  locally.
+  first has a `pretest` hook that builds; the second does not, and exists for
+  `verify:browser` and CI, which have already built the panel remote. Use the
+  plain one on its own.
 - Browser tests start an isolated fixture server. If port 4175 is occupied, set
   `SYNTHETIC_VALUES_BROWSER_PORT` to an unused port from 1024 through 65535.
 - Default to no comments. Add one only when the WHY is non-obvious (a hidden
@@ -122,19 +127,31 @@ chore: update dependencies
 
 ## Release verification
 
-Publishing requires explicit final approval. The publish workflow verifies the
-release tag, runs `npm run verify:release`, injects the release commit as the
-packed manifest's `gitHead`, and publishes that exact tarball with provenance.
-After publishing, verify the registry artifact against the approved commit:
+The version number, the tag, and the publish each need the owner's explicit
+approval. Tag a release only from a `main` commit whose CI and Signal K Plugin
+CI runs are green: the plugin registry credits that commit's push run. Run
+`npm run verify:release` (the browser matrix and the full dependency audit on
+top of `npm run verify`) before tagging. The publish workflow verifies the
+release tag, runs `npm run verify:release` again, injects the release commit as
+the packed manifest's `gitHead`, and publishes that exact tarball with
+provenance. After publishing, verify the registry artifact against the approved
+commit:
 
 ```bash
 npm view signalk-synthetic-values@VERSION version gitHead dist.integrity dist.shasum --json
 ```
 
 Confirm that `gitHead` equals the release commit, the npm version matches the
-GitHub Release tag, the App Store hero is the first packaged screenshot, the
-official Signal K plugin workflow is green on that commit, and a clean
-temporary Signal K install can load the plugin and its panel remote.
+GitHub Release tag, the App Store hero is the first packaged screenshot, and
+the official Signal K plugin workflow and the Signal K Admin integration job
+are green on that commit. The Admin job installs the packed plugin into fresh
+Signal K 2.25.0 and latest servers and mounts the panel in a real browser.
+
+The full dependency audit, which includes development tools, runs weekly in the
+Workflow Security workflow rather than on every push. The runtime audit stays a
+push and pull request gate. Plugin CI also runs weekly, after every other
+scheduled workflow, because the plugin registry reads only the newest 20 runs
+on a release commit; do not add another scheduled workflow.
 
 ## License and attribution
 

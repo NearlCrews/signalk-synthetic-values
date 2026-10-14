@@ -4,9 +4,13 @@ name: SignalK Plugin CI
 # registry (signalk.org/signalk-plugin-registry) credits a plugin only
 # when a workflow run referencing
 # SignalK/signalk-server/.github/workflows/plugin-ci.yml exists on the
-# published version's commit; without one it applies a scoring penalty. The
-# tag trigger guarantees a run exists on the exact commit each release is
-# published from.
+# published version's commit; without one it applies a scoring penalty. A
+# release is tagged from a main commit whose push run is already green, so that
+# run is the one the registry credits and no tag trigger is needed. The
+# registry reads only the newest 20 runs on that commit, and the weekly CodeQL
+# and workflow security runs, plus Dependabot, keep adding runs to it while it
+# stays the head of main. The weekly schedule below runs later on Monday than
+# every other schedule here, so a fresh plugin CI run always sits in that window.
 #
 # The build, test, and Node version inputs are declared rather than inherited,
 # so a change to the reusable workflow's defaults cannot silently move this
@@ -25,13 +29,18 @@ name: SignalK Plugin CI
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '0 8 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   plugin-ci:

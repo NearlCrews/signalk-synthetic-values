@@ -1,5 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { findStrictVersionShares } from './repo-guards.mjs';
 
 /**
  * Repository-specific checks on the built panel. The shared UI package's own
@@ -8,6 +10,27 @@ import { join } from 'node:path';
  * the built remote, the absence of a bundled React runtime, the host share map
  * in both the remote and webpack.config.cjs, and the gzip size baseline.
  */
+
+// Signal K 2.24 Admin registers its React shares as 19.0.0 while shipping a
+// newer React, so a strict share rejects a compatible host and the panel never
+// mounts. The shares come from the shared UI package, so read them from the
+// plugin instance webpack actually receives rather than from the config text.
+const require = createRequire(import.meta.url);
+const { ModuleFederationPlugin } = require('webpack').container;
+const federationPlugins = require('../webpack.config.cjs').plugins.filter(
+  (plugin) => plugin instanceof ModuleFederationPlugin
+);
+if (federationPlugins.length === 0) {
+  throw new Error('webpack.config.cjs no longer configures a ModuleFederationPlugin.');
+}
+const strictShares = federationPlugins.flatMap((plugin) =>
+  findStrictVersionShares(plugin.options.shared)
+);
+if (strictShares.length > 0) {
+  throw new Error(
+    `Module Federation shares must not be strict, or an Admin that under-reports its React version refuses the panel: ${strictShares.join(', ')}.`
+  );
+}
 
 const outputDirectory = 'public';
 const names = await readdir(outputDirectory);
@@ -80,5 +103,5 @@ if (unexpectedReactModules.length > 0) {
 }
 
 console.log(
-  `Panel bundle passed: ${javascriptNames.length} JavaScript files, ${cssNames.length} CSS ${cssNames.length === 1 ? 'file' : 'files'}, a clean build, preserved public tokens, and only the JSX runtime from React.`
+  `Panel bundle passed: ${javascriptNames.length} JavaScript files, ${cssNames.length} CSS ${cssNames.length === 1 ? 'file' : 'files'}, a clean build, non-strict shares, preserved public tokens, and only the JSX runtime from React.`
 );
