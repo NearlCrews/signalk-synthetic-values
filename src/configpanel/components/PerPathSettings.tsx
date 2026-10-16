@@ -128,12 +128,16 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
         onChange={onChange}
       />
 
-      {showMinSourcesWarning ? (
-        <Banner live="polite" tone="warning">
-          This path has {includedCount} selected source{plural(includedCount)}. Requiring{' '}
-          {effectiveMinSources} means it will not combine until more sources come online.
-        </Banner>
-      ) : null}
+      {/* The region stays mounted so a warning that appears later is announced.
+          One present when the settings open is state, not news. */}
+      <Banner deferFirstMessage={false} live="polite" tone="warning">
+        {showMinSourcesWarning ? (
+          <>
+            This path has {includedCount} selected source{plural(includedCount)}. Requiring{' '}
+            {effectiveMinSources} means it will not combine until more sources come online.
+          </>
+        ) : null}
+      </Banner>
 
       {row.sources.length > 0 ? (
         <SourceChecklist

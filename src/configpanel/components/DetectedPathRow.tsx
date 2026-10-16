@@ -159,6 +159,19 @@ function PathAction({
   );
 }
 
+// Fallback reason for a blocked Combine when the server sent no advisory.
+const UNAVAILABLE_ADVISORY = 'This path cannot be combined.';
+
+/**
+ * The note under a row. A blocked Combine always has a reason to point at, even
+ * when the server sent none, so the button never stays blocked without one.
+ */
+function rowAdvisory(row: DetectedRow, canCombine: boolean): string | undefined {
+  if (row.advisory) return row.advisory;
+  if (row.kind === 'other') return NON_NUMERIC_ADVISORY;
+  return canCombine ? undefined : UNAVAILABLE_ADVISORY;
+}
+
 /**
  * Where a row stands: `combining` is opted in with at least one live source,
  * `stalled` is opted in with none, and `inactive` is a path nobody opted in to.
@@ -215,7 +228,7 @@ export const DetectedPathRow = memo(function DetectedPathRow({
       : 'stalled'
     : 'inactive';
   const canCombine = row.combinable !== false && kind !== 'other';
-  const advisory = row.advisory ?? (kind === 'other' ? NON_NUMERIC_ADVISORY : undefined);
+  const advisory = rowAdvisory(row, canCombine);
   const [tuneOpen, setTuneOpen] = useState(false);
   const uid = useId();
   const reasonId = `${uid}-reason`;
@@ -243,7 +256,6 @@ export const DetectedPathRow = memo(function DetectedPathRow({
       density="flush"
       data-detected-path-row=""
       data-combined={optedIn ? 'true' : undefined}
-      role="group"
       aria-labelledby={pathId}
     >
       {/* The path leads so the row names its subject before the action. */}

@@ -159,14 +159,17 @@ function CombineAllBar({
   return (
     <Stack gap={2}>
       <Cluster>
-        <Button ariaDisabled={confirming} onClick={() => setConfirming(true)}>
+        <Button
+          ariaDisabled={confirming}
+          disabledReason="Answer the question below first."
+          onClick={() => setConfirming(true)}
+        >
           Combine all ({count})
         </Button>
       </Cluster>
       <InlineConfirm
         confirmLabel={`Combine ${count} path${plural(count)}`}
         confirmVariant="primary"
-        headingLevel={4}
         message="Each path starts with default settings. You can exclude individual sources afterward."
         onCancel={() => setConfirming(false)}
         onConfirm={handleConfirm}

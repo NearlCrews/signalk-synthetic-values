@@ -1,7 +1,17 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
+import { PANEL_LABEL_DEFAULTS } from 'signalk-nearlcrews-ui';
 import packageJson from '../../package.json' with { type: 'json' };
+
+const SAVE_LABELS = PANEL_LABEL_DEFAULTS.saveActionBar;
+
+type ThemeChoice = 'auto' | 'system' | 'light' | 'dark' | 'night';
+
+/** The theme selector radio for a choice, found by the library's test hook. */
+function themeChoice(page: Page, choice: ThemeChoice): Locator {
+  return page.locator(`[data-snui-theme-choice="${choice}"]`);
+}
 
 const EXPECTED_UI_VERSION = packageJson.devDependencies['signalk-nearlcrews-ui'];
 
@@ -53,10 +63,7 @@ test('uses the fresh Match Admin default without persisting an implicit preferen
   const root = page.locator('[data-snui-root]');
   await expect(root).not.toHaveAttribute('data-snui-theme');
   await expect(root).toHaveCSS('background-color', 'rgb(244, 246, 248)');
-  await expect(page.getByRole('radio', { name: 'Match Admin' })).toHaveAttribute(
-    'aria-checked',
-    'true'
-  );
+  await expect(themeChoice(page, 'auto')).toHaveAttribute('aria-checked', 'true');
   await expect(page.getByText(/^last checked /)).toHaveText(
     /^last checked (?:now|\d+ seconds? ago)$/
   );
@@ -70,14 +77,13 @@ test('keeps Match Admin light without a host marker and lets Match device follow
 }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   const root = page.locator('[data-snui-root]');
-  const themeGroup = page.getByRole('radiogroup', { name: 'Panel theme' });
 
-  await themeGroup.getByRole('radio', { name: 'Match Admin' }).click();
+  await themeChoice(page, 'auto').click();
   await expect(root).not.toHaveAttribute('data-snui-theme');
   await expect(root).toHaveCSS('background-color', 'rgb(244, 246, 248)');
   await expect(root).toHaveCSS('color', 'rgb(24, 32, 44)');
 
-  await themeGroup.getByRole('radio', { name: 'Match device' }).click();
+  await themeChoice(page, 'system').click();
   await expect(root).toHaveAttribute('data-snui-theme', 'system');
   await expect(root).toHaveCSS('background-color', 'rgb(16, 19, 28)');
   await expect(root).toHaveCSS('color', 'rgb(245, 247, 250)');
@@ -188,18 +194,14 @@ test('insets the nested Advanced section inside the embedded Tune section', asyn
     exact: true,
   });
   await tuneToggle.click();
-  const tune = row.getByRole('region', {
-    name: 'Tune settings for navigation.speedOverGround',
-  });
-  const advancedToggle = tune.getByRole('button', {
+  // An embedded section and a section nested in another are not landmarks, so
+  // the controls are found inside the row rather than through a region.
+  const advancedToggle = row.getByRole('button', {
     name: 'Advanced settings for navigation.speedOverGround',
     exact: true,
   });
   await advancedToggle.click();
-  const advanced = tune.getByRole('region', {
-    name: 'Advanced settings for navigation.speedOverGround',
-  });
-  const field = advanced.getByRole('spinbutton', { name: /^Outlier threshold/ });
+  const field = row.getByRole('spinbutton', { name: /^Outlier threshold/ });
   await expect(field).toBeVisible();
 
   const [rowBox, tuneBox, advancedBox] = await Promise.all([
@@ -336,7 +338,7 @@ test('enables an unconfigured plugin and retries a failed request', async ({ pag
   await page.goto('/?unconfigured&save-failure');
   await expect(page.locator('body')).toHaveAttribute('data-fixture-ready', 'true');
   const save = page.getByRole('button', { name: 'Save', exact: true });
-  await expect(saveStatus(page)).toHaveText(/Save to enable the plugin/);
+  await expect(saveStatus(page)).toContainText(SAVE_LABELS.unconfigured);
 
   await save.click();
   await expect(alerts(page)).toContainText('Configuration request failed');
@@ -347,13 +349,13 @@ test('enables an unconfigured plugin and retries a failed request', async ({ pag
   await expect(page.locator('body')).toHaveAttribute('data-save-attempt-count', '2');
   await expect(page.locator('body')).toHaveAttribute('data-save-count', '1');
   await expect(alerts(page)).toHaveCount(0);
-  await expect(saveStatus(page)).toHaveText(/Save sent to the server/);
+  await expect(saveStatus(page)).toContainText(SAVE_LABELS.saved);
   await expect(save).toBeDisabled();
 });
 
 test('reports queued edits in the save bar and sends them on Save', async ({ page }) => {
   const status = saveStatus(page);
-  await expect(status).toHaveText(/All changes saved/);
+  await expect(status).toContainText(SAVE_LABELS.clean);
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
 
   const headingRow = page.locator('[data-detected-path-row]', {
@@ -363,7 +365,7 @@ test('reports queued edits in the save bar and sends them on Save', async ({ pag
     .getByRole('button', { name: 'Combine navigation.headingTrue', exact: true })
     .click();
   await expect(page.locator('body')).toHaveAttribute('data-save-count', '1');
-  await expect(status).toHaveText(/Save sent to the server/);
+  await expect(status).toContainText(SAVE_LABELS.saved);
   await expect(page.getByRole('button', { name: 'Discard', exact: true })).toBeDisabled();
 });
 
@@ -404,17 +406,16 @@ test('ignores the retired legacy preference and supports every theme', async ({ 
     .toBeNull();
   await expect.poll(() => page.evaluate(() => localStorage.getItem('skn-theme'))).toBe('night');
 
-  const themeGroup = page.getByRole('radiogroup', { name: 'Panel theme' });
-  for (const [label, value] of [
-    ['Match device', 'system'],
-    ['Light', 'light'],
-    ['Dark', 'dark'],
-    ['Night', 'night'],
+  for (const [choice, value] of [
+    ['system', 'system'],
+    ['light', 'light'],
+    ['dark', 'dark'],
+    ['night', 'night'],
   ] as const) {
-    await themeGroup.getByRole('radio', { name: label }).click();
+    await themeChoice(page, choice).click();
     await expect(page.locator('[data-snui-root]')).toHaveAttribute('data-snui-theme', value);
   }
-  await themeGroup.getByRole('radio', { name: 'Match Admin' }).click();
+  await themeChoice(page, 'auto').click();
   await expect(page.locator('[data-snui-root]')).not.toHaveAttribute('data-snui-theme');
 });
 
@@ -422,25 +423,24 @@ test('has no Axe findings in any theme', async ({ page, browserName, isMobile })
   test.setTimeout(180_000);
   test.skip(browserName !== 'chromium' || isMobile, 'One Chromium pass covers computed colors.');
 
-  const themeGroup = page.getByRole('radiogroup', { name: 'Panel theme' });
   const root = page.locator('[data-snui-root]');
   await page.addStyleTag({ content: '* { transition: none !important; }' });
 
-  for (const [label, value] of [
-    ['Match Admin', null],
-    ['Match device', 'system'],
-    ['Light', 'light'],
-    ['Dark', 'dark'],
-    ['Night', 'night'],
+  for (const [choice, value] of [
+    ['auto', null],
+    ['system', 'system'],
+    ['light', 'light'],
+    ['dark', 'dark'],
+    ['night', 'night'],
   ] as const) {
-    await themeGroup.getByRole('radio', { name: label }).click();
+    await themeChoice(page, choice).click();
     if (value === null) {
       await expect(root).not.toHaveAttribute('data-snui-theme');
     } else {
       await expect(root).toHaveAttribute('data-snui-theme', value);
     }
     const results = await new AxeBuilder({ page }).include('[data-snui-root]').analyze();
-    expect(results.violations, `${label} theme`).toEqual([]);
+    expect(results.violations, `${choice} theme`).toEqual([]);
   }
 });
 
@@ -502,7 +502,7 @@ test('runs inside the current Admin scroll and card contract', async ({ page }) 
 
 test('provides coarse-pointer controls with 44-pixel targets @coarse', async ({ page }) => {
   for (const control of [
-    page.getByRole('radio', { name: 'Match Admin' }),
+    themeChoice(page, 'auto'),
     page.getByRole('button', { name: 'Refresh detected paths' }),
     page.getByRole('button', { name: /Combine all/ }),
   ]) {

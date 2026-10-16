@@ -278,8 +278,10 @@ describe('PerPathSettings', () => {
     fireEvent.click(getByText(/advanced/i));
     const madInput = getByLabelText(/outlier threshold/i) as HTMLInputElement;
     fireEvent.change(madInput, { target: { value: '-5' } });
+    // The field marks itself invalid once the edit finishes.
+    fireEvent.blur(madInput);
     expect(madInput).toHaveAttribute('aria-invalid', 'true');
-    expect(madInput).toHaveAccessibleDescription(/enter a number of 0 or more/i);
+    expect(madInput).toHaveAccessibleDescription(/enter 0 or more/i);
   });
 
   it('describes a unit-bearing field by its unit without changing its name', () => {
@@ -458,6 +460,7 @@ describe('PerPathSettings: the minimum-sources field and its warning', () => {
     const input = getByLabelText(/minimum sources/i) as HTMLInputElement;
     expect(input).toHaveAttribute('max', '4');
     fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.blur(input);
     expect(input).toHaveAttribute('aria-invalid', 'true');
   });
 

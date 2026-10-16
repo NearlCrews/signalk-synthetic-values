@@ -79,13 +79,15 @@ resolution only: TypeScript still reads the root `@types/node`.
 - The configuration panel bundles `signalk-nearlcrews-ui` at an exact pin and
   takes its Module Federation share map from `signalk-nearlcrews-ui/federation`.
   `npm run check:panel` runs the library's `snui-check-consumer` against the
-  built remote (the pin, the version stamp, the share map, the absence of a
-  React runtime, and the size baseline in `scripts/panel-size-baseline.json`);
+  built remote (the pin, the host loading contract, the version stamp, the
+  share map, the absence of a React runtime or a second React Aria copy, every
+  `--snui-*` name in the built CSS, a render of the remote the way Admin mounts
+  it, and the size baseline in `scripts/panel-size-baseline.json`);
   `scripts/check-panel-bundle.mjs` keeps only this repository's own build and
   CSS assertions. Read the library's migration guide before moving the pin.
 - A panel CSS class that lands on a shared UI component is written doubled
-  (`.name.name`) so it outranks the library's scoped rule; the doubling case in
-  `test/configpanel/styles.test.ts` enforces it. Prefer a library prop over an
+  (`.name.name`) so it outranks the library's scoped rule; `npm run check:panel`
+  enforces it through the library's `--styles` check. Prefer a library prop over an
   override wherever one exists.
 - Tests live in `test/`, mirroring the source structure, and run on Vitest
   (`npm test` for a single run, `npm run test:watch` for the watcher). Backend

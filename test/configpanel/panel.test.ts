@@ -2,9 +2,12 @@
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createElement } from 'react';
+import { PANEL_LABEL_DEFAULTS } from 'signalk-nearlcrews-ui';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PluginOptions } from '../../src/config.js';
 import PluginConfigurationPanel from '../../src/configpanel/PluginConfigurationPanel.js';
+
+const SAVE_LABELS = PANEL_LABEL_DEFAULTS.saveActionBar;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -117,7 +120,7 @@ describe('PluginConfigurationPanel', () => {
     // reach a save trigger via detected paths, so the save bar must offer one.
     const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: undefined, save: mockSave }));
-    expect(screen.getByText('Save to enable the plugin')).toBeInTheDocument();
+    expect(screen.getByText(SAVE_LABELS.unconfigured)).toBeInTheDocument();
     const saveButton = screen.getByRole('button', { name: 'Save' });
     expect(saveButton).toBeEnabled();
     fireEvent.click(saveButton);
@@ -127,15 +130,15 @@ describe('PluginConfigurationPanel', () => {
     // Requesting a configuration write is what enables the plugin server-side.
     const requested = mockSave.mock.calls[0][0] as PluginOptions;
     expect(Array.isArray(requested.paths)).toBe(true);
-    expect(screen.getByText('Save sent to the server')).toBeInTheDocument();
+    expect(screen.getByText(SAVE_LABELS.saved)).toBeInTheDocument();
   });
 
   it('disables Save when a configuration is already present and unchanged', async () => {
     const mockSave = vi.fn();
     render(createElement(PluginConfigurationPanel, { configuration: baseConfig, save: mockSave }));
-    expect(screen.queryByText('Save to enable the plugin')).not.toBeInTheDocument();
+    expect(screen.queryByText(SAVE_LABELS.unconfigured)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
-    expect(screen.getByText('All changes saved')).toBeInTheDocument();
+    expect(screen.getByText(SAVE_LABELS.clean)).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText(availablePath)).toBeInTheDocument();
     });
@@ -161,7 +164,7 @@ describe('PluginConfigurationPanel', () => {
     await waitFor(() => {
       expect(mockSave).toHaveBeenCalledTimes(2);
       expect(alertText()).toBe('');
-      expect(screen.getByText('Save sent to the server')).toBeInTheDocument();
+      expect(screen.getByText(SAVE_LABELS.saved)).toBeInTheDocument();
     });
   });
 
@@ -182,7 +185,7 @@ describe('PluginConfigurationPanel', () => {
     vi.useRealTimers();
 
     expect(mockSave).not.toHaveBeenCalled();
-    expect(screen.getByText('All changes saved')).toBeInTheDocument();
+    expect(screen.getByText(SAVE_LABELS.clean)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: `Combine ${availablePath}` })).toBeInTheDocument();
   });
 
@@ -203,7 +206,7 @@ describe('PluginConfigurationPanel', () => {
     expect(mockSave).toHaveBeenCalledTimes(1);
     const requested = mockSave.mock.calls[0]?.[0] as PluginOptions;
     expect(requested.paths.map((path) => path.path)).toEqual([combinedPath, availablePath]);
-    expect(screen.getByText('Save sent to the server')).toBeInTheDocument();
+    expect(screen.getByText(SAVE_LABELS.saved)).toBeInTheDocument();
   });
 
   it('starts a fresh profile in Auto without persisting an implicit preference', async () => {

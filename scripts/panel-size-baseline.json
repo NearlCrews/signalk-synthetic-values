@@ -1,5 +1,5 @@
 {
-  "description": "Configuration panel remote (JavaScript and CSS assets beside remoteEntry.js) on signalk-nearlcrews-ui 0.11.1, measured at gzip level 9 the way snui-check-consumer measures it. Re-recorded from 38,263 on 0.9.0 for the library upgrade, which the panel takes whole: the 0.11 line adds the panel announcer, the label bundle, the tone marks on every field error, and a wider React Aria tree, and no panel code was added in the same step. The 5% growth band measures from this figure, so the gate catches unexpected growth rather than the upgrade itself.",
-  "gzipBytes": 47933,
+  "description": "Configuration panel remote (JavaScript and CSS assets beside remoteEntry.js) on signalk-nearlcrews-ui 0.14.0, measured at gzip level 9 the way snui-check-consumer measures it. Re-recorded from 47,933 on 0.11.1: the 0.13 line compacts the shipped style text, which more than pays for the announcer, label bundle, and field additions of the releases in between. The 5% growth band measures from this figure, so the gate catches unexpected growth rather than the upgrade itself.",
+  "gzipBytes": 45036,
   "maximumIncreasePercent": 5
 }

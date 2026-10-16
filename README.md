@@ -125,7 +125,7 @@ In the Signal K admin UI, open **Apps and Plugins, then Configuration** and find
 
 Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, a kind badge, and the source names as chips. Combinable values are classified as scalar, angular, attitude, or position; unsupported values show as other, and configured paths awaiting live data show as unknown.
 
-The panel bundles `signalk-nearlcrews-ui` 0.11.1 for accessible controls, shared
+The panel bundles `signalk-nearlcrews-ui` 0.14.0 for accessible controls, shared
 marine theming, and isolated styles. Match Admin follows a host theme when one
 is published and otherwise stays Light to match the current Signal K Admin
 shell. Match device explicitly follows the operating-system preference. Light,

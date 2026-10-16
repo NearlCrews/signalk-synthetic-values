@@ -41,10 +41,6 @@ interface SaveReport {
 
 const INITIAL_SAVE_REPORT: SaveReport = { requestedAt: null, failure: null, canceledByHost: false };
 
-function reloadPage(): void {
-  window.location.reload();
-}
-
 /**
  * Composition root for the synthetic-values config panel.
  *
@@ -55,7 +51,7 @@ function reloadPage(): void {
  * one shows the notice without starting the detection poll.
  */
 const PluginConfigurationPanel: React.FC<Props> = (props) => (
-  <PanelShell title="Synthetic Values" themeToggle="end" onReload={reloadPage}>
+  <PanelShell title="Synthetic Values" themeToggle="end">
     <PanelBody {...props} />
   </PanelShell>
 );
@@ -118,7 +114,7 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
   // is unconfigured. `enabledHere` hides the prompt immediately after the
   // request, before the host re-supplies the configuration prop.
   const [enabledHere, setEnabledHere] = useState(false);
-  const unconfigured = configuration == null && !enabledHere;
+  const unconfigured = configuration === undefined && !enabledHere;
 
   // The form differs from the last accepted request while edits wait in the
   // coalescing window and after a failed request rolled the baseline back. Held
@@ -336,18 +332,22 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
 
   return (
     <PanelDefaultsContext.Provider value={panelDefaults}>
+      {/* Both live regions stay mounted so a message that arrives later is
+          announced; with nothing to say they render empty and take no space. */}
       {/* Request failure: baseline already rolled back, Save re-sends the form state. */}
-      {saveReport.failure !== null ? (
-        <Banner tone="danger" live="assertive" title="Configuration request failed">
-          {saveReport.failure} Save to try again.
-        </Banner>
-      ) : null}
+      <Banner
+        tone="danger"
+        live="assertive"
+        title={saveReport.failure !== null ? 'Configuration request failed' : undefined}
+      >
+        {saveReport.failure !== null ? <>{saveReport.failure} Save to try again.</> : null}
+      </Banner>
 
-      {saveReport.canceledByHost ? (
-        <Banner tone="info" live="polite">
-          Queued changes were canceled because the configuration changed elsewhere.
-        </Banner>
-      ) : null}
+      <Banner tone="info" live="polite">
+        {saveReport.canceledByHost
+          ? 'Queued changes were canceled because the configuration changed elsewhere.'
+          : null}
+      </Banner>
 
       {/* Enable prompt: the save bar's Save is the only save trigger while unconfigured */}
       {unconfigured ? (

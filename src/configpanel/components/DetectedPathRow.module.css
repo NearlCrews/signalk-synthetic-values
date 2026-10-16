@@ -41,14 +41,14 @@
 
 .priorityInstruction.priorityInstruction {
   padding: var(--snui-space-2) var(--snui-space-3);
-  border-block-start: 1px solid var(--snui-color-border);
+  border-block-start: 1px solid var(--snui-color-border-subtle);
 }
 
 /* The embedded Tune section borrows the flush card's chrome, so this wrapper
    supplies the inset the card no longer pads and the divider above it. */
 .tune {
   padding-inline: var(--snui-space-3);
-  border-block-start: 1px solid var(--snui-color-border);
+  border-block-start: 1px solid var(--snui-color-border-subtle);
 }
 
 /*

@@ -44,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local Git hooks move from an inactive husky setup to `.githooks`, enabled
   with `npm run hooks`: pre-commit runs `npm run verify:commit` and pre-push
   runs `npm run verify`. `npm run verify:browser` adds the browser matrix.
+- The configuration panel moves to `signalk-nearlcrews-ui` 0.14.0, up from
+  0.11.1. Invalid controls now draw a dashed danger outline, number fields
+  show their message once an edit finishes, and the border and disabled text
+  colors are slightly darker in the Light theme. The Combine all button and a
+  Combine button for a path that cannot be combined now say why they are
+  blocked, and the minimum-sources warning and the configuration-request
+  messages are announced when they appear. The panel bundle is about 2.9 KB gzip smaller.
 
 <a id="v060"></a>
 
