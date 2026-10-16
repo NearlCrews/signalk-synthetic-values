@@ -708,7 +708,9 @@ describe('DetectedPathList: nothing leaves focus on the document body', () => {
     await vi.waitFor(() => {
       expect(document.activeElement).not.toBe(document.body);
     });
-    expect(screen.getByText(/detected paths loaded/i)).toBeInTheDocument();
+    // The shell's regions hold their first message for a beat after mounting,
+    // which a fast runner reaches before the hold ends.
+    expect(await screen.findByText(/detected paths loaded/i)).toBeInTheDocument();
   });
 
   it('leaves focus alone on an ordinary refresh, which unmounts nothing', async () => {
