@@ -71,6 +71,12 @@ resolution only: TypeScript still reads the root `@types/node`.
   by webpack as an ESM Module Federation remote with JavaScript and CSS assets.
 - Keep modules focused and small. Each module owns its own types alongside the
   code that uses them.
+- Every numeric limit lives in `src/bounds.ts`. The validator, the JSON schema,
+  and the panel's number fields all read it, so a bound changes in that one
+  table and nowhere else.
+- Shared runtime helpers live in their own small modules: angle and longitude
+  wrapping in `src/metrics.ts`, the plain-object guard in `src/guards.ts`, and
+  map eviction in `src/mapUtil.ts`. Reach for those before writing another copy.
 - Run source, Markdown, and spelling checks with `npm run lint`. Use
   `npm run lint:fix` to apply safe source fixes.
 - Run `npm run knip` when adding or removing modules, exports, scripts, or
@@ -91,7 +97,10 @@ resolution only: TypeScript still reads the root `@types/node`.
   override wherever one exists.
 - Tests live in `test/`, mirroring the source structure, and run on Vitest
   (`npm test` for a single run, `npm run test:watch` for the watcher). Backend
-  tests are type-checked by `npm run type-check:test`.
+  tests are type-checked by `npm run type-check:test`. Panel tests build a
+  detected row with `detectedRow()` from `test/configpanel/helpers.ts`, which
+  fills every field the route sends, and mount a component that announces
+  through `inShell()`, because the panel's live regions belong to the shell.
 - Production-remote browser tests live in `tests/browser/`. Install Chromium,
   Firefox, and WebKit with
   `npx --no-install playwright install chromium firefox webkit`, then run

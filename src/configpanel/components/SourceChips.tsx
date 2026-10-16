@@ -1,7 +1,6 @@
 import type * as React from 'react';
-import { Badge, Button, Cluster } from 'signalk-nearlcrews-ui';
+import { Badge, Button, Cluster, formatCount } from 'signalk-nearlcrews-ui';
 import { useDisclosure } from 'signalk-nearlcrews-ui/composites';
-import { plural } from '../../textFormat.js';
 import styles from './SourceChips.module.css';
 
 export interface SourceChip {
@@ -16,6 +15,16 @@ interface SourceChipsProps {
 
 const VISIBLE_MAX = 3;
 
+function chipState(
+  sourceRef: string,
+  excluded: ReadonlySet<string>,
+  fresh: ReadonlySet<string> | undefined
+): SourceChip['state'] {
+  if (excluded.has(sourceRef)) return 'excluded';
+  if (fresh === undefined || fresh.has(sourceRef)) return 'live';
+  return 'stale';
+}
+
 /**
  * Work out how each detected source stands. Freshness only means something on a
  * path that is combining: an unconfigured path runs no combination, so every
@@ -23,22 +32,13 @@ const VISIBLE_MAX = 3;
  */
 export function sourceChips(
   sources: string[],
-  freshSources: string[] | undefined,
-  excludedSources: string[] | undefined,
+  freshSources: string[],
+  excludedSources: string[],
   optedIn: boolean
 ): SourceChip[] {
-  const excluded = new Set(excludedSources ?? []);
-  // Freshness only means something on a path that is combining, and only when
-  // the route reported it at all.
-  const fresh = optedIn && freshSources !== undefined ? new Set(freshSources) : undefined;
-  return sources.map((sourceRef) => ({
-    sourceRef,
-    state: excluded.has(sourceRef)
-      ? 'excluded'
-      : fresh === undefined || fresh.has(sourceRef)
-        ? 'live'
-        : 'stale',
-  }));
+  const excluded = new Set(excludedSources);
+  const fresh = optedIn ? new Set(freshSources) : undefined;
+  return sources.map((sourceRef) => ({ sourceRef, state: chipState(sourceRef, excluded, fresh) }));
 }
 
 // The suffix, not the tone, is what tells a source apart: a chip that reads
@@ -74,7 +74,7 @@ export function SourceChips({ chips }: SourceChipsProps): React.ReactElement | n
       {overflow > 0 ? (
         <>
           <Button size="compact" variant="ghost" {...triggerProps}>
-            {open ? 'Show fewer' : `${overflow} more source${plural(overflow)}`}
+            {open ? 'Show fewer' : formatCount(overflow, 'more source')}
           </Button>
           {/* A plain div carries the panel props: `hidden` only hides an
               element the cascade leaves at its default display, and a Cluster

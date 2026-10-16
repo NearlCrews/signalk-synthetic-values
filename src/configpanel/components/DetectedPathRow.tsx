@@ -1,5 +1,5 @@
 import type * as React from 'react';
-import { memo, useCallback, useId, useState } from 'react';
+import { memo, useCallback, useId, useMemo, useState } from 'react';
 import {
   Badge,
   Button,
@@ -7,15 +7,15 @@ import {
   Cluster,
   Code,
   CollapsibleSection,
+  formatCount,
+  joinList,
   Stack,
   Text,
   VisuallyHidden,
 } from 'signalk-nearlcrews-ui';
-import { NON_NUMERIC_ADVISORY } from '../../combinability.js';
-import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
-import { oxfordJoin, plural } from '../../textFormat.js';
-import { PLUGIN_SOURCE_LABEL } from '../api-base.js';
+import { PLUGIN_ID, type RawPathConfig, type RawPathConfigPatch } from '../../config.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
+import { useSourceSplit } from '../hooks/useSourceSplit.js';
 import styles from './DetectedPathRow.module.css';
 import { KindBadge } from './KindBadge.js';
 import { PerPathSettings } from './PerPathSettings.js';
@@ -31,18 +31,21 @@ export interface DetectedPathRowProps {
 }
 
 function DuplicateSourcesHint({ groups }: { groups: string[][] }): React.ReactElement | null {
-  if (groups.length === 0) return null;
   // The route can report one group twice, so the render is keyed on the members
-  // themselves. A delimiter join is the key: serializing every group on every
-  // render buys nothing a separator that cannot appear in a source name does.
-  const groupsByKey = new Map(groups.map((group) => [group.join('\u0000'), group]));
+  // themselves. A delimiter join is the key: serializing every group buys
+  // nothing a separator that cannot appear in a source name does.
+  const unique = useMemo(
+    () => [...new Map(groups.map((group) => [group.join('\u0000'), group]))],
+    [groups]
+  );
+  if (unique.length === 0) return null;
 
   return (
     <Stack className={styles.subRow} gap={1}>
-      {[...groupsByKey].map(([key, group]) => (
+      {unique.map(([key, group]) => (
         <Text key={key} as="div" size="xs" tone="muted">
-          {oxfordJoin(group)} report identical values and may be the same feed re-broadcast.
-          Consider combining only one of them so it does not outvote your independent sensors.
+          {joinList(group)} look like one sensor reported under several names, either the same NMEA
+          2000 device or identical changing values, so a combination counts them once.
         </Text>
       ))}
     </Stack>
@@ -52,11 +55,9 @@ function DuplicateSourcesHint({ groups }: { groups: string[][] }): React.ReactEl
 // A plain count carries no severity, so it takes the neutral tone. An `info`
 // tone would draw the shared glyph and announce "Information." over what is
 // only a number.
-function SourceCountBadge({ chips }: { chips: SourceChip[] }): React.ReactElement {
-  const total = chips.length;
-  const live = chips.filter((chip) => chip.state === 'live').length;
+function SourceCountBadge({ live, total }: { live: number; total: number }): React.ReactElement {
   const label =
-    live === total ? `${total} source${plural(total)}` : `${live} of ${total} sources combining`;
+    live === total ? formatCount(total, 'source') : `${live} of ${total} sources combining`;
   return (
     <Badge>
       <span aria-hidden="true">{live === total ? total : `${live}/${total}`}</span>
@@ -68,8 +69,7 @@ function SourceCountBadge({ chips }: { chips: SourceChip[] }): React.ReactElemen
 function PriorityInstruction({ path }: { path: string }): React.ReactElement {
   return (
     <Text as="div" className={styles.priorityInstruction} size="xs" tone="muted">
-      Source priority required: rank <strong>{PLUGIN_SOURCE_LABEL}</strong> first in its group. Add
-      a{' '}
+      Source priority required: rank <strong>{PLUGIN_ID}</strong> first in its group. Add a{' '}
       <a href={`#/data/priorities?path=${encodeURIComponent(path)}`}>
         path-level override
         <VisuallyHidden> for {path}</VisuallyHidden>
@@ -163,13 +163,11 @@ function PathAction({
 const UNAVAILABLE_ADVISORY = 'This path cannot be combined.';
 
 /**
- * The note under a row. A blocked Combine always has a reason to point at, even
- * when the server sent none, so the button never stays blocked without one.
+ * The note under a row, which the server writes. A blocked Combine always has a
+ * reason to point at, so the button never stays blocked without one.
  */
-function rowAdvisory(row: DetectedRow, canCombine: boolean): string | undefined {
-  if (row.advisory) return row.advisory;
-  if (row.kind === 'other') return NON_NUMERIC_ADVISORY;
-  return canCombine ? undefined : UNAVAILABLE_ADVISORY;
+function advisoryFor(row: DetectedRow): string | undefined {
+  return row.advisory || (row.combinable ? undefined : UNAVAILABLE_ADVISORY);
 }
 
 /**
@@ -193,14 +191,15 @@ const ROW_STATE_ACCENT: Record<RowState, 'success' | 'warning' | undefined> = {
 
 interface RowMetadataProps {
   chips: SourceChip[];
+  liveCount: number;
   kind: DetectedRow['kind'];
   rowState: RowState;
 }
 
-function RowMetadata({ chips, kind, rowState }: RowMetadataProps): React.ReactElement {
+function RowMetadata({ chips, liveCount, kind, rowState }: RowMetadataProps): React.ReactElement {
   return (
     <Cluster className={styles.metadata} gap={1}>
-      <SourceCountBadge chips={chips} />
+      <SourceCountBadge live={liveCount} total={chips.length} />
       <SourceChips chips={chips} />
       <KindBadge kind={kind} />
       {ROW_STATE_BADGE[rowState]}
@@ -216,32 +215,25 @@ export const DetectedPathRow = memo(function DetectedPathRow({
   onRemove,
   onUpdate,
 }: DetectedPathRowProps): React.ReactElement {
-  const { path, sources, kind } = row;
-  const chips = sourceChips(sources, row.freshSources, row.excludedSources, optedIn);
+  const { path, sources, kind, combinable } = row;
+  // Exclusion follows the panel's own copy of the config, so a chip changes
+  // the moment its checkbox does rather than after the next save and poll.
+  const { excluded } = useSourceSplit(sources, config);
+  const chips = sourceChips(sources, row.freshSources, excluded, optedIn);
+  const liveCount = chips.filter((chip) => chip.state === 'live').length;
   // A combined path with nothing live is not combining. The accent bar and the
   // badge follow the live state so a green row never means "this value stopped
   // updating a minute ago", and the badge text carries the difference so the
   // colour is not the only cue.
-  const rowState: RowState = optedIn
-    ? chips.some((chip) => chip.state === 'live')
-      ? 'combining'
-      : 'stalled'
-    : 'inactive';
-  const canCombine = row.combinable !== false && kind !== 'other';
-  const advisory = rowAdvisory(row, canCombine);
+  const rowState: RowState = optedIn ? (liveCount > 0 ? 'combining' : 'stalled') : 'inactive';
+  const advisory = advisoryFor(row);
   const [tuneOpen, setTuneOpen] = useState(false);
   const uid = useId();
   const reasonId = `${uid}-reason`;
   const pathId = `${uid}-path`;
 
-  const handleAdd = useCallback(() => {
-    if (canCombine) onAdd(path);
-  }, [canCombine, onAdd, path]);
-
-  const handleRemove = useCallback(() => {
-    onRemove(path);
-  }, [onRemove, path]);
-
+  // Only the settings fields are memoized, so only their callback needs a
+  // stable identity.
   const handleUpdate = useCallback(
     (patch: RawPathConfigPatch) => {
       onUpdate(path, patch);
@@ -263,20 +255,20 @@ export const DetectedPathRow = memo(function DetectedPathRow({
         <Code
           break="segments"
           id={pathId}
-          className={canCombine ? styles.path : `${styles.path} ${styles.pathUnavailable}`}
+          className={combinable ? styles.path : `${styles.path} ${styles.pathUnavailable}`}
         >
           {path}
         </Code>
 
-        <RowMetadata chips={chips} kind={kind} rowState={rowState} />
+        <RowMetadata chips={chips} liveCount={liveCount} kind={kind} rowState={rowState} />
 
         <PathAction
           advisoryId={advisory ? reasonId : undefined}
-          canCombine={canCombine}
+          canCombine={combinable}
           optedIn={optedIn}
           path={path}
-          onAdd={handleAdd}
-          onRemove={handleRemove}
+          onAdd={() => onAdd(path)}
+          onRemove={() => onRemove(path)}
         />
       </Cluster>
 
@@ -288,7 +280,7 @@ export const DetectedPathRow = memo(function DetectedPathRow({
         </div>
       ) : null}
 
-      <DuplicateSourcesHint groups={row.duplicateGroups ?? []} />
+      <DuplicateSourcesHint groups={row.duplicateGroups} />
 
       {optedIn ? <PriorityInstruction path={path} /> : null}
       {optedIn && config ? (

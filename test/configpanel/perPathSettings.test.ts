@@ -9,7 +9,7 @@ import { PerPathSettings } from '../../src/configpanel/components/PerPathSetting
 import { SourceChecklist } from '../../src/configpanel/components/SourceChecklist.js';
 import type { PanelDefaults } from '../../src/configpanel/defaultsContext.js';
 import { PanelDefaultsContext } from '../../src/configpanel/defaultsContext.js';
-import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
+import { detectedRow } from './helpers.js';
 
 // ---------------------------------------------------------------------------
 // SourceChecklist tests
@@ -216,12 +216,12 @@ describe('PerPathSettings', () => {
     document.body.innerHTML = '';
   });
 
-  const row: DetectedRow = {
+  const row = detectedRow({
     path: 'navigation.speedOverGround',
     sources: ['gps.1', 'gps.2', 'gps.3'],
     kind: 'scalar',
     optedIn: true,
-  };
+  });
 
   const config: RawPathConfig = {
     path: 'navigation.speedOverGround',
@@ -277,11 +277,13 @@ describe('PerPathSettings', () => {
     );
     fireEvent.click(getByText(/advanced/i));
     const madInput = getByLabelText(/outlier threshold/i) as HTMLInputElement;
-    fireEvent.change(madInput, { target: { value: '-5' } });
+    // Zero is the case that matters: it reads like "no threshold" and the
+    // runtime refuses it, so the field must refuse it too.
+    fireEvent.change(madInput, { target: { value: '0' } });
     // The field marks itself invalid once the edit finishes.
     fireEvent.blur(madInput);
     expect(madInput).toHaveAttribute('aria-invalid', 'true');
-    expect(madInput).toHaveAccessibleDescription(/enter 0 or more/i);
+    expect(madInput).toHaveAccessibleDescription(/greater than 0/i);
   });
 
   it('describes a unit-bearing field by its unit without changing its name', () => {
@@ -430,12 +432,12 @@ describe('PerPathSettings: the minimum-sources field and its warning', () => {
     document.body.innerHTML = '';
   });
 
-  const row: DetectedRow = {
+  const row = detectedRow({
     path: 'navigation.speedOverGround',
     sources: ['gps.1', 'gps.2', 'gps.3'],
     kind: 'scalar',
     optedIn: true,
-  };
+  });
   const idPrefix = 'test-row';
 
   function renderWith(config: RawPathConfig, defaults?: Partial<PanelDefaults>) {
@@ -486,12 +488,12 @@ describe('PerPathSettings: clearing the jump rate', () => {
     document.body.innerHTML = '';
   });
 
-  const row: DetectedRow = {
+  const row = detectedRow({
     path: 'navigation.speedOverGround',
     sources: ['gps.1', 'gps.2'],
     kind: 'scalar',
     optedIn: true,
-  };
+  });
 
   it('keeps hand-tuned persist settings in the saved config when the rate is cleared', () => {
     const onChange = vi.fn();

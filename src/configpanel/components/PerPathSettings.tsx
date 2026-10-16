@@ -3,24 +3,28 @@ import { memo, useState } from 'react';
 import {
   Banner,
   CollapsibleSection,
+  formatCount,
   LabeledField,
   NumberField,
   Select,
   Stack,
   VisuallyHidden,
 } from 'signalk-nearlcrews-ui';
+import { BOUNDS, type NumberBounds } from '../../bounds.js';
 import { COMBINE_METHODS, type CombineMethod } from '../../combine.js';
-import type { RawPathConfig, RawPathConfigPatch } from '../../config.js';
 import {
   ANGULAR_MODES_LIST,
-  DEFAULT_ANGULAR_SPREAD_THRESHOLD,
+  type AngularMode,
+  DEFAULT_ANGULAR_MODE,
   DEFAULT_MAD_THRESHOLD,
+  DEFAULT_METHOD,
   DEFAULT_TRIM_FRACTION,
-  sourceFilterFor,
+  type RawPathConfig,
+  type RawPathConfigPatch,
 } from '../../config.js';
-import { plural } from '../../textFormat.js';
 import { usePanelDefaults } from '../defaultsContext.js';
 import type { DetectedRow } from '../hooks/useDetected.js';
+import { useSourceSplit } from '../hooks/useSourceSplit.js';
 import { SourceChecklist } from './SourceChecklist.js';
 
 interface SelectFieldProps<V extends string> {
@@ -58,8 +62,6 @@ interface Props {
   idPrefix: string;
 }
 
-type AngularMode = (typeof ANGULAR_MODES_LIST)[number];
-
 // Only the display labels live here. The values come from the modules that own
 // them, so a new combine method or angular mode fails to compile until it is
 // given a label rather than silently missing from the panel.
@@ -82,12 +84,6 @@ const ANGULAR_CHOICES = ANGULAR_MODES_LIST.map((value) => ({
   label: ANGULAR_LABELS[value],
 }));
 
-// Which of a path's sources pass the include and exclude filter, using the same
-// compiled rule the runtime applies to every delta.
-function countIncludedSources(sources: string[], config: RawPathConfig): number {
-  return sources.filter(sourceFilterFor(config)).length;
-}
-
 export function PerPathSettings({ row, config, onChange, idPrefix }: Props): React.ReactElement {
   const defaults = usePanelDefaults();
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -95,7 +91,7 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
   // Count the sources that would actually reach the combiner, not every source
   // the path has ever reported: excluding two of three sources with a minimum
   // of two leaves a path that cannot combine, and the warning has to see that.
-  const includedCount = countIncludedSources(row.sources, config);
+  const includedCount = useSourceSplit(row.sources, config).included.length;
   // Compare against the value in force, which is the resolved default when the
   // field is empty. A path detected with one source under a default minimum of
   // two will never combine, and that is exactly the case worth warning about.
@@ -109,7 +105,7 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
       <SelectField
         id={`${idPrefix}-method`}
         label="Method"
-        value={config.method ?? 'median'}
+        value={config.method ?? DEFAULT_METHOD}
         choices={METHOD_CHOICES}
         onChange={(method) => onChange({ method })}
       />
@@ -119,12 +115,10 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
         value={config.minSources}
         placeholder={`default: ${defaults.minSources}`}
         fieldKey="minSources"
-        integer
         // The runtime drops a path whose minimum exceeds the tracked-source
         // cap, so the field refuses the value rather than letting a saved
         // config delete the entry.
         max={defaults.maxSourcesPerPath}
-        min={1}
         onChange={onChange}
       />
 
@@ -133,7 +127,7 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
       <Banner deferFirstMessage={false} live="polite" tone="warning">
         {showMinSourcesWarning ? (
           <>
-            This path has {includedCount} selected source{plural(includedCount)}. Requiring{' '}
+            This path has {formatCount(includedCount, 'selected source')}. Requiring{' '}
             {effectiveMinSources} means it will not combine until more sources come online.
           </>
         ) : null}
@@ -165,8 +159,8 @@ export function PerPathSettings({ row, config, onChange, idPrefix }: Props): Rea
   );
 }
 
-type NumericKey = keyof Pick<
-  RawPathConfig,
+// The per-path numbers that live at the top level of a path entry.
+type NumericKey =
   | 'minSources'
   | 'madThreshold'
   | 'rejectThreshold'
@@ -175,8 +169,51 @@ type NumericKey = keyof Pick<
   | 'trimFraction'
   | 'stalenessTimeoutMs'
   | 'emitMinIntervalMs'
-  | 'slewLimit'
->;
+  | 'slewLimit';
+
+interface BoundedNumberFieldProps {
+  label: string;
+  value: number | undefined;
+  placeholder: string;
+  bounds: NumberBounds;
+  unit?: string | undefined;
+  /** A tighter maximum than the bound's own, known only at run time. */
+  max?: number | undefined;
+  onValueChange: (next: number | undefined) => void;
+}
+
+/**
+ * An optional number whose limits come from the same table the validator and
+ * the schema read, so the field cannot accept a value the runtime refuses.
+ */
+function BoundedNumberField({
+  label,
+  value,
+  placeholder,
+  bounds,
+  unit,
+  max = bounds.max,
+  onValueChange,
+}: BoundedNumberFieldProps): React.ReactElement {
+  return (
+    <NumberField
+      allowEmpty
+      density="compact"
+      // A run-time maximum is inclusive; only the bound's own may exclude itself.
+      exclusiveMax={max === bounds.max ? bounds.exclusiveMax : undefined}
+      exclusiveMin={bounds.exclusiveMin}
+      inputProps={{ placeholder }}
+      integer={bounds.integer}
+      label={label}
+      layout="inline"
+      max={max}
+      min={bounds.min}
+      unit={unit}
+      value={value}
+      onValueChange={onValueChange}
+    />
+  );
+}
 
 interface PatchNumberFieldProps {
   label: string;
@@ -184,42 +221,20 @@ interface PatchNumberFieldProps {
   placeholder: string;
   fieldKey: NumericKey;
   unit?: string | undefined;
-  integer?: boolean | undefined;
-  min?: number | undefined;
   max?: number | undefined;
-  exclusiveMin?: boolean | undefined;
-  exclusiveMax?: boolean | undefined;
   onChange: (patch: RawPathConfigPatch) => void;
 }
 
 /** An optional per-path number that clears back to the plugin default. */
 const PatchNumberField = memo(function PatchNumberField({
-  label,
-  value,
-  placeholder,
   fieldKey,
-  unit,
-  integer,
-  min = 0,
-  max,
-  exclusiveMin,
-  exclusiveMax,
   onChange,
+  ...field
 }: PatchNumberFieldProps): React.ReactElement {
   return (
-    <NumberField
-      allowEmpty
-      density="compact"
-      exclusiveMax={exclusiveMax}
-      exclusiveMin={exclusiveMin}
-      inputProps={{ placeholder }}
-      integer={integer}
-      label={label}
-      layout="inline"
-      max={max}
-      min={min}
-      unit={unit}
-      value={value}
+    <BoundedNumberField
+      {...field}
+      bounds={BOUNDS[fieldKey]}
       onValueChange={(next) => onChange({ [fieldKey]: next })}
     />
   );
@@ -239,14 +254,10 @@ function JumpRateField({
   onChange: (patch: RawPathConfigPatch) => void;
 }): React.ReactElement {
   return (
-    <NumberField
-      allowEmpty
-      density="compact"
-      exclusiveMin
-      inputProps={{ placeholder: 'disabled' }}
+    <BoundedNumberField
+      bounds={BOUNDS.maxRate}
       label="Jump rejection max rate"
-      layout="inline"
-      min={0}
+      placeholder="disabled"
       unit="per second"
       value={config.jumpRejection?.maxRate}
       onValueChange={(maxRate) => onChange({ jumpRejection: { ...config.jumpRejection, maxRate } })}
@@ -255,12 +266,9 @@ function JumpRateField({
 }
 
 // The default angular spread reads as a quarter turn rather than as
-// 1.5707963267948966, but only while it is one: a changed constant prints
-// itself instead of leaving the panel naming a value the schema no longer uses.
-const ANGULAR_SPREAD_PLACEHOLDER =
-  DEFAULT_ANGULAR_SPREAD_THRESHOLD === Math.PI / 2
-    ? 'default: \u03c0/2'
-    : `default: ${DEFAULT_ANGULAR_SPREAD_THRESHOLD}`;
+// 1.5707963267948966. A test pins DEFAULT_ANGULAR_SPREAD_THRESHOLD to pi/2, so
+// a changed constant fails there instead of leaving this naming a stale value.
+const ANGULAR_SPREAD_PLACEHOLDER = 'default: \u03c0/2';
 
 interface AdvancedFieldsProps {
   config: RawPathConfig;
@@ -285,7 +293,6 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.rejectThreshold}
         placeholder="not set"
         fieldKey="rejectThreshold"
-        exclusiveMin
         onChange={onChange}
       />
       <PatchNumberField
@@ -293,7 +300,6 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.disagreeThreshold}
         placeholder="not set"
         fieldKey="disagreeThreshold"
-        exclusiveMin
         onChange={onChange}
       />
       <PatchNumberField
@@ -302,7 +308,6 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.angularSpreadThreshold}
         placeholder={ANGULAR_SPREAD_PLACEHOLDER}
         fieldKey="angularSpreadThreshold"
-        exclusiveMin
         onChange={onChange}
       />
       <PatchNumberField
@@ -310,15 +315,13 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.trimFraction}
         placeholder={`default: ${DEFAULT_TRIM_FRACTION}`}
         fieldKey="trimFraction"
-        max={0.5}
-        exclusiveMax
         onChange={onChange}
       />
 
       <SelectField
         id={`${idPrefix}-angular`}
         label="Angular (circular averaging)"
-        value={config.angular ?? 'auto'}
+        value={config.angular ?? DEFAULT_ANGULAR_MODE}
         choices={ANGULAR_CHOICES}
         onChange={(angular) => onChange({ angular })}
       />
@@ -331,7 +334,6 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.slewLimit}
         placeholder="disabled"
         fieldKey="slewLimit"
-        exclusiveMin
         onChange={onChange}
       />
       <PatchNumberField
@@ -340,7 +342,6 @@ function AdvancedFields({ config, onChange, idPrefix }: AdvancedFieldsProps): Re
         value={config.stalenessTimeoutMs}
         placeholder={`default: ${defaults.stalenessTimeoutMs}`}
         fieldKey="stalenessTimeoutMs"
-        exclusiveMin
         onChange={onChange}
       />
       <PatchNumberField

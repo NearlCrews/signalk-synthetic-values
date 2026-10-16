@@ -16,3 +16,9 @@ export function oldestKey<V>(
   }
   return oldest;
 }
+
+/** Delete the entry with the smallest timestamp. False when the map is empty. */
+export function deleteOldest<V>(map: Map<string, V>, timestampOf: (value: V) => number): boolean {
+  const oldest = oldestKey(map, timestampOf);
+  return oldest !== undefined && map.delete(oldest);
+}

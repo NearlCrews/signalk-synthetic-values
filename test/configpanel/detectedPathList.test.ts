@@ -1,56 +1,72 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { createElement } from 'react';
+import { createElement, createRef, type ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RawPathConfig } from '../../src/config.js';
-import { DetectedPathList } from '../../src/configpanel/components/DetectedPathList.js';
+import {
+  DetectedPathList,
+  type DetectedPathListProps,
+} from '../../src/configpanel/components/DetectedPathList.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
+import { detectedRow, inShell } from './helpers.js';
+
+// The list announces through the shell's live regions, and the panel root holds
+// one stable heading ref, so every case mounts it the same way.
+const headingRef = createRef<HTMLSpanElement>();
+
+type ListProps = Omit<DetectedPathListProps, 'headingRef' | 'pollingSince'> &
+  Partial<Pick<DetectedPathListProps, 'headingRef' | 'pollingSince'>>;
+
+// Polling has been running since the epoch unless a case says otherwise.
+function list(props: ListProps): ReactElement {
+  return inShell(createElement(DetectedPathList, { headingRef, pollingSince: 0, ...props }));
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const scalRow: DetectedRow = {
+const scalRow = detectedRow({
   path: 'navigation.speedOverGround',
   sources: ['gps.1', 'gps.2'],
   kind: 'scalar',
   optedIn: false,
-};
+});
 
-const angRow: DetectedRow = {
+const angRow = detectedRow({
   path: 'navigation.headingTrue',
   sources: ['compass.1', 'compass.2', 'compass.3'],
   kind: 'angular',
   optedIn: true,
-};
+});
 
-const posRow: DetectedRow = {
+const posRow = detectedRow({
   path: 'navigation.position',
   sources: ['gps.1', 'gps.2', 'gps.3', 'gps.4'],
   kind: 'position',
   optedIn: false,
-};
+});
 
-const otherRow: DetectedRow = {
+const otherRow = detectedRow({
   path: 'vessel.name',
   sources: ['ais.0', 'ais.1'],
   kind: 'other',
   optedIn: false,
-};
+});
 
-const explicitlyNonCombinableRow: DetectedRow = {
+const explicitlyNonCombinableRow = detectedRow({
   path: 'navigation.gnss.methodQuality',
   sources: ['gps.1', 'gps.2'],
   kind: 'scalar',
   optedIn: false,
   combinable: false,
   advisory: 'This value cannot be combined.',
-};
+});
 
 // Combinable by type (scalar) but flagged not recommended by the server: GNSS
 // fix metadata. It belongs in the not-recommended group, not "Combine all".
-const gnssRow: DetectedRow = {
+const gnssRow = detectedRow({
   path: 'navigation.gnss.satellites',
   sources: ['gps.1', 'gps.2'],
   kind: 'scalar',
@@ -58,7 +74,7 @@ const gnssRow: DetectedRow = {
   combinable: true,
   recommended: false,
   advisory: 'GNSS fix metadata. Averaging it across receivers is not meaningful.',
-};
+});
 
 function emptyMap(): Map<string, RawPathConfig> {
   return new Map();
@@ -79,7 +95,7 @@ describe('DetectedPathList: empty state', () => {
 
   it('renders the first-run explanatory copy', () => {
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -89,7 +105,7 @@ describe('DetectedPathList: empty state', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     expect(screen.getByText(/checking for multi-source paths/i)).toBeInTheDocument();
@@ -98,7 +114,7 @@ describe('DetectedPathList: empty state', () => {
 
   it('offers a refresh in the empty state once the first poll has landed', () => {
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [],
         configByPath: new Map(),
         onAdd: vi.fn(),
@@ -108,7 +124,7 @@ describe('DetectedPathList: empty state', () => {
         lastChecked: 1000,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     expect(screen.getByText(/no duplicate paths detected yet/i)).toBeInTheDocument();
@@ -117,7 +133,7 @@ describe('DetectedPathList: empty state', () => {
 
   it('renders the Refresh button in the empty state', () => {
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -127,7 +143,7 @@ describe('DetectedPathList: empty state', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument();
@@ -135,7 +151,7 @@ describe('DetectedPathList: empty state', () => {
 
   it('keeps a configured path visible while it has no detected sources', () => {
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [],
         configByPath: mapOf('navigation.offlinePath'),
         onAdd: vi.fn(),
@@ -145,7 +161,7 @@ describe('DetectedPathList: empty state', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     expect(screen.getByText('navigation.offlinePath')).toBeInTheDocument();
@@ -165,9 +181,9 @@ describe('DetectedPathList: loading state', () => {
   });
 
   it('renders a busy refresh control while loading and blocks activation', () => {
-    const onRefresh = vi.fn();
+    const onRefresh = vi.fn().mockResolvedValue(true);
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -202,7 +218,7 @@ describe('DetectedPathList: error state', () => {
 
   it('renders a danger banner with the error message', () => {
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -212,16 +228,16 @@ describe('DetectedPathList: error state', () => {
         lastChecked: null,
         loading: false,
         error: 'network error',
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     expect(screen.getByText(/network error/i)).toBeInTheDocument();
   });
 
   it('renders a Retry button that calls onRefresh', () => {
-    const onRefresh = vi.fn();
+    const onRefresh = vi.fn().mockResolvedValue(true);
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -241,7 +257,7 @@ describe('DetectedPathList: error state', () => {
 
   it('never renders a silent empty list on error', () => {
     const { container } = render(
-      createElement(DetectedPathList, {
+      list({
         detected: [],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -251,7 +267,7 @@ describe('DetectedPathList: error state', () => {
         lastChecked: null,
         loading: false,
         error: 'timeout',
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     // The "no duplicate paths detected yet" empty-state copy must NOT appear when
@@ -264,7 +280,7 @@ describe('DetectedPathList: error state', () => {
     // useDetected preserves the previous rows on a failed poll; a transient
     // blip must not unmount them (losing open disclosures and focus).
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [scalRow, angRow],
         configByPath: mapOf(angRow.path),
         onAdd: vi.fn(),
@@ -274,7 +290,7 @@ describe('DetectedPathList: error state', () => {
         lastChecked: 1000,
         loading: false,
         error: 'network error',
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     expect(screen.getByText(/network error/i)).toBeInTheDocument();
@@ -298,7 +314,7 @@ describe('DetectedPathList: sort order', () => {
     const rows = [angRow, scalRow, posRow, otherRow];
     // Each row renders the path in a monospace span with title=path.
     const { container: sortContainer } = render(
-      createElement(DetectedPathList, {
+      list({
         detected: rows,
         configByPath: mapOf(angRow.path),
         onAdd: vi.fn(),
@@ -308,7 +324,7 @@ describe('DetectedPathList: sort order', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     const pathLabels = Array.from(sortContainer.querySelectorAll('[data-detected-path-row]'))
@@ -324,7 +340,7 @@ describe('DetectedPathList: sort order', () => {
   it('places not-recommended rows under a collapsed disclosure group', () => {
     const rows = [scalRow, otherRow];
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: rows,
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -334,7 +350,7 @@ describe('DetectedPathList: sort order', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     const disclosure = screen.getByRole('button', {
@@ -346,7 +362,7 @@ describe('DetectedPathList: sort order', () => {
   it('groups a recommended:false GNSS path under not-recommended and out of Combine all', () => {
     const onAddAll = vi.fn();
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [scalRow, gnssRow],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -356,7 +372,7 @@ describe('DetectedPathList: sort order', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     // Only the one recommended row counts toward "Combine all".
@@ -367,7 +383,7 @@ describe('DetectedPathList: sort order', () => {
 
   it('groups a combinable:false scalar path under not-recommended and out of Combine all', () => {
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [scalRow, explicitlyNonCombinableRow],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -377,7 +393,7 @@ describe('DetectedPathList: sort order', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
 
@@ -388,7 +404,7 @@ describe('DetectedPathList: sort order', () => {
   it('combined rows appear after not-yet-combined combinable rows', () => {
     const rows = [scalRow, angRow]; // angRow is in configByPath (combined)
     const { container: combinedContainer } = render(
-      createElement(DetectedPathList, {
+      list({
         detected: rows,
         configByPath: mapOf(angRow.path),
         onAdd: vi.fn(),
@@ -398,7 +414,7 @@ describe('DetectedPathList: sort order', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     const pathLabels = Array.from(combinedContainer.querySelectorAll('[data-detected-path-row]'))
@@ -420,7 +436,7 @@ describe('DetectedPathList: Combine all', () => {
 
   it('shows "Combine all" when there are combinable, not-yet-configured rows', () => {
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [scalRow, posRow],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -430,7 +446,7 @@ describe('DetectedPathList: Combine all', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     expect(screen.getByRole('button', { name: /combine all/i })).toBeInTheDocument();
@@ -438,7 +454,7 @@ describe('DetectedPathList: Combine all', () => {
 
   it('"Combine all" shows a count confirmation with the correct number', () => {
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [scalRow, posRow, angRow], // angRow already in configByPath
         configByPath: mapOf(angRow.path),
         onAdd: vi.fn(),
@@ -448,7 +464,7 @@ describe('DetectedPathList: Combine all', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     const btn = screen.getByRole('button', { name: /combine all/i });
@@ -460,7 +476,7 @@ describe('DetectedPathList: Combine all', () => {
   it('"Combine all" calls onAddAll with only combinable, not-yet-configured rows', () => {
     const onAddAll = vi.fn();
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [scalRow, posRow, angRow, otherRow],
         configByPath: mapOf(angRow.path),
         onAdd: vi.fn(),
@@ -470,7 +486,7 @@ describe('DetectedPathList: Combine all', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     // Click "Combine all" to get to the confirmation.
@@ -487,7 +503,7 @@ describe('DetectedPathList: Combine all', () => {
   it('Cancel dismisses the confirmation without calling onAddAll', () => {
     const onAddAll = vi.fn();
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [scalRow, posRow],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -497,7 +513,7 @@ describe('DetectedPathList: Combine all', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     const requestButton = screen.getByRole('button', { name: /combine all/i });
@@ -512,7 +528,7 @@ describe('DetectedPathList: Combine all', () => {
 
   it('"Combine all" is absent or disabled when all combinable rows are already configured', () => {
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [scalRow, angRow],
         configByPath: mapOf(scalRow.path, angRow.path),
         onAdd: vi.fn(),
@@ -522,7 +538,7 @@ describe('DetectedPathList: Combine all', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     const btn = screen.queryByRole('button', { name: /combine all/i });
@@ -548,7 +564,7 @@ describe('DetectedPathList: optedIn consistency', () => {
     // scalRow has optedIn: false, but we put it in configByPath.
     // The list should render it as combined (Remove button, no primary Combine button for that path).
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [scalRow],
         configByPath: mapOf(scalRow.path),
         onAdd: vi.fn(),
@@ -558,7 +574,7 @@ describe('DetectedPathList: optedIn consistency', () => {
         lastChecked: null,
         loading: false,
         error: null,
-        onRefresh: vi.fn(),
+        onRefresh: vi.fn().mockResolvedValue(true),
       })
     );
     // Should see Remove button (opted-in state) not a Combine button for this path.
@@ -575,7 +591,7 @@ describe('DetectedPathList: live region', () => {
     document.body.innerHTML = '';
   });
 
-  it('renders a role="status" live region and updates its text when detected count changes', () => {
+  it('renders a role="status" live region and updates its text when detected count changes', async () => {
     const props = {
       detected: [scalRow],
       configByPath: emptyMap(),
@@ -586,31 +602,31 @@ describe('DetectedPathList: live region', () => {
       lastChecked: Date.now(),
       loading: false,
       error: null,
-      onRefresh: vi.fn(),
+      onRefresh: vi.fn().mockResolvedValue(true),
     };
 
-    const { rerender } = render(createElement(DetectedPathList, props));
+    const { rerender } = render(list(props));
 
     // The role="status" live region must exist from the first render.
     expect(screen.getByRole('status')).toBeInTheDocument();
 
     // Re-render with two detected rows so the count changes from 1 to 2.
     rerender(
-      createElement(DetectedPathList, {
+      list({
         ...props,
         detected: [scalRow, angRow],
       })
     );
 
+    // The shell's region holds its first message for one beat after mount.
     const region = screen.getByRole('status');
-    // The announcement text should reflect the new count of 2 paths.
-    expect(region.textContent).toMatch(/2 paths? detected/i);
+    await vi.waitFor(() => expect(region.textContent).toMatch(/2 paths? detected/i));
   });
 
   it('announces a completed manual refresh even when the list is unchanged', async () => {
     const onRefresh = vi.fn().mockResolvedValue(true);
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [scalRow],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -632,7 +648,7 @@ describe('DetectedPathList: live region', () => {
 
   it('does not announce success after a failed manual refresh', async () => {
     render(
-      createElement(DetectedPathList, {
+      list({
         detected: [scalRow],
         configByPath: emptyMap(),
         onAdd: vi.fn(),
@@ -681,16 +697,14 @@ describe('DetectedPathList: nothing leaves focus on the document body', () => {
 
   it('moves focus to the section heading when a successful Retry unmounts the banner', async () => {
     const onRefresh = vi.fn().mockResolvedValue(true);
-    const { rerender } = render(
-      createElement(DetectedPathList, props({ error: 'network error', onRefresh }))
-    );
+    const { rerender } = render(list(props({ error: 'network error', onRefresh })));
     const retry = screen.getByRole('button', { name: /retry/i });
     retry.focus();
     fireEvent.click(retry);
     await vi.waitFor(() => expect(onRefresh).toHaveBeenCalled());
     // The successful refresh clears the error, which unmounts the banner and
     // the button that was focused.
-    rerender(createElement(DetectedPathList, props({ error: null, onRefresh })));
+    rerender(list(props({ error: null, onRefresh })));
     await vi.waitFor(() => {
       expect(document.activeElement).not.toBe(document.body);
     });
@@ -699,7 +713,7 @@ describe('DetectedPathList: nothing leaves focus on the document body', () => {
 
   it('leaves focus alone on an ordinary refresh, which unmounts nothing', async () => {
     const onRefresh = vi.fn().mockResolvedValue(true);
-    render(createElement(DetectedPathList, props({ onRefresh })));
+    render(list(props({ onRefresh })));
     const refresh = screen.getByRole('button', { name: /refresh detected paths/i });
     refresh.focus();
     fireEvent.click(refresh);
@@ -707,17 +721,16 @@ describe('DetectedPathList: nothing leaves focus on the document body', () => {
     expect(document.activeElement).toBe(refresh);
   });
 
-  it('announces the path when a row is combined or removed', () => {
+  it('announces the path when a row is combined or removed', async () => {
     const onAdd = vi.fn();
     const onRemove = vi.fn();
-    const { rerender } = render(createElement(DetectedPathList, props({ onAdd, onRemove })));
+    const { rerender } = render(list(props({ onAdd, onRemove })));
     fireEvent.click(screen.getByRole('button', { name: `Combine ${scalRow.path}` }));
     expect(onAdd).toHaveBeenCalledWith(scalRow.path);
-    expect(screen.getByText(`Combining ${scalRow.path}.`)).toBeInTheDocument();
+    expect(await screen.findByText(`Combining ${scalRow.path}.`)).toBeInTheDocument();
 
     rerender(
-      createElement(
-        DetectedPathList,
+      list(
         props({
           onAdd,
           onRemove,
@@ -727,6 +740,41 @@ describe('DetectedPathList: nothing leaves focus on the document body', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: `Remove ${scalRow.path}` }));
     expect(onRemove).toHaveBeenCalledWith(scalRow.path);
-    expect(screen.getByText(`Removed ${scalRow.path}.`)).toBeInTheDocument();
+    expect(await screen.findByText(`Removed ${scalRow.path}.`)).toBeInTheDocument();
+  });
+});
+
+describe('DetectedPathList: the freshness note', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const base = {
+    detected: [scalRow],
+    configByPath: new Map<string, RawPathConfig>(),
+    onAdd: vi.fn(),
+    onAddAll: vi.fn(),
+    onRemove: vi.fn(),
+    onUpdate: vi.fn(),
+    loading: false,
+    error: null,
+    onRefresh: vi.fn().mockResolvedValue(true),
+  };
+
+  it('warns when the list has not been checked for three polls while polling', () => {
+    render(list({ ...base, lastChecked: Date.now() - 60_000, pollingSince: Date.now() - 120_000 }));
+    expect(screen.getByText(/out of date/i)).toBeInTheDocument();
+  });
+
+  it('does not warn while polling is paused for a hidden tab', () => {
+    render(list({ ...base, lastChecked: Date.now() - 60_000, pollingSince: null }));
+    expect(screen.queryByText(/out of date/i)).toBeNull();
+    // The age still reads true; only the warning waits for polling to resume.
+    expect(document.body.textContent).toContain('Checked ');
+  });
+
+  it('does not warn just after polling resumes, before the first check lands', () => {
+    render(list({ ...base, lastChecked: Date.now() - 60_000, pollingSince: Date.now() }));
+    expect(screen.queryByText(/out of date/i)).toBeNull();
   });
 });

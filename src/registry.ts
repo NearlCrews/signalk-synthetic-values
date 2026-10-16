@@ -1,7 +1,7 @@
 import type { Clock } from './clock';
 import type { Sample } from './combine';
 import { median } from './combine';
-import { oldestKey } from './mapUtil';
+import { deleteOldest } from './mapUtil';
 import type { SampleValue } from './metrics';
 
 // How many inter-sample gaps to keep per source. Enough to survive one missed
@@ -15,28 +15,28 @@ interface Entry {
   intervals: number[];
 }
 
+// Drop the source that reported longest ago. False when there is none to drop.
+function evictOldest(bySource: Map<string, Entry>): boolean {
+  return deleteOldest(bySource, (entry) => entry.receiptTs);
+}
+
 export class Registry {
   private store = new Map<string, Map<string, Entry>>();
   // Median report interval per path, computed on demand and dropped as soon as
   // a new gap lands. The answer is read once per availability sweep and once
   // per emit for a path waiting on sources, and it barely moves between them.
   private medianInterval = new Map<string, number | undefined>();
-  private maxSources: number;
 
   constructor(
     private clock: Clock,
-    maxSourcesPerPath: number
-  ) {
-    this.maxSources = maxSourcesPerPath;
-  }
+    private maxSources: number
+  ) {}
 
   setMaxSourcesPerPath(n: number): void {
     this.maxSources = n;
     for (const bySource of this.store.values()) {
       while (bySource.size > this.maxSources) {
-        const oldestRef = oldestKey(bySource, (entry) => entry.receiptTs);
-        if (oldestRef === undefined) break;
-        bySource.delete(oldestRef);
+        if (!evictOldest(bySource)) break;
       }
     }
     this.medianInterval.clear();
@@ -50,8 +50,7 @@ export class Registry {
     }
     const previous = bySource.get(sourceRef);
     if (!previous && bySource.size >= this.maxSources) {
-      const oldestRef = oldestKey(bySource, (e) => e.receiptTs);
-      if (oldestRef !== undefined) bySource.delete(oldestRef);
+      evictOldest(bySource);
       this.medianInterval.delete(path);
     }
     if (previous) {
@@ -104,19 +103,27 @@ export class Registry {
    * and re-registers, or when the plugin restarts and sees the sources in a
    * different order.
    */
-  fresh(path: string, stalenessMs: number): Sample[] {
+  fresh(path: string, stalenessMs: number, now = this.clock.now()): Sample[] {
     const bySource = this.store.get(path);
     if (!bySource) return [];
-    const cutoff = this.clock.now() - stalenessMs;
+    const cutoff = now - stalenessMs;
     const out: Sample[] = [];
     for (const [sourceRef, e] of bySource) {
       // `>` means a sample exactly stalenessMs old is considered stale.
-      if (e.receiptTs > cutoff) {
-        out.push({ sourceRef, value: e.value, receiptTs: e.receiptTs });
-      }
+      if (e.receiptTs > cutoff) out.push({ sourceRef, value: e.value });
     }
     out.sort((a, b) => (a.sourceRef < b.sourceRef ? -1 : a.sourceRef > b.sourceRef ? 1 : 0));
     return out;
+  }
+
+  /** How many readings `fresh` would return, without building or sorting them. */
+  freshCount(path: string, stalenessMs: number, now = this.clock.now()): number {
+    const bySource = this.store.get(path);
+    if (!bySource) return 0;
+    const cutoff = now - stalenessMs;
+    let n = 0;
+    for (const e of bySource.values()) if (e.receiptTs > cutoff) n++;
+    return n;
   }
 
   reset(): void {

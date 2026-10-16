@@ -2,6 +2,7 @@
 // No DOM rendering; we test the pure core directly.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
+import { detectedRow } from './helpers.js';
 
 // -- fetchJson tests ----------------------------------------------------------
 // We must import the module under test after stubbing global.fetch.
@@ -44,7 +45,12 @@ describe('nextDetectedState', () => {
     const { nextDetectedState } = await import('../../src/configpanel/hooks/useDetected.js');
 
     const rows: DetectedRow[] = [
-      { path: 'navigation.position', sources: ['gps1', 'gps2'], kind: 'position', optedIn: false },
+      detectedRow({
+        path: 'navigation.position',
+        sources: ['gps1', 'gps2'],
+        kind: 'position',
+        optedIn: false,
+      }),
     ];
     const prev = {
       paths: rows,
@@ -63,7 +69,12 @@ describe('nextDetectedState', () => {
     const { nextDetectedState } = await import('../../src/configpanel/hooks/useDetected.js');
 
     const rows: DetectedRow[] = [
-      { path: 'navigation.position', sources: ['gps1', 'gps2'], kind: 'position', optedIn: false },
+      detectedRow({
+        path: 'navigation.position',
+        sources: ['gps1', 'gps2'],
+        kind: 'position',
+        optedIn: false,
+      }),
     ];
     const prev = {
       paths: rows,
@@ -73,12 +84,12 @@ describe('nextDetectedState', () => {
     };
     const newRows: DetectedRow[] = [
       ...rows,
-      {
+      detectedRow({
         path: 'environment.depth.belowKeel',
         sources: ['depth1', 'depth2'],
         kind: 'scalar',
         optedIn: false,
-      },
+      }),
     ];
 
     const next = nextDetectedState(prev, { paths: newRows });
@@ -126,16 +137,22 @@ describe('isDetectedResponse', () => {
     expect(
       isDetectedResponse({
         paths: [
-          {
+          detectedRow({
             path: 'navigation.position',
             sources: ['gps.1', 'gps.2'],
             kind: 'position',
-            optedIn: false,
             duplicateGroups: [['gps.1', 'gps.2']],
-          },
+          }),
+          detectedRow({ path: 'vessel.name', kind: 'other', advisory: 'Text.' }),
         ],
       })
     ).toBe(true);
+  });
+
+  it('rejects a row missing a field the route always sends', async () => {
+    const { isDetectedResponse } = await import('../../src/configpanel/hooks/useDetected.js');
+    const { freshSources: _omitted, ...partial } = detectedRow({ path: 'navigation.position' });
+    expect(isDetectedResponse({ paths: [partial] })).toBe(false);
   });
 
   it.each([

@@ -17,17 +17,28 @@ export interface PathResult extends Omit<CombineResult, 'outcome'> {
   outcome: PathOutcome;
 }
 
-// Unit of the spread the combiner reports, by kind. Without it a spread of 28
-// on an angular path reads as degrees when it is radians.
-function spreadUnit(kind: Kind): string {
-  if (kind === 'position') return ' m';
-  if (kind === 'angular' || kind === 'attitude') return ' rad';
-  return ' in the path units';
+/** A configured path the runtime is not combining, and why. */
+export interface SkippedPath {
+  path: string;
+  reason: string;
 }
 
+// Unit of the spread the combiner reports, by kind. Without it a spread of 28
+// on an angular path reads as degrees when it is radians. Keyed by the whole
+// Kind union, so a new kind does not compile until it names its unit.
+const SPREAD_UNIT: Record<Kind, string> = {
+  position: ' m',
+  angular: ' rad',
+  attitude: ' rad',
+  scalar: ' in the path units',
+  other: ' in the path units',
+};
+
 function spreadText(spread: number | undefined, kind: Kind): string {
-  return spread !== undefined ? `${spread.toPrecision(4)}${spreadUnit(kind)}` : 'unknown';
+  return spread !== undefined ? `${spread.toPrecision(4)}${SPREAD_UNIT[kind]}` : 'unknown';
 }
+
+const COMBINING_NORMALLY = 'Combining normally.';
 
 // "3 of 4 sources" when rejection dropped one, "3 sources" when it did not, so
 // a newly rejected sensor changes the line the operator reads.
@@ -37,19 +48,19 @@ function sourceCount(result: PathResult): string {
   return `${used} source${plural(used)}`;
 }
 
-export function pathStatus(
-  path: string,
-  result: PathResult,
-  sourceLabel: string,
-  effectiveMin: number,
-  method: CombineMethod,
-  kind: Kind
-): string {
+export function pathStatus({
+  path,
+  result,
+  sourceLabel,
+  minSources,
+  method,
+  kind,
+}: OutcomeContext): string {
   switch (result.outcome) {
     case 'singleSource':
       return `${path}: running on 1 source, redundancy lost.`;
     case 'belowMin':
-      return `${path}: waiting for ${effectiveMin} sources (have ${result.freshCount}).`;
+      return `${path}: waiting for ${minSources} sources (have ${result.freshCount}).`;
     case 'allStale':
       return `${path}: all sources stale, waiting for fresh data.`;
     case 'diverged':
@@ -140,7 +151,7 @@ function confidence(
             state: 'warn',
             message: `Only 1 of ${result.freshCount} sources is being used, so there is no redundancy.`,
           }
-        : { state: 'normal', message: 'Combining normally.' };
+        : { state: 'normal', message: COMBINING_NORMALLY };
     case 'belowMin':
     case 'allStale':
       return hasEmitted
@@ -155,7 +166,7 @@ function confidence(
             state: 'warn',
             message: `${result.rejectedSources.length} of ${result.freshCount} sources rejected as outliers; combining the remaining ${result.usedSources.length}.`,
           }
-        : { state: 'normal', message: 'Combining normally.' };
+        : { state: 'normal', message: COMBINING_NORMALLY };
     case 'skipped':
       return undefined;
   }
@@ -186,14 +197,7 @@ export interface OutcomeContext {
  */
 export function outcomeReport(context: OutcomeContext): OutcomeReport {
   return {
-    line: pathStatus(
-      context.path,
-      context.result,
-      context.sourceLabel,
-      context.minSources,
-      context.method,
-      context.kind
-    ),
+    line: pathStatus(context),
     notification: confidence(context.result, context.hasEmitted),
   };
 }
@@ -206,19 +210,22 @@ export function outcomeReport(context: OutcomeContext): OutcomeReport {
  * stops combining, a divergence or disagreement appears or clears, a sensor is
  * rejected or comes back), so the caller can dedupe and the bar stays readable.
  * Per-path detail still goes to the debug log via pathStatus.
+ *
+ * `states` holds one entry per configured path, so its length is the
+ * configured count.
  */
 export function aggregateStatus(
-  configuredCount: number,
-  states: Map<string, PathState>,
+  states: Iterable<PathState>,
   detectedCount: number,
-  skipped: { path: string; reason: string }[],
-  unrecognizedAngles: string[] = []
+  skipped: readonly SkippedPath[],
+  unrecognizedAngles: readonly string[] = []
 ): string {
-  const suffix = (base: string): string =>
-    appendAngleReview(appendSkipped(base, skipped), unrecognizedAngles);
-  if (configuredCount === 0) return suffix(detectionMessage(detectedCount));
-
   const t = tallyOutcomes(states);
+  const body = t.configured === 0 ? detectionMessage(detectedCount) : combiningMessage(t);
+  return appendAngleReview(appendSkipped(body, skipped), unrecognizedAngles);
+}
+
+function combiningMessage(t: OutcomeTally): string {
   const notes: string[] = [];
   if (t.waiting > 0) notes.push(`${t.waiting} waiting for sources`);
   if (t.diverging > 0) notes.push(`${t.diverging} diverging`);
@@ -226,9 +233,8 @@ export function aggregateStatus(
   if (t.lagging > 0) notes.push(`${t.lagging} held back by the slew limit`);
   if (t.singleSource > 0) notes.push(`${t.singleSource} on a single source`);
   if (t.rejecting > 0) notes.push(`${t.rejecting} with a rejected source`);
-  let body = `Combining ${t.emitting} of ${configuredCount} path${plural(configuredCount)}.`;
-  if (notes.length > 0) body += ` ${oxfordJoin(notes)}.`;
-  return suffix(body);
+  const body = `Combining ${t.emitting} of ${t.configured} path${plural(t.configured)}.`;
+  return notes.length > 0 ? `${body} ${oxfordJoin(notes)}.` : body;
 }
 
 function detectionMessage(detectedCount: number): string {
@@ -237,6 +243,7 @@ function detectionMessage(detectedCount: number): string {
 }
 
 interface OutcomeTally {
+  configured: number;
   emitting: number;
   waiting: number;
   diverging: number;
@@ -249,8 +256,9 @@ interface OutcomeTally {
 // Bucket each path's last outcome. A path that emitted a value (ok, disagree,
 // slewLimited, or singleSource) counts toward `emitting`; the rest also raise
 // their own caution count so the summary can flag them.
-function tallyOutcomes(states: Map<string, PathState>): OutcomeTally {
+function tallyOutcomes(states: Iterable<PathState>): OutcomeTally {
   const t: OutcomeTally = {
+    configured: 0,
     emitting: 0,
     waiting: 0,
     diverging: 0,
@@ -259,7 +267,8 @@ function tallyOutcomes(states: Map<string, PathState>): OutcomeTally {
     singleSource: 0,
     rejecting: 0,
   };
-  for (const state of states.values()) {
+  for (const state of states) {
+    t.configured++;
     if (state.rejectedCount > 0) t.rejecting++;
     switch (state.outcome) {
       case 'ok':
@@ -292,7 +301,7 @@ function tallyOutcomes(states: Map<string, PathState>): OutcomeTally {
   return t;
 }
 
-function appendSkipped(base: string, skipped: { path: string; reason: string }[]): string {
+function appendSkipped(base: string, skipped: readonly SkippedPath[]): string {
   if (skipped.length === 0) return base;
   return `${base} ${skipped.map((s) => `skipped: ${s.path} (${s.reason})`).join(', ')}.`;
 }
@@ -301,7 +310,7 @@ function appendSkipped(base: string, skipped: { path: string; reason: string }[]
 // full-circle quantities, because those are the ones a linear average turns
 // into a reciprocal bearing. Naming them makes the status line the shortest
 // route from "something is off" to the setting that fixes it.
-function appendAngleReview(base: string, paths: string[]): string {
+function appendAngleReview(base: string, paths: readonly string[]): string {
   if (paths.length === 0) return base;
   return `${base} Set angular wrapping on: ${paths.join(', ')}.`;
 }

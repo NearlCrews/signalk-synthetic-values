@@ -33,13 +33,12 @@ export class Emitter {
     private clock: Clock
   ) {}
 
-  due(path: string, minIntervalMs: number): boolean {
-    const now = this.clock.now();
+  due(path: string, minIntervalMs: number, now = this.clock.now()): boolean {
     const last = this.lastEmit.get(path);
     return last === undefined || now - last >= minIntervalMs;
   }
 
-  emit(path: string, value: SampleValue): void {
+  emit(path: string, value: SampleValue, now = this.clock.now()): void {
     this.app.handleMessage(this.pluginId, {
       updates: [
         {
@@ -48,8 +47,8 @@ export class Emitter {
         },
       ],
     });
-    // A failed send must remain immediately retryable.
-    this.lastEmit.set(path, this.clock.now());
+    // Recorded only after the send, so a failed one remains immediately retryable.
+    this.lastEmit.set(path, now);
   }
 
   /**

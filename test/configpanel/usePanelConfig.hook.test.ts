@@ -5,7 +5,11 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { PluginOptions } from '../../src/config.js';
-import { normalizeOptions, usePanelConfig } from '../../src/configpanel/hooks/usePanelConfig.js';
+import {
+  applyAddPath,
+  normalizeOptions,
+  usePanelConfig,
+} from '../../src/configpanel/hooks/usePanelConfig.js';
 
 interface HookProps {
   cfg: Partial<PluginOptions> | null | undefined;
@@ -23,7 +27,7 @@ describe('usePanelConfig resync guard', () => {
   it('resyncs on a genuine external configuration change and advances the baseline', () => {
     const { result, rerender, lastRequestedRef } = setup();
     act(() => {
-      result.current.addPath('local.edit');
+      result.current.replaceOptions(applyAddPath(result.current.options, 'local.edit'));
     });
     expect(result.current.options.paths).toHaveLength(1);
 
@@ -44,13 +48,13 @@ describe('usePanelConfig resync guard', () => {
     const { result, rerender, lastRequestedRef } = setup();
     // The panel requests an update: the baseline advances to that snapshot.
     act(() => {
-      result.current.addPath('saved.path');
+      result.current.replaceOptions(applyAddPath(result.current.options, 'saved.path'));
     });
     const requested = result.current.options;
     lastRequestedRef.current = requested;
     // An edit lands while the save is in flight.
     act(() => {
-      result.current.addPath('in.flight.edit');
+      result.current.replaceOptions(applyAddPath(result.current.options, 'in.flight.edit'));
     });
     expect(result.current.options.paths).toHaveLength(2);
     // The host echoes the earlier save back as a NEW object reference.

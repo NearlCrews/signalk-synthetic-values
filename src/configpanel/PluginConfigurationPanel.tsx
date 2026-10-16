@@ -3,10 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Banner, PanelShell, useUnsavedChangesGuard } from 'signalk-nearlcrews-ui';
 import { SaveActionBar } from 'signalk-nearlcrews-ui/composites';
 import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../config.js';
-import { jsonEqual, PLUGIN_SOURCE_LABEL } from './api-base.js';
+import { jsonEqual } from './api-base.js';
 import { DetectedPathList } from './components/DetectedPathList.js';
 import { PriorityBanner } from './components/PriorityBanner.js';
-import { PanelDefaultsContext } from './defaultsContext.js';
+import { PanelDefaultsContext, panelDefaultsOf } from './defaultsContext.js';
 import type { DetectedRow } from './hooks/useDetected.js';
 import { useDetected } from './hooks/useDetected.js';
 import {
@@ -41,6 +41,16 @@ interface SaveReport {
 
 const INITIAL_SAVE_REPORT: SaveReport = { requestedAt: null, failure: null, canceledByHost: false };
 
+/** The one host request waiting out the coalescing window. */
+interface QueuedRequest {
+  /** The latest snapshot, which is what gets sent. */
+  options: PluginOptions;
+  /** The last accepted request when coalescing began, to tell a host echo from an external edit. */
+  base: PluginOptions;
+  /** Whether detection should refresh once the request is sent. */
+  refresh: boolean;
+}
+
 /**
  * Composition root for the synthetic-values config panel.
  *
@@ -72,17 +82,12 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
   const requestedOptionsRef = useRef<PluginOptions>(normalizeOptions(configuration));
 
   // Form state: holds the full PluginOptions being edited.
-  const { options, addPath, addAllCombinable, removePath, replaceOptions, updatePath } =
-    usePanelConfig(configuration, requestedOptionsRef);
+  const { options, replaceOptions } = usePanelConfig(configuration, requestedOptionsRef);
 
   // Live detection: polls /api/detected every 10 s.
-  const { paths: detected, lastChecked, loading, error, refresh } = useDetected();
+  const { paths: detected, lastChecked, pollingSince, loading, error, refresh } = useDetected();
 
-  // Priority banner dismiss state.
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  const handleDismiss = useCallback(() => {
-    setBannerDismissed(true);
-  }, []);
 
   // Build a Map<path, RawPathConfig> from the current form state so
   // DetectedPathList can reconcile local edits against the server optedIn field.
@@ -99,11 +104,12 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
   optionsRef.current = options;
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Read at send time, so a host that passes a new save callback on every
+  // render does not give every edit handler, and every memoized row, a new
+  // identity.
   const saveRef = useRef(save);
   saveRef.current = save;
-  const pendingOptionsRef = useRef<PluginOptions | null>(null);
-  const pendingBaseOptionsRef = useRef<PluginOptions | null>(null);
-  const pendingRefreshRef = useRef(false);
+  const queuedRef = useRef<QueuedRequest | null>(null);
 
   const [saveReport, setSaveReport] = useState<SaveReport>(INITIAL_SAVE_REPORT);
 
@@ -133,9 +139,7 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
 
   const clearQueued = useCallback((): void => {
     cancelTimer();
-    pendingOptionsRef.current = null;
-    pendingBaseOptionsRef.current = null;
-    pendingRefreshRef.current = false;
+    queuedRef.current = null;
   }, [cancelTimer]);
 
   // Reset the save-issue flags without allocating when they are already clear,
@@ -148,28 +152,21 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
     );
   }, []);
 
-  // Write actions update form state immediately, then queue one host request.
-  // React state updates are asynchronous, so next-state is computed
-  // synchronously before it enters the coalescing window.
-
   const flushSaveRequest = useCallback((): void => {
     saveTimerRef.current = null;
-    const next = pendingOptionsRef.current;
-    const refreshAfterRequest = pendingRefreshRef.current;
-    pendingOptionsRef.current = null;
-    pendingBaseOptionsRef.current = null;
-    pendingRefreshRef.current = false;
-    if (next === null) return;
+    const queued = queuedRef.current;
+    queuedRef.current = null;
+    if (queued === null) return;
 
     const previousRequested = requestedOptionsRef.current;
     // Advance before invoking the host because Admin synchronously echoes the
     // requested object as a fresh configuration prop.
-    requestedOptionsRef.current = next;
+    requestedOptionsRef.current = queued.options;
     try {
-      save(next);
+      saveRef.current(queued.options);
       setSaveReport({ requestedAt: Date.now(), failure: null, canceledByHost: false });
       setDirty(false);
-      if (refreshAfterRequest) void refresh();
+      if (queued.refresh) void refresh();
     } catch {
       requestedOptionsRef.current = previousRequested;
       // The request never reached the host, so the plugin is still not enabled
@@ -179,10 +176,10 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
       setDirty(true);
       setSaveReport((prev) => ({ ...prev, failure: REQUEST_FAILURE, canceledByHost: false }));
     }
-  }, [refresh, save]);
+  }, [refresh]);
 
   const scheduleSaveRequest = useCallback(
-    (next: PluginOptions, refreshAfterRequest = false): void => {
+    (next: PluginOptions, refreshAfterRequest: boolean): void => {
       // An edit that lands back on the last accepted request leaves nothing to
       // send, so the queue empties and the form is clean again.
       if (jsonEqual(next, requestedOptionsRef.current)) {
@@ -192,9 +189,12 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
         return;
       }
 
-      pendingOptionsRef.current = next;
-      pendingBaseOptionsRef.current ??= requestedOptionsRef.current;
-      pendingRefreshRef.current ||= refreshAfterRequest;
+      const queued = queuedRef.current;
+      queuedRef.current = {
+        options: next,
+        base: queued?.base ?? requestedOptionsRef.current,
+        refresh: (queued?.refresh ?? false) || refreshAfterRequest,
+      };
       cancelTimer();
       setDirty(true);
       clearSaveIssues();
@@ -209,13 +209,11 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
       // An explicit edit must not disappear when Admin unmounts the panel
       // during the coalescing window. Send the latest snapshot without
       // scheduling post-unmount UI work or a detection refresh.
-      const pending = pendingOptionsRef.current;
-      pendingOptionsRef.current = null;
-      pendingBaseOptionsRef.current = null;
-      pendingRefreshRef.current = false;
-      if (pending !== null) {
+      const queued = queuedRef.current;
+      queuedRef.current = null;
+      if (queued !== null) {
         try {
-          saveRef.current(pending);
+          saveRef.current(queued.options);
         } catch {
           // The panel is gone, so there is no safe status surface to update.
         }
@@ -231,14 +229,14 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
   useEffect(() => {
     if (previousConfigurationRef.current === configuration) return;
     previousConfigurationRef.current = configuration;
-    const pendingBase = pendingBaseOptionsRef.current;
-    if (pendingBase === null) {
+    const queued = queuedRef.current;
+    if (queued === null) {
       // Nothing queued, so the form state hook has already resynced the form to
       // whatever the host supplied and there is nothing left unsent.
       setDirty(false);
       return;
     }
-    if (jsonEqual(normalizeOptions(configuration), pendingBase)) return;
+    if (jsonEqual(normalizeOptions(configuration), queued.base)) return;
     clearQueued();
     setDirty(false);
     setSaveReport((prev) => ({ ...prev, failure: null, canceledByHost: true }));
@@ -250,11 +248,11 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
   const handleSave = useCallback((): void => {
     if (unconfigured) setEnabledHere(true);
     cancelTimer();
-    if (pendingOptionsRef.current === null) {
-      pendingOptionsRef.current = optionsRef.current;
-      pendingBaseOptionsRef.current = requestedOptionsRef.current;
-      pendingRefreshRef.current = true;
-    }
+    queuedRef.current ??= {
+      options: optionsRef.current,
+      base: requestedOptionsRef.current,
+      refresh: true,
+    };
     flushSaveRequest();
   }, [cancelTimer, flushSaveRequest, unconfigured]);
 
@@ -266,67 +264,54 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
     setSaveReport((prev) => ({ ...prev, failure: null, canceledByHost: false }));
   }, [clearQueued, replaceOptions]);
 
+  // Every edit computes its next snapshot synchronously and advances the ref at
+  // once, so a second action dispatched before React re-renders builds on this
+  // one. All of them share the same latest-snapshot coalescer, so rapid tuning
+  // and nearby row actions produce one deterministic request after 300 ms. A
+  // transition that changed nothing hands back the same object, and stops here.
+  const commit = useCallback(
+    (next: PluginOptions, refreshAfterRequest = false): void => {
+      if (next === optionsRef.current) return;
+      optionsRef.current = next;
+      replaceOptions(next);
+      scheduleSaveRequest(next, refreshAfterRequest);
+    },
+    [replaceOptions, scheduleSaveRequest]
+  );
+
+  // Opting a path in or out changes what detection reports, so those refresh it.
   const handleAdd = useCallback(
-    (path: string): void => {
-      const next = applyAddPath(optionsRef.current, path);
-      // Advance the ref immediately so a second write action dispatched before
-      // React re-renders reads this change instead of the stale snapshot.
-      optionsRef.current = next;
-      addPath(path);
-      scheduleSaveRequest(next, true);
-    },
-    [scheduleSaveRequest, addPath]
+    (path: string): void => commit(applyAddPath(optionsRef.current, path), true),
+    [commit]
   );
-
   const handleAddAll = useCallback(
-    (rows: DetectedRow[]): void => {
-      const next = applyAddAllCombinable(optionsRef.current, rows);
-      optionsRef.current = next;
-      addAllCombinable(rows);
-      scheduleSaveRequest(next, true);
-    },
-    [scheduleSaveRequest, addAllCombinable]
+    (rows: DetectedRow[]): void => commit(applyAddAllCombinable(optionsRef.current, rows), true),
+    [commit]
   );
-
   const handleRemove = useCallback(
-    (path: string): void => {
-      const next = applyRemovePath(optionsRef.current, path);
-      optionsRef.current = next;
-      removePath(path);
-      scheduleSaveRequest(next, true);
-    },
-    [scheduleSaveRequest, removePath]
+    (path: string): void => commit(applyRemovePath(optionsRef.current, path), true),
+    [commit]
   );
-
-  // Every edit shares the same latest-snapshot coalescer, so rapid tuning and
-  // nearby row actions produce one deterministic request after 300 ms.
   const handleUpdate = useCallback(
-    (path: string, patch: RawPathConfigPatch): void => {
-      const next = applyUpdatePath(optionsRef.current, path, patch);
-      if (jsonEqual(next, optionsRef.current)) return;
-      optionsRef.current = next;
-      updatePath(path, patch);
-      scheduleSaveRequest(next);
-    },
-    [scheduleSaveRequest, updatePath]
+    (path: string, patch: RawPathConfigPatch): void =>
+      commit(applyUpdatePath(optionsRef.current, path, patch)),
+    [commit]
   );
 
   const showBanner = options.paths.length > 0 && !bannerDismissed;
 
   // Resolved top-level defaults for the per-path editors' placeholders.
+  const { defaultMinSources, defaultStalenessTimeoutMs, defaultEmitMinIntervalMs } = options;
+  const { maxSourcesPerPath } = options;
   const panelDefaults = useMemo(
-    () => ({
-      minSources: options.defaultMinSources,
-      stalenessTimeoutMs: options.defaultStalenessTimeoutMs,
-      emitMinIntervalMs: options.defaultEmitMinIntervalMs,
-      maxSourcesPerPath: options.maxSourcesPerPath,
-    }),
-    [
-      options.defaultMinSources,
-      options.defaultStalenessTimeoutMs,
-      options.defaultEmitMinIntervalMs,
-      options.maxSourcesPerPath,
-    ]
+    () =>
+      panelDefaultsOf({
+        defaultMinSources,
+        defaultStalenessTimeoutMs,
+        defaultEmitMinIntervalMs,
+        maxSourcesPerPath,
+      }),
+    [defaultMinSources, defaultStalenessTimeoutMs, defaultEmitMinIntervalMs, maxSourcesPerPath]
   );
   const detectedHeadingRef = useRef<HTMLSpanElement>(null);
 
@@ -359,12 +344,12 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
       ) : null}
 
       {/* Priority banner: shown once any path is combined, dismissible */}
-      <PriorityBanner
-        show={showBanner}
-        sourceLabel={PLUGIN_SOURCE_LABEL}
-        dismissFocusRef={detectedHeadingRef}
-        onDismiss={handleDismiss}
-      />
+      {showBanner ? (
+        <PriorityBanner
+          dismissFocusRef={detectedHeadingRef}
+          onDismiss={() => setBannerDismissed(true)}
+        />
+      ) : null}
 
       {/* Detected paths list */}
       <DetectedPathList
@@ -376,6 +361,7 @@ const PanelBody: React.FC<Props> = ({ configuration, save }) => {
         onRemove={handleRemove}
         onUpdate={handleUpdate}
         lastChecked={lastChecked}
+        pollingSince={pollingSince}
         loading={loading}
         error={error}
         onRefresh={refresh}

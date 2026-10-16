@@ -9,6 +9,11 @@ import {
   workflowParts,
 } from './repo-guards.mjs';
 
+// The npm pin is declared once, in package.json, and check-package.mjs asserts
+// its value; every workflow that runs npm must use the same one.
+const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
+const npmPin = packageJson.packageManager;
+
 const workflowDirectory = '.github/workflows';
 const workflowPaths = (await readdir(workflowDirectory))
   .filter((name) => name.endsWith('.yml') || name.endsWith('.yaml'))
@@ -47,7 +52,7 @@ for (const [path, workflow] of workflows) {
 }
 const workflowSecurity = workflows.get(`${workflowDirectory}/workflow-security.yml`) ?? '';
 const auditJob = workflowParts(workflowSecurity).jobs.get('dependency-audit') ?? '';
-if (!auditJob.includes('npm@12.0.2 run audit:full')) {
+if (!auditJob.includes(`${npmPin} run audit:full`)) {
   failures.push('workflow-security.yml must keep the scheduled dependency-audit job.');
 }
 
@@ -92,7 +97,7 @@ for (const [path, schedules] of scheduled) {
 const ci = await readFile('.github/workflows/ci.yml', 'utf8');
 if (
   !ci.includes('node-version: [22.22.2, 26]') ||
-  !ci.includes('npx --yes npm@12.0.2') ||
+  !ci.includes(`npx --yes ${npmPin}`) ||
   !ci.includes('npm run audit:runtime') ||
   !ci.includes('test:browser:cross:built') ||
   !ci.includes("node-version: '20.18'") ||
@@ -154,7 +159,6 @@ for (const unexpected of [
 // cannot slip past the install steps.
 const { default: playwrightConfig } = await tsImport('../playwright.config.ts', import.meta.url);
 const engines = playwrightEngines(playwrightConfig.projects ?? []);
-const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
 const browserScripts = scriptsRunningPlaywright(
   packageJson.scripts,
   /\bplaywright test\b|run-browser-matrix\.mjs/
@@ -173,7 +177,7 @@ for (const expected of ['github/codeql-action/init@', 'github/codeql-action/anal
 
 const publish = await readFile('.github/workflows/publish.yml', 'utf8');
 for (const expected of [
-  'npm@12.0.2',
+  npmPin,
   '--provenance --access public',
   'name: npm-package',
   'needs: build',

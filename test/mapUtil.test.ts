@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { oldestKey } from '../src/mapUtil';
+import { deleteOldest, oldestKey } from '../src/mapUtil';
 
 describe('oldestKey', () => {
   it('returns undefined for an empty map', () => {
@@ -18,5 +18,20 @@ describe('oldestKey', () => {
         (value) => value
       )
     ).toBe('b');
+  });
+});
+
+describe('deleteOldest', () => {
+  it('removes the entry with the smallest timestamp and reports it', () => {
+    const map = new Map([
+      ['a', 2],
+      ['b', 1],
+    ]);
+    expect(deleteOldest(map, (value) => value)).toBe(true);
+    expect([...map.keys()]).toEqual(['a']);
+  });
+
+  it('reports false for an empty map', () => {
+    expect(deleteOldest(new Map<string, number>(), (value) => value)).toBe(false);
   });
 });

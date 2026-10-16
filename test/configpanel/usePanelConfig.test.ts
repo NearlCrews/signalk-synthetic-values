@@ -13,6 +13,7 @@ import {
   normalizeOptions,
   usePanelConfig,
 } from '../../src/configpanel/hooks/usePanelConfig.js';
+import { detectedRow } from './helpers.js';
 
 const baseOptions: PluginOptions = {
   defaultStalenessTimeoutMs: 5000,
@@ -33,6 +34,19 @@ describe('normalizeOptions', () => {
     expect(normalized.defaultMinSources).toBe(2);
     expect(normalized.futureTopLevelSetting).toEqual({ enabled: true });
     expect(normalized.paths[0]).toMatchObject({ futurePathSetting: 'kept' });
+  });
+
+  it('resolves a top-level value the runtime would refuse to the default it applies', () => {
+    const normalized = normalizeOptions({
+      defaultMinSources: 0,
+      defaultStalenessTimeoutMs: -5,
+      maxSourcesPerPath: 4.5,
+      notifications: 'yes',
+    });
+    expect(normalized.defaultMinSources).toBe(2);
+    expect(normalized.defaultStalenessTimeoutMs).toBe(1000);
+    expect(normalized.maxSourcesPerPath).toBe(16);
+    expect(normalized.notifications).toBe(true);
   });
 
   it('drops malformed path entries without discarding valid future fields', () => {
@@ -88,50 +102,60 @@ describe('applyAddPath', () => {
 
 describe('applyAddAllCombinable', () => {
   const rows: DetectedRow[] = [
-    { path: 'navigation.position', sources: ['gps1', 'gps2'], kind: 'position', optedIn: false },
-    {
+    detectedRow({
+      path: 'navigation.position',
+      sources: ['gps1', 'gps2'],
+      kind: 'position',
+      optedIn: false,
+    }),
+    detectedRow({
       path: 'navigation.headingTrue',
       sources: ['compass1', 'compass2'],
       kind: 'angular',
       optedIn: false,
-    },
-    {
+    }),
+    detectedRow({
       path: 'environment.depth.belowKeel',
       sources: ['depth1', 'depth2'],
       kind: 'scalar',
       optedIn: false,
-    },
-    { path: 'some.unknown.path', sources: ['s1', 's2'], kind: 'unknown', optedIn: false },
+    }),
+    detectedRow({
+      path: 'some.unknown.path',
+      sources: ['s1', 's2'],
+      kind: 'unknown',
+      optedIn: false,
+    }),
     // Not combinable at all (text), and not meaningful to average (GNSS fix
     // metadata): the server flags both with recommended: false.
-    {
+    detectedRow({
       path: 'vessel.name',
       sources: ['ais', 'manual'],
       kind: 'other',
       optedIn: false,
       combinable: false,
       recommended: false,
-    },
-    {
+    }),
+    detectedRow({
       path: 'navigation.gnss.satellites',
       sources: ['gps1', 'gps2'],
       kind: 'scalar',
       optedIn: false,
       recommended: false,
-    },
-    {
+    }),
+    detectedRow({
       path: 'navigation.gnss.methodQuality',
       sources: ['gps1', 'gps2'],
       kind: 'scalar',
       optedIn: false,
       combinable: false,
-    },
-    {
+    }),
+    detectedRow({
       path: 'vessel.callsign',
       sources: ['ais', 'manual'],
       kind: 'other',
       optedIn: false,
-    },
+    }),
   ];
 
   it('adds the recommended rows but skips not-recommended rows', () => {
@@ -266,6 +290,17 @@ describe('applyUpdatePath: clearing a field', () => {
     expect(Object.hasOwn(next.paths[0], 'madThreshold')).toBe(false);
   });
 
+  it('returns the same options when the patch changes nothing', () => {
+    const withEntry: PluginOptions = {
+      ...baseOptions,
+      paths: [{ path: 'navigation.position', minSources: 2 }],
+    };
+    expect(applyUpdatePath(withEntry, 'navigation.position', { minSources: 2 })).toBe(withEntry);
+    expect(applyUpdatePath(withEntry, 'navigation.position', { slewLimit: undefined })).toBe(
+      withEntry
+    );
+  });
+
   it('still merges a defined patch value as before', () => {
     const withEntry: PluginOptions = {
       ...baseOptions,
@@ -279,73 +314,18 @@ describe('applyUpdatePath: clearing a field', () => {
 // -- usePanelConfig hook (renderHook) ----------------------------------------
 
 describe('usePanelConfig hook', () => {
-  it('updatePath propagates into options state', () => {
+  it('replaceOptions installs the snapshot the panel computed', () => {
     const { result } = renderHook(() => usePanelConfig(baseOptions, { current: baseOptions }));
+    const next = applyUpdatePath(
+      applyAddPath(result.current.options, 'navigation.position'),
+      'navigation.position',
+      { minSources: 4 }
+    );
 
     act(() => {
-      result.current.addPath('navigation.position');
-    });
-    act(() => {
-      result.current.updatePath('navigation.position', { minSources: 4 });
+      result.current.replaceOptions(next);
     });
 
-    const entry = result.current.options.paths.find((p) => p.path === 'navigation.position');
-    expect(entry?.minSources).toBe(4);
-  });
-
-  it('updatePath with undefined removes the key from the path entry', () => {
-    const initial: PluginOptions = {
-      ...baseOptions,
-      paths: [{ path: 'navigation.position', minSources: 3 }],
-    };
-    const { result } = renderHook(() => usePanelConfig(initial, { current: initial }));
-
-    act(() => {
-      result.current.updatePath('navigation.position', { minSources: undefined });
-    });
-
-    const entry = result.current.options.paths.find((p) => p.path === 'navigation.position');
-    expect(entry).toBeDefined();
-    expect(Object.hasOwn(entry as object, 'minSources')).toBe(false);
-  });
-
-  it('addAllCombinable adds combinable paths and updates options.paths', () => {
-    const rows: DetectedRow[] = [
-      { path: 'navigation.speedOverGround', sources: ['a', 'b'], kind: 'scalar', optedIn: false },
-      { path: 'navigation.headingTrue', sources: ['a', 'b'], kind: 'angular', optedIn: false },
-      {
-        path: 'vessel.name',
-        sources: ['a', 'b'],
-        kind: 'other',
-        optedIn: false,
-        recommended: false,
-      },
-    ];
-    const { result } = renderHook(() => usePanelConfig(baseOptions, { current: baseOptions }));
-
-    act(() => {
-      result.current.addAllCombinable(rows);
-    });
-
-    const added = result.current.options.paths.map((p) => p.path);
-    expect(added).toContain('navigation.speedOverGround');
-    expect(added).toContain('navigation.headingTrue');
-    expect(added).not.toContain('vessel.name');
-  });
-
-  it('removePath removes the matching path from options.paths', () => {
-    const initial: PluginOptions = {
-      ...baseOptions,
-      paths: [{ path: 'navigation.position' }, { path: 'environment.depth.belowKeel' }],
-    };
-    const { result } = renderHook(() => usePanelConfig(initial, { current: initial }));
-
-    act(() => {
-      result.current.removePath('navigation.position');
-    });
-
-    const remaining = result.current.options.paths.map((p) => p.path);
-    expect(remaining).not.toContain('navigation.position');
-    expect(remaining).toContain('environment.depth.belowKeel');
+    expect(result.current.options).toBe(next);
   });
 });

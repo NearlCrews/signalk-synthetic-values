@@ -10,3 +10,9 @@
   flex: none;
   color: var(--snui-color-text-muted);
 }
+
+/* Doubled to outrank the shared Text rule it lands on: the note stays on one
+   line so the header actions wrap it whole. */
+.freshness.freshness {
+  white-space: nowrap;
+}

@@ -1,4 +1,6 @@
-import type { Attitude, Kind, LatLon, SampleValue } from './metrics';
+import type { AngularMode } from './config';
+import type { Attitude, AttitudeComponent, Kind, LatLon, SampleValue } from './metrics';
+import { ATTITUDE_COMPONENTS, mapAttitudeComponents } from './metrics';
 
 export type MetadataLookup = (contextPrefixedPath: string) => { units?: string } | undefined;
 
@@ -17,17 +19,14 @@ export function valueCategory(value: unknown): ValueCategory {
     return Number.isFinite(value) ? 'number' : 'invalid';
   }
   if (typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
     // Asymmetry is deliberate: an object carrying latitude or longitude keys
     // IS a position, so a partial one is a malformed (likely transient)
-    // sample and is dropped as 'invalid'. An object missing attitude
-    // components is simply a different shape, so it falls through to
-    // 'nonCombinable' like any other object.
-    if ('latitude' in obj || 'longitude' in obj) {
+    // sample and is dropped as 'invalid'. An attitude legitimately carries
+    // fewer than three components, so its test lives in isAttitudeLike.
+    if ('latitude' in value || 'longitude' in value) {
       return isLatLon(value) ? 'latlon' : 'invalid';
     }
-    if (isAttitude(value)) return 'attitude';
-    return 'nonCombinable';
+    return isAttitudeLike(value) ? 'attitude' : 'nonCombinable';
   }
   return 'nonCombinable';
 }
@@ -49,9 +48,11 @@ export type AngleFamily = 'fullCircle' | 'bounded' | 'unknown';
 
 // Full-circle quantities named exactly by the Signal K specification. Every
 // entry wraps at the 0 and 2pi seam, so all of them must combine circularly.
-// The wind and current angles belong here even though they are published on a
-// -pi..pi branch: they wrap at dead astern, which circular combining handles
-// natively.
+// The wind angles belong here even though they are published on a -pi..pi
+// branch: they wrap at dead astern, which circular combining handles natively.
+// The specification defines environment.current as one object, which is how
+// the stock mappers publish it and which this plugin does not combine; the two
+// set entries cover a publisher that splits it into its own paths.
 const FULL_CIRCLE_PATHS: ReadonlySet<string> = new Set([
   'navigation.headingTrue',
   'navigation.headingMagnetic',
@@ -79,7 +80,10 @@ const FULL_CIRCLE_PATHS: ReadonlySet<string> = new Set([
 // and `navigation.courseRhumbline` all carry the same bearing leaves, and the
 // v2 course API keeps adding to that shape. A prefix plus leaf rule covers
 // every present and future bearing in those subtrees without enumerating the
-// dozen names, and the anchored prefix stops it leaking anywhere else.
+// dozen names, and the anchored prefix stops it leaking anywhere else. The
+// `bearingToDestination` and `bearingOriginToDestination` leaves are the ones
+// the NMEA 0183 APB, BOD, and Seatalk mappers publish directly under
+// `navigation.courseRhumbline`.
 const COURSE_PREFIXES = [
   'navigation.course.calcValues.',
   'navigation.courseGreatCircle.',
@@ -91,6 +95,10 @@ const COURSE_BEARING_LEAVES: ReadonlySet<string> = new Set([
   'bearingTrackMagnetic',
   'bearingTrue',
   'bearingMagnetic',
+  'bearingToDestinationTrue',
+  'bearingToDestinationMagnetic',
+  'bearingOriginToDestinationTrue',
+  'bearingOriginToDestinationMagnetic',
 ]);
 
 // Radian paths the specification confines well inside one turn. Listing them
@@ -162,17 +170,47 @@ function isLatLon(v: unknown): v is LatLon {
   );
 }
 
-// A combinable attitude carries all three finite angular components. A partial
-// attitude (some components missing) is left non-combinable.
-function isAttitude(v: unknown): v is Attitude {
-  return (
-    typeof v === 'object' &&
-    v !== null &&
-    Number.isFinite((v as Attitude).roll) &&
-    Number.isFinite((v as Attitude).pitch) &&
-    Number.isFinite((v as Attitude).yaw)
-  );
+// A missing or non-finite component is absent rather than disqualifying:
+// n2k-signalk publishes a component the sensor does not measure as NaN, so a
+// heel sensor reads { roll, pitch, yaw: NaN }.
+function finiteComponent(value: object, c: AttitudeComponent): number | undefined {
+  const x: unknown = Reflect.get(value, c);
+  return typeof x === 'number' && Number.isFinite(x) ? x : undefined;
 }
+
+// An attitude carries at least one finite angular component, and nothing but a
+// number, null, or nothing at all under any component name.
+function isAttitudeLike(value: object): boolean {
+  let finite = 0;
+  for (const c of ATTITUDE_COMPONENTS) {
+    const x: unknown = Reflect.get(value, c);
+    if (typeof x === 'number') {
+      if (Number.isFinite(x)) finite++;
+    } else if (x !== undefined && x !== null) {
+      return false;
+    }
+  }
+  return finite > 0;
+}
+
+/**
+ * The attitude with only its finite components, which is what the combiner and
+ * the emitter expect. The same object comes back when nothing needs dropping,
+ * which is every reading from a full motion sensor.
+ */
+export function normalizeAttitude(value: object): Attitude {
+  const complete = ATTITUDE_COMPONENTS.every(
+    (c) => finiteComponent(value, c) !== undefined || Reflect.get(value, c) === undefined
+  );
+  return complete ? (value as Attitude) : mapAttitudeComponents((c) => finiteComponent(value, c));
+}
+
+// Shown in the panel, and written to the server log, for a path that reports
+// radians but is neither a known full-circle quantity nor a known bounded
+// angle, so scalar combining is a guess that publishes the reciprocal bearing
+// if the path in fact wraps.
+export const UNRECOGNIZED_ANGLE_ADVISORY =
+  'This path reports radians but is not a Signal K angle this plugin recognizes, so it is being averaged linearly. If it wraps at 360 degrees, such as a heading or a bearing, set Angular wrapping to Yes. If it does not, such as a rudder angle, set it to No.';
 
 export interface Classification {
   kind: Kind;
@@ -203,13 +241,13 @@ function scalarClassification(path: string): Classification {
 export function classify(
   path: string,
   value: SampleValue,
-  angularMode: 'auto' | 'yes' | 'no',
+  angularMode: AngularMode,
   getUnits: MetadataLookup,
   context: string
 ): Classification {
   if (isLatLon(value)) return { kind: 'position' };
-  if (isAttitude(value)) return { kind: 'attitude' };
-  if (typeof value !== 'number' || !Number.isFinite(value)) return { kind: 'other' };
+  if (typeof value === 'object') return { kind: isAttitudeLike(value) ? 'attitude' : 'other' };
+  if (!Number.isFinite(value)) return { kind: 'other' };
   // Both overrides are absolute, in both directions: 'yes' turns on circular
   // combining for a path the specification does not name, and 'no' turns it off
   // for one it does. They are the escape hatch when this classifier is wrong,

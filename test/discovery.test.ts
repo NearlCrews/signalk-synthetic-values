@@ -5,7 +5,8 @@ import { fakeClock } from './helpers';
 describe('Discovery', () => {
   it('reports a path only once it has two or more sources', () => {
     const d = new Discovery(fakeClock());
-    expect(d.observe('p', 'a')).toBe(true);
+    // A lone source changes nothing the detected list shows.
+    expect(d.observe('p', 'a')).toBe(false);
     expect(d.detected()).toEqual([]);
     expect(d.observe('p', 'b')).toBe(true);
     expect(d.observe('p', 'b')).toBe(false);
@@ -233,5 +234,76 @@ describe('Discovery duplicate detection across the window', () => {
 
   it('has no groups for an unknown path', () => {
     expect(new Discovery(fakeClock(0)).duplicateGroupsFor('nope')).toEqual([]);
+  });
+});
+
+describe('Discovery device identity', () => {
+  it('groups sources naming one NMEA 2000 device, whatever their values do', () => {
+    const d = new Discovery(fakeClock(0));
+    d.observe('p', 'canhat.c0788c00e7e04312', 4.1);
+    d.observe('p', 'YDEN02.C0788C00E7E04312', 4.2);
+    d.observe('p', 'YDEN02.c0788c00e7e04399', 4.3);
+    expect(d.duplicateGroupsFor('p')).toEqual([
+      ['canhat.c0788c00e7e04312', 'YDEN02.C0788C00E7E04312'],
+    ]);
+  });
+  it('merges a device group and a value group that share a source into one', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c);
+    // a.x and b.x name one device; c.y and d.y name another; b.x and c.y then
+    // report the same changing values, so all four are one feed.
+    for (let i = 0; i < 4; i++) {
+      c.set(i * 1000);
+      d.observe('p', 'a.0000000000000001', 100 + i * 7);
+      d.observe('p', 'b.0000000000000001', 10 + i);
+      d.observe('p', 'c.0000000000000002', 10 + i);
+      d.observe('p', 'd.0000000000000002', 200 + i * 3);
+    }
+    const groups = d.duplicateGroupsFor('p');
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.slice().sort()).toEqual([
+      'a.0000000000000001',
+      'b.0000000000000001',
+      'c.0000000000000002',
+      'd.0000000000000002',
+    ]);
+  });
+  it('leaves short suffixes such as N2K addresses and talker ids alone', () => {
+    const d = new Discovery(fakeClock(0));
+    d.observe('p', 'can0.43', 1);
+    d.observe('p', 'can1.43', 2);
+    expect(d.duplicateGroupsFor('p')).toEqual([]);
+  });
+});
+
+describe('Discovery change reporting and eviction', () => {
+  it('reports a change only when the multi-source set moves', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c, 3);
+    d.observe('multi', 'a');
+    d.observe('multi', 'b');
+    // New single-source paths fill and churn the store without touching the detected set.
+    for (const path of ['s1', 's2', 's3', 's4']) {
+      c.set(c.now() + 1);
+      expect(d.observe(path, 'a')).toBe(false);
+    }
+    expect(d.detectedPaths()).toEqual(['multi']);
+  });
+  it('evicts a tenth of the oldest single-source paths once the store is full', () => {
+    const c = fakeClock(0);
+    const d = new Discovery(c, 21);
+    for (let i = 0; i < 21; i++) {
+      c.set(i);
+      d.observe(`p${i}`, 'a');
+    }
+    c.set(100);
+    d.observe('p0', 'b'); // p0 now has two sources and is protected
+    d.observe('new', 'a');
+    d.observe('new', 'b');
+    // One eviction freed a tenth of the store's capacity, two paths: p1 and p2.
+    expect(d.detectedPaths().sort()).toEqual(['new', 'p0']);
+    // An evicted path comes back with one source; a kept one gains its second.
+    expect(d.observe('p1', 'b')).toBe(false);
+    expect(d.observe('p3', 'b')).toBe(true);
   });
 });

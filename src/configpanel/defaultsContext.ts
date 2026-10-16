@@ -5,12 +5,7 @@
 // DetectedPathRow, and TuneSection just to reach PerPathSettings.
 
 import { createContext, useContext } from 'react';
-import {
-  DEFAULT_EMIT_INTERVAL_MS,
-  DEFAULT_MAX_SOURCES_PER_PATH,
-  DEFAULT_MIN_SOURCES,
-  DEFAULT_STALENESS_MS,
-} from '../config.js';
+import { resolveTopLevel } from '../config.js';
 
 export interface PanelDefaults {
   minSources: number;
@@ -24,12 +19,24 @@ export interface PanelDefaults {
   maxSourcesPerPath: number;
 }
 
-export const PanelDefaultsContext = createContext<PanelDefaults>({
-  minSources: DEFAULT_MIN_SOURCES,
-  stalenessTimeoutMs: DEFAULT_STALENESS_MS,
-  emitMinIntervalMs: DEFAULT_EMIT_INTERVAL_MS,
-  maxSourcesPerPath: DEFAULT_MAX_SOURCES_PER_PATH,
-});
+/** The defaults a configuration's top-level settings resolve to. */
+export function panelDefaultsOf(options: {
+  defaultMinSources: number;
+  defaultStalenessTimeoutMs: number;
+  defaultEmitMinIntervalMs: number;
+  maxSourcesPerPath: number;
+}): PanelDefaults {
+  return {
+    minSources: options.defaultMinSources,
+    stalenessTimeoutMs: options.defaultStalenessTimeoutMs,
+    emitMinIntervalMs: options.defaultEmitMinIntervalMs,
+    maxSourcesPerPath: options.maxSourcesPerPath,
+  };
+}
+
+export const PanelDefaultsContext = createContext<PanelDefaults>(
+  panelDefaultsOf(resolveTopLevel({}))
+);
 
 export function usePanelDefaults(): PanelDefaults {
   return useContext(PanelDefaultsContext);

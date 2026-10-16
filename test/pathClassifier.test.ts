@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { angleFamily, classify, type MetadataLookup, valueCategory } from '../src/pathClassifier';
+import {
+  angleFamily,
+  classify,
+  type MetadataLookup,
+  normalizeAttitude,
+  valueCategory,
+} from '../src/pathClassifier';
 
 const rad: MetadataLookup = (p) =>
   p === 'vessels.self.navigation.headingTrue' ? { units: 'rad' } : undefined;
@@ -59,6 +65,11 @@ describe('classify: full-circle coverage', () => {
     'navigation.courseRhumbline.nextPoint.bearingMagnetic',
     'navigation.course.calcValues.bearingTrackTrue',
     'navigation.course.calcValues.bearingMagnetic',
+    // The NMEA 0183 APB, BOD, and Seatalk mappers publish these directly.
+    'navigation.courseRhumbline.bearingToDestinationTrue',
+    'navigation.courseRhumbline.bearingToDestinationMagnetic',
+    'navigation.courseRhumbline.bearingOriginToDestinationTrue',
+    'navigation.courseRhumbline.bearingOriginToDestinationMagnetic',
     'environment.current.setTrue',
     'environment.current.setMagnetic',
     'steering.autopilot.target.headingTrue',
@@ -170,13 +181,39 @@ describe('valueCategory', () => {
   it('attitude-like object is attitude', () => {
     expect(valueCategory({ roll: 0, pitch: 0, yaw: 0 })).toBe('attitude');
   });
-  it('a partial attitude (missing a component) is nonCombinable', () => {
-    expect(valueCategory({ roll: 0, pitch: 0 })).toBe('nonCombinable');
+  it('a heel sensor attitude (roll and pitch only) is attitude', () => {
+    expect(valueCategory({ roll: 0, pitch: 0 })).toBe('attitude');
+    // n2k-signalk publishes a component the sensor does not measure as NaN.
+    expect(valueCategory({ roll: 0.1, pitch: 0.2, yaw: Number.NaN })).toBe('attitude');
+    expect(valueCategory({ roll: 0.1, pitch: 0.2, yaw: null })).toBe('attitude');
+  });
+  it('an attitude with no finite component, or a non-number component, is nonCombinable', () => {
+    expect(valueCategory({ roll: Number.NaN, pitch: Number.NaN, yaw: Number.NaN })).toBe(
+      'nonCombinable'
+    );
+    expect(valueCategory({ roll: 0, pitch: 0, yaw: 'level' })).toBe('nonCombinable');
   });
   it('string is nonCombinable', () => {
     expect(valueCategory('sailing')).toBe('nonCombinable');
   });
   it('boolean is nonCombinable', () => {
     expect(valueCategory(true)).toBe('nonCombinable');
+  });
+});
+
+describe('normalizeAttitude', () => {
+  it('returns a complete attitude unchanged', () => {
+    const full = { roll: 0.1, pitch: 0.2, yaw: 1.5 };
+    expect(normalizeAttitude(full)).toBe(full);
+  });
+  it('drops a component that is missing or not finite', () => {
+    expect(normalizeAttitude({ roll: 0.1, pitch: 0.2, yaw: Number.NaN })).toEqual({
+      roll: 0.1,
+      pitch: 0.2,
+    });
+    expect(normalizeAttitude({ roll: 0.1, pitch: null, yaw: 1 })).toEqual({ roll: 0.1, yaw: 1 });
+  });
+  it('classifies a heel sensor reading as attitude', () => {
+    expect(kindOf('navigation.attitude', { roll: 0.1, pitch: 0.2 })).toBe('attitude');
   });
 });

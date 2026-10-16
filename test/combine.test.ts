@@ -144,6 +144,22 @@ describe('combine angular', () => {
   });
 });
 
+describe('combine angular branch', () => {
+  it('keeps a wind angle on the -pi..pi branch it arrived on', () => {
+    const r = combine([s('a', -0.5), s('b', -0.52)], { ...base, kind: 'angular' });
+    expect(r.value as number).toBeCloseTo(-0.51, 9);
+  });
+  it('keeps a heading on the 0..2pi branch beside a source that sends it signed', () => {
+    const r = combine([s('a', 6.2), s('b', -0.08)], { ...base, kind: 'angular' });
+    expect(r.value as number).toBeGreaterThan(Math.PI);
+  });
+  it('keeps a heading on the 0..2pi branch across north', () => {
+    const r = combine([s('a', toRadians(359)), s('b', toRadians(1))], { ...base, kind: 'angular' });
+    expect(r.value as number).toBeGreaterThanOrEqual(0);
+    expect(r.value as number).toBeLessThan(2 * Math.PI);
+  });
+});
+
 describe('combine attitude', () => {
   const att = (roll: number, pitch: number, yaw: number) => ({ roll, pitch, yaw });
 
@@ -162,6 +178,61 @@ describe('combine attitude', () => {
     // medoid per axis lands on the agreeing pair
     expect((v.yaw * 180) / Math.PI).toBeCloseTo(90, 4);
     expect((v.roll * 180) / Math.PI).toBeCloseTo(2, 4);
+  });
+
+  it('combines a heel sensor with full motion sensors over the components each reports', () => {
+    const r = combine(
+      [
+        s('imu1', att(0.1, 0.2, 1.5)),
+        s('imu2', att(0.1, 0.2, 1.5)),
+        s('heel', { roll: 0.1, pitch: 0.2 }),
+      ],
+      { ...base, kind: 'attitude' }
+    );
+    expect(r.outcome).toBe('ok');
+    expect(r.value).toEqual({ roll: 0.1, pitch: 0.2, yaw: 1.5 });
+  });
+
+  it('passes a component only one source reports through from it', () => {
+    // Preferring the synthetic attitude must not take the motion sensor's yaw away.
+    const r = combine([s('imu', att(0.1, 0.2, 1.5)), s('heel', { roll: 0.1, pitch: 0.2 })], {
+      ...base,
+      kind: 'attitude',
+    });
+    expect(r.outcome).toBe('ok');
+    expect(r.value).toEqual({ roll: 0.1, pitch: 0.2, yaw: 1.5 });
+  });
+
+  it('publishes nothing when no component has minSources sources behind it', () => {
+    const r = combine([s('a', { roll: 0.1 }), s('b', { yaw: 1 })], { ...base, kind: 'attitude' });
+    expect(r.outcome).toBe('belowMin');
+    expect(r.value).toBeUndefined();
+  });
+
+  it('returns a negative medoid exactly as it was read', () => {
+    const r = combine(
+      [s('a', att(-0.1, 0, 1)), s('b', att(-0.1, 0, 1)), s('c', att(-0.12, 0, 1))],
+      {
+        ...base,
+        kind: 'attitude',
+      }
+    );
+    expect((r.value as { roll: number }).roll).toBe(-0.1);
+  });
+
+  it('keeps a port heel negative rather than wrapping it to nearly a full turn', () => {
+    const two = combine([s('imu', att(-0.1, 0.02, 1.5)), s('heel', { roll: -0.1, pitch: 0.02 })], {
+      ...base,
+      kind: 'attitude',
+    });
+    expect(two.value).toEqual({ roll: -0.1, pitch: 0.02, yaw: 1.5 });
+    const split = combine([s('a', att(-0.1, -0.2, 1.5)), s('b', att(-0.12, -0.22, 1.5))], {
+      ...base,
+      kind: 'attitude',
+    });
+    const v = split.value as { roll: number; pitch: number };
+    expect(v.roll).toBeCloseTo(-0.11, 9);
+    expect(v.pitch).toBeCloseTo(-0.21, 9);
   });
 
   it('suppresses the whole attitude when any axis is too scattered', () => {

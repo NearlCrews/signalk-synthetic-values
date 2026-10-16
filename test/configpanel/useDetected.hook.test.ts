@@ -4,16 +4,10 @@
 // useDetected.test.ts.
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
 import { POLL_MS, useDetected } from '../../src/configpanel/hooks/useDetected.js';
+import { detectedRow, jsonResponse } from './helpers.js';
 
-function row(path: string): DetectedRow {
-  return { path, sources: ['a', 'b'], kind: 'scalar', optedIn: false };
-}
-
-function jsonResponse(body: unknown): Response {
-  return new Response(JSON.stringify(body), { status: 200 });
-}
+const row = (path: string) => detectedRow({ path });
 
 describe('useDetected hook', () => {
   beforeEach(() => {

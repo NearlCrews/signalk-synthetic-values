@@ -64,9 +64,7 @@ test('uses the fresh Match Admin default without persisting an implicit preferen
   await expect(root).not.toHaveAttribute('data-snui-theme');
   await expect(root).toHaveCSS('background-color', 'rgb(244, 246, 248)');
   await expect(themeChoice(page, 'auto')).toHaveAttribute('aria-checked', 'true');
-  await expect(page.getByText(/^last checked /)).toHaveText(
-    /^last checked (?:now|\d+ seconds? ago)$/
-  );
+  await expect(page.getByText(/^Checked /)).toHaveText(/^Checked (?:now|\d+ seconds? ago)$/);
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('signalk-nearlcrews-ui.theme.v1')))
     .toBeNull();
@@ -387,9 +385,10 @@ test('moves focus to the detected-paths heading after Combine all completes', as
 
 test('announces an unchanged manual refresh', async ({ page }) => {
   await page.getByRole('button', { name: 'Refresh detected paths' }).click();
-  await expect(
-    page.getByRole('region', { name: 'Detected multi-source paths' }).getByRole('status')
-  ).toHaveText('Detected paths refreshed.');
+  // Spoken through the polite region the panel shell mounts for every message.
+  await expect(page.locator('[data-live-announcer][role="status"]')).toContainText(
+    'Detected paths refreshed.'
+  );
 });
 
 test('ignores the retired legacy preference and supports every theme', async ({ page }) => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { PLUGIN_ID } from '../src/config';
 import { type EmitApp, Emitter } from '../src/emitter';
-import { fakeClock } from './helpers';
+import { fakeClock, fakeEmitApp } from './helpers';
 
 interface EmittedDelta {
   context?: unknown;
@@ -14,12 +15,12 @@ function sentDelta(app: EmitApp, call = 0): EmittedDelta {
 
 describe('Emitter', () => {
   it('emits a scalar delta with $source set as a bare string', () => {
-    const app: EmitApp = { handleMessage: vi.fn() };
-    const e = new Emitter(app, 'signalk-synthetic-values', fakeClock(0));
+    const app = fakeEmitApp();
+    const e = new Emitter(app, PLUGIN_ID, fakeClock(0));
     expect(e.due('environment.depth.belowTransducer', 1000)).toBe(true);
     e.emit('environment.depth.belowTransducer', 4.2);
     const delta = sentDelta(app);
-    expect(delta.updates[0].$source).toBe('signalk-synthetic-values');
+    expect(delta.updates[0].$source).toBe(PLUGIN_ID);
     expect(delta.updates[0].timestamp).toBeUndefined();
     expect(delta.context).toBeUndefined();
     expect(delta.updates[0].values[0]).toEqual({
@@ -28,7 +29,7 @@ describe('Emitter', () => {
     });
   });
   it('rate-limits within the interval', () => {
-    const app: EmitApp = { handleMessage: vi.fn() };
+    const app = fakeEmitApp();
     const c = fakeClock(0);
     const e = new Emitter(app, 'sv', c);
     expect(e.due('p', 1000)).toBe(true);
@@ -42,7 +43,7 @@ describe('Emitter', () => {
     expect(sentDelta(app, 1).updates[0].values[0].value).toBe(3);
   });
   it('emits a position value object', () => {
-    const app: EmitApp = { handleMessage: vi.fn() };
+    const app = fakeEmitApp();
     const e = new Emitter(app, 'sv', fakeClock(0));
     e.emit('navigation.position', { latitude: 1, longitude: 2 });
     const delta = sentDelta(app);
@@ -55,7 +56,7 @@ describe('Emitter', () => {
 
 describe('Emitter reset', () => {
   it('reset() clears rate-limit state so the next due() is true again', () => {
-    const app: EmitApp = { handleMessage: vi.fn() };
+    const app = fakeEmitApp();
     const c = fakeClock(0);
     const e = new Emitter(app, 'sv', c);
     e.emit('p', 1);

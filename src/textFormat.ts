@@ -7,7 +7,8 @@ export function oxfordJoin(items: string[]): string {
 
 // Plural suffix for a count: "" for exactly one, "s" otherwise. Used as
 // `path${plural(n)}` / `source${plural(n)}` so the `n !== 1 ? 's' : ''` idiom
-// lives in one place across the runtime status and the panel.
+// lives in one place in the runtime status. The panel uses the shared UI
+// package's formatCount and joinList instead; the Node bundle cannot import it.
 export function plural(n: number): string {
   return n === 1 ? '' : 's';
 }

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { MAX_SOURCES_PER_PATH } from '../src/bounds';
 import {
+  DEFAULT_ANGULAR_SPREAD_THRESHOLD,
   DEFAULT_JUMP_PERSIST_MS,
   DEFAULT_JUMP_PERSIST_SAMPLES,
   DEFAULT_MAX_SOURCES_PER_PATH,
   DEFAULT_MIN_SOURCES,
   DEFAULT_STALENESS_MS,
-  MAX_SOURCES_PER_PATH,
   type PluginOptions,
   validateConfig,
 } from '../src/config';
@@ -267,6 +268,15 @@ describe('validateConfig: value hardening', () => {
     const impossibleDefault = validateConfig({ ...opts([]), maxSourcesPerPath: 1 });
     expect(impossibleDefault.errors.some((error) => error.path === 'defaultMinSources')).toBe(true);
   });
+  it('falls back from a default minimum above the cap, so inheriting paths still combine', () => {
+    const r = validateConfig({
+      ...opts([{ path: 'a' }]),
+      defaultMinSources: 20,
+      maxSourcesPerPath: 16,
+    });
+    expect(r.errors.some((error) => error.path === 'defaultMinSources')).toBe(true);
+    expect(r.config.paths[0]?.minSources).toBe(DEFAULT_MIN_SOURCES);
+  });
   it('rejects a malformed jumpRejection object', () => {
     const wrongShape = validateConfig(opts([{ path: 'a', jumpRejection: 'fast' }]));
     expect(wrongShape.config.paths).toHaveLength(0);
@@ -281,5 +291,11 @@ describe('validateConfig: value hardening', () => {
     expect(cleared.errors).toHaveLength(0);
     expect(cleared.config.paths).toHaveLength(1);
     expect(cleared.config.paths[0].jumpRejection).toBeUndefined();
+  });
+});
+
+describe('defaults the panel quotes in words', () => {
+  it('keeps the angular spread default at a quarter turn, which the panel prints as pi/2', () => {
+    expect(DEFAULT_ANGULAR_SPREAD_THRESHOLD).toBe(Math.PI / 2);
   });
 });

@@ -1,27 +1,85 @@
+import { BOUNDS, inBounds } from './bounds';
 import type { Attitude, Kind, LatLon, SampleValue } from './metrics';
 import {
   ATTITUDE_COMPONENTS,
   angularDistance,
+  componentValues,
   distance,
   mapAttitudeComponents,
   maxPairwiseDistance,
+  onBranchOf,
   toDegrees,
   toRadians,
+  wrapLongitude,
+  wrapRadians,
 } from './metrics';
 
-const TWO_PI = 2 * Math.PI;
+// Single source of truth for the combine methods: the schema enum and the
+// config validator both derive from this tuple.
+export const COMBINE_METHODS = ['median', 'trimmedMean', 'mean'] as const;
+export type CombineMethod = (typeof COMBINE_METHODS)[number];
+// What combining one set of readings can conclude. Only these are reachable
+// from combine(); the damping stage adds its own outcome downstream, so an
+// exhaustive switch over a combine() result is not asked to handle a case the
+// combiner cannot produce.
+export type Outcome =
+  | 'ok'
+  | 'singleSource'
+  | 'belowMin'
+  | 'allStale'
+  | 'diverged'
+  | 'disagree'
+  | 'skipped';
+
+export interface Sample {
+  sourceRef: string;
+  value: SampleValue;
+}
+
+export interface CombineOptions {
+  kind: Kind;
+  method: CombineMethod;
+  minSources: number;
+  outlierRejection: boolean;
+  madThreshold: number;
+  rejectThreshold?: number | undefined;
+  disagreeThreshold?: number | undefined;
+  angularSpreadThreshold: number;
+  trimFraction: number;
+}
+
+export interface CombineResult {
+  value?: SampleValue;
+  usedSources: string[];
+  freshCount: number;
+  outcome: Outcome;
+  /** Max pairwise distance across the used readings, in the kind's units. */
+  spread?: number;
+  /**
+   * Fresh sources dropped by outlier rejection, so the caller can announce a
+   * failing sensor. Always present, empty when nothing was rejected, so a
+   * reader counts rather than reasoning about an absent array.
+   */
+  rejectedSources: string[];
+  /**
+   * Set when the published value sits in the gap between two groups of readings
+   * rather than inside one of them, so no source is anywhere near it.
+   */
+  unsupported?: true;
+}
 
 // Callers must pass non-empty arrays. Both mean and median answer NaN on an
 // empty one so the two agree on the illegal input rather than one returning a
 // plausible-looking zero.
-export function mean(xs: number[]): number {
-  if (xs.length === 0) return Number.NaN;
+export function mean(xs: ArrayLike<number>): number {
+  const n = xs.length;
+  if (n === 0) return Number.NaN;
   // Scale before summing so finite same-sign inputs cannot overflow. Neumaier
   // compensation reduces cancellation error without another allocation.
   let sum = 0;
   let correction = 0;
-  for (const x of xs) {
-    const scaled = x / xs.length;
+  for (let i = 0; i < n; i++) {
+    const scaled = (xs[i] as number) / n;
     const next = sum + scaled;
     correction += Math.abs(sum) >= Math.abs(scaled) ? sum - next + scaled : scaled - next + sum;
     sum = next;
@@ -29,9 +87,15 @@ export function mean(xs: number[]): number {
   return sum + correction;
 }
 
+// A typed copy sorts numerically by default, so there is no comparator to call
+// back into for every comparison. Callers pass finite values.
+function sortedCopy(xs: number[]): Float64Array {
+  return Float64Array.from(xs).sort();
+}
+
 export function median(xs: number[]): number {
   if (xs.length === 0) return Number.NaN;
-  const s = [...xs].sort((a, b) => a - b);
+  const s = sortedCopy(xs);
   const m = Math.floor(s.length / 2);
   // Callers pass non-empty arrays, so m and m - 1 are always in range.
   if (s.length % 2) return s[m] as number;
@@ -44,22 +108,13 @@ export function median(xs: number[]): number {
     : lower / 2 + upper / 2;
 }
 
+// validateConfig keeps trimFraction in range for the runtime; a direct caller
+// passing anything else gets the plain mean.
 export function trimmedMean(xs: number[], trimFraction: number): number {
-  const s = [...xs].sort((a, b) => a - b);
-  if (!Number.isFinite(trimFraction) || trimFraction < 0 || trimFraction >= 0.5) return mean(s);
+  if (!inBounds(trimFraction, BOUNDS.trimFraction)) return mean(xs);
+  const s = sortedCopy(xs);
   const k = Math.floor(s.length * trimFraction);
-  const kept = s.slice(k, s.length - k);
-  return mean(kept);
-}
-
-// Adding TWO_PI to a tiny negative remainder rounds back to exactly TWO_PI,
-// which is outside the [0, 2pi) range this promises and publishes a heading of
-// 360.000 degrees. The double modulo lands on 0 instead. An angle already in
-// range skips the modulo entirely, because the round trip is not exact: 0.1
-// comes back as 0.09999999999999964.
-function normalize2pi(a: number): number {
-  if (a >= 0 && a < TWO_PI) return a;
-  return ((a % TWO_PI) + TWO_PI) % TWO_PI;
+  return mean(s.subarray(k, s.length - k));
 }
 
 export function circularMeanRad(angles: number[]): { mean: number; R: number } {
@@ -70,7 +125,7 @@ export function circularMeanRad(angles: number[]): { mean: number; R: number } {
   // every caller, including the 'mean' method and the longitude path, gets the
   // exact reading back.
   if (first !== undefined && angles.every((a) => a === first)) {
-    return { mean: normalize2pi(first), R: 1 };
+    return { mean: wrapRadians(first), R: 1 };
   }
   let sumSin = 0;
   let sumCos = 0;
@@ -79,7 +134,7 @@ export function circularMeanRad(angles: number[]): { mean: number; R: number } {
     sumCos += Math.cos(a);
   }
   const R = Math.hypot(sumSin, sumCos) / angles.length;
-  return { mean: normalize2pi(Math.atan2(sumSin, sumCos)), R };
+  return { mean: wrapRadians(Math.atan2(sumSin, sumCos)), R };
 }
 
 export function maxCircularSpread(angles: number[]): number {
@@ -92,17 +147,28 @@ export function maxCircularSpread(angles: number[]): number {
 // order again.
 const MEDOID_TIE_EPSILON = 1e-12;
 
-// Circular medoid: the observed angle with the least total angular distance to
-// the others. It is the circular analogue of the median and returns an actual
-// reading, so a single off sensor cannot drag it the way the circular mean is
-// dragged. Ties resolve to the circular mean of the tied candidates, taken the
-// short way around, rather than to whichever source happened to register first:
-// with two sources that makes the result the bisector, so the second sensor
-// contributes instead of being discarded, and the output no longer moves when
-// delta arrival order changes.
+/**
+ * One walk of the pairwise matrix answers both questions an angular combine
+ * asks: the widest separation, which gates the output, and each angle's total
+ * distance to the others, which picks the medoid. Each pair is visited once.
+ */
+function pairwiseAngular(angles: number[]): { costs: number[]; spread: number } {
+  const costs = new Array<number>(angles.length).fill(0);
+  let spread = 0;
+  for (let i = 0; i < angles.length; i++) {
+    for (let j = i + 1; j < angles.length; j++) {
+      const separation = angularDistance(angles[i] as number, angles[j] as number);
+      costs[i] = (costs[i] as number) + separation;
+      costs[j] = (costs[j] as number) + separation;
+      if (separation > spread) spread = separation;
+    }
+  }
+  return { costs, spread };
+}
+
 // The medoid given the total angular distance from each angle to all the
-// others. Split out so a caller that already walked the pairwise matrix, as the
-// angular combine does for its spread, does not walk it a second time.
+// others, so a caller that already walked the pairwise matrix does not walk it
+// a second time.
 function medoidFromCosts(angles: number[], costs: number[]): number {
   let bestCost = Number.POSITIVE_INFINITY;
   for (const cost of costs) {
@@ -113,21 +179,29 @@ function medoidFromCosts(angles: number[], costs: number[]): number {
   for (const [i, cost] of costs.entries()) {
     if (cost <= bestCost + slack) tied.push(angles[i] as number);
   }
-  return circularMeanRad(tied).mean;
+  // One reading, or one value read several times, is returned as it was read,
+  // so the caller can place it on its branch exactly rather than after a
+  // round trip through [0, 2pi).
+  const first = tied[0] as number;
+  return tied.every((a) => a === first) ? first : circularMeanRad(tied).mean;
 }
 
+/**
+ * Circular medoid: the observed angle with the least total angular distance to
+ * the others. It is the circular analogue of the median and returns an actual
+ * reading, so a single off sensor cannot drag it the way the circular mean is
+ * dragged. Ties resolve to the circular mean of the tied candidates, taken the
+ * short way around, rather than to whichever source happened to register
+ * first: with two sources that makes the result the bisector, so the second
+ * sensor contributes instead of being discarded, and the output no longer moves
+ * when delta arrival order changes.
+ */
 export function circularMedoid(angles: number[]): number {
-  const costs = angles.map((a) => {
-    let cost = 0;
-    for (const b of angles) cost += angularDistance(a, b);
-    return cost;
-  });
-  return medoidFromCosts(angles, costs);
+  return medoidFromCosts(angles, pairwiseAngular(angles).costs);
 }
 
 function radiansToLonDegrees(rad: number): number {
-  const deg = toDegrees(rad);
-  return ((((deg + 180) % 360) + 360) % 360) - 180;
+  return wrapLongitude(toDegrees(rad));
 }
 
 // Circular mean of longitudes (antimeridian-safe). Single pass: convert each
@@ -167,7 +241,10 @@ export function robustCenter(kind: Kind, values: SampleValue[]): SampleValue {
   }
   if (kind === 'attitude') {
     const atts = values as Attitude[];
-    return mapAttitudeComponents((c) => circularMedoid(atts.map((attitude) => attitude[c])));
+    return mapAttitudeComponents((c) => {
+      const angles = componentValues(atts, c);
+      return angles.length > 0 ? circularMedoid(angles) : undefined;
+    });
   }
   return median(values as number[]);
 }
@@ -185,8 +262,20 @@ export function rejectMask(
   madThreshold: number | undefined,
   rejectThreshold?: number
 ): boolean[] {
+  return rejection(kind, values, madThreshold, rejectThreshold).mask;
+}
+
+// The rejection mask together with the robust center it measured from, so a
+// median combine that rejected nothing can publish that center rather than
+// computing the same median again.
+function rejection(
+  kind: Kind,
+  values: SampleValue[],
+  madThreshold: number | undefined,
+  rejectThreshold: number | undefined
+): { mask: boolean[]; center?: SampleValue | undefined } {
   const n = values.length;
-  if (n < 2) return new Array(n).fill(true);
+  if (n < 2) return { mask: new Array(n).fill(true) };
 
   const center = robustCenter(kind, values);
   const distances = values.map((v) => distance(kind, v, center));
@@ -201,66 +290,11 @@ export function rejectMask(
     }
     if (n >= 4 && scale > 0) threshold = madThreshold * scale;
   }
-  if (rejectThreshold != null) threshold = Math.min(threshold, rejectThreshold);
-  return Number.isFinite(threshold)
+  if (rejectThreshold !== undefined) threshold = Math.min(threshold, rejectThreshold);
+  const mask = Number.isFinite(threshold)
     ? distances.map((d) => d <= threshold)
     : new Array(n).fill(true);
-}
-
-// Single source of truth for the combine methods: the schema enum and the
-// config validator both derive from this tuple.
-export const COMBINE_METHODS = ['median', 'trimmedMean', 'mean'] as const;
-export type CombineMethod = (typeof COMBINE_METHODS)[number];
-// What combining one set of readings can conclude. Only these are reachable
-// from combine(); the damping stage adds its own outcome downstream, so an
-// exhaustive switch over a combine() result is not asked to handle a case the
-// combiner cannot produce.
-export type Outcome =
-  | 'ok'
-  | 'singleSource'
-  | 'belowMin'
-  | 'allStale'
-  | 'diverged'
-  | 'disagree'
-  | 'skipped';
-
-export interface Sample {
-  sourceRef: string;
-  value: SampleValue;
-  /** Receipt time of the source observation, when supplied by the runtime registry. */
-  receiptTs?: number;
-}
-
-export interface CombineOptions {
-  kind: Kind;
-  method: CombineMethod;
-  minSources: number;
-  outlierRejection: boolean;
-  madThreshold: number;
-  rejectThreshold?: number | undefined;
-  disagreeThreshold?: number | undefined;
-  angularSpreadThreshold: number;
-  trimFraction: number;
-}
-
-export interface CombineResult {
-  value?: SampleValue;
-  usedSources: string[];
-  freshCount: number;
-  outcome: Outcome;
-  /** Max pairwise distance across the used readings, in the kind's units. */
-  spread?: number;
-  /**
-   * Fresh sources dropped by outlier rejection, so the caller can announce a
-   * failing sensor. Always present, empty when nothing was rejected, so a
-   * reader counts rather than reasoning about an absent array.
-   */
-  rejectedSources: string[];
-  /**
-   * Set when the published value sits in the gap between two groups of readings
-   * rather than inside one of them, so no source is anywhere near it.
-   */
-  unsupported?: true;
+  return { mask, center };
 }
 
 // Mean resultant length below this means angles are too scattered to trust.
@@ -285,49 +319,55 @@ function combineAngular(
   angles: number[],
   opts: CombineOptions
 ): { value?: number; spread?: number } {
+  // Identical readings are the common case, and they come back exactly, on the
+  // branch they arrived on.
+  const first = angles[0];
+  if (first !== undefined && angles.every((a) => a === first)) {
+    return { value: onBranchOf(first, angles), spread: 0 };
+  }
   const { mean: cm, R } = circularMeanRad(angles);
   // Skip the O(n^2) spread loop when R already gates the output.
   if (R < R_MIN) return {};
-  // One walk of the pairwise matrix answers both questions: the widest
-  // separation gates the output, and the per-angle totals pick the medoid.
-  // Every separation is an atan2 over a sin and a cos, so walking it once
-  // rather than once per question is the bulk of the trig on an angular emit.
-  const costs = new Array<number>(angles.length).fill(0);
-  let spread = 0;
-  for (let i = 0; i < angles.length; i++) {
-    for (let j = i + 1; j < angles.length; j++) {
-      const separation = angularDistance(angles[i] as number, angles[j] as number);
-      costs[i] = (costs[i] as number) + separation;
-      costs[j] = (costs[j] as number) + separation;
-      if (separation > spread) spread = separation;
-    }
-  }
+  const { costs, spread } = pairwiseAngular(angles);
   if (spread > opts.angularSpreadThreshold) return { spread };
   // 'mean' averages (splits the difference); the robust methods both use the
   // circular medoid so a lone off reading does not drag the result. There is
   // no wrap-correct trimming, so 'median' and 'trimmedMean' are identical on
   // angular paths and trimFraction has no effect here.
-  return { value: opts.method === 'mean' ? cm : medoidFromCosts(angles, costs), spread };
+  const value = opts.method === 'mean' ? cm : medoidFromCosts(angles, costs);
+  return { value: onBranchOf(value, angles), spread };
 }
 
+/**
+ * Combine each attitude component over the sources that report it, so a heel
+ * sensor's roll and pitch combine with a full motion sensor's. At least one
+ * component must be reported by `minSources` sources, or nothing here is
+ * corroborated and nothing is published. Beside one that is, a component fewer
+ * sources report passes through from them: Signal K ranks sources for the
+ * whole `navigation.attitude` object, so leaving it out would take the motion
+ * sensor's yaw away from every consumer once the synthetic source is preferred.
+ * One scattered component suppresses the whole value.
+ */
 function combineAttitude(
   values: SampleValue[],
   opts: CombineOptions
 ): { value?: Attitude; outcome: Outcome; spread?: number } {
   const attitudes = values as Attitude[];
-  const value = {} as Attitude;
+  const value: Attitude = {};
   // The attitude pairwise distance is the max per-component angular distance,
   // so the max over the per-axis spreads is the pairwise spread.
   let spread = 0;
+  let corroborated = false;
   for (const component of ATTITUDE_COMPONENTS) {
-    const result = combineAngular(
-      attitudes.map((attitude) => attitude[component]),
-      opts
-    );
+    const angles = componentValues(attitudes, component);
+    if (angles.length === 0) continue;
+    if (angles.length >= opts.minSources) corroborated = true;
+    const result = combineAngular(angles, opts);
     if (result.value === undefined) return { outcome: 'diverged' };
     value[component] = result.value;
     if (result.spread !== undefined && result.spread > spread) spread = result.spread;
   }
+  if (!corroborated) return { outcome: 'belowMin' };
   return { value, outcome: 'ok', spread };
 }
 
@@ -345,14 +385,16 @@ function combinePosition(values: SampleValue[], opts: CombineOptions): LatLon {
 }
 
 // Returns { value, outcome, spread } where value is undefined when the output
-// diverged. The union is intentional: angular, attitude, and position paths
-// may decline to produce a value. `spread` is the max pairwise distance when
-// a kind already computed it (angular, attitude); the caller reuses it for
-// the disagree check instead of recomputing. The caller owns usedSources and
-// freshCount.
+// diverged. The union is intentional: angular and attitude paths may decline to
+// produce a value. `spread` is the max pairwise distance when a kind already
+// computed it (angular, attitude); the caller reuses it for the disagree check
+// instead of recomputing. `center` is a median the rejection stage already
+// computed over these same values, which a scalar or position median publishes
+// as is. The caller owns usedSources and freshCount.
 function computeValue(
   values: SampleValue[],
-  opts: CombineOptions
+  opts: CombineOptions,
+  center: SampleValue | undefined
 ): { value?: SampleValue; outcome: Outcome; spread?: number | undefined } {
   if (opts.kind === 'angular') {
     const r = combineAngular(values as number[], opts);
@@ -364,9 +406,12 @@ function computeValue(
     return combineAttitude(values, opts);
   }
   if (opts.kind === 'position') {
-    return { value: combinePosition(values, opts), outcome: 'ok' };
+    return { value: center ?? combinePosition(values, opts), outcome: 'ok' };
   }
-  return { value: linear(opts.method, values as number[], opts.trimFraction), outcome: 'ok' };
+  return {
+    value: center ?? linear(opts.method, values as number[], opts.trimFraction),
+    outcome: 'ok',
+  };
 }
 
 // A combined value counts as unsupported when its nearest reading is further
@@ -406,46 +451,52 @@ function isUnsupported(
   return nearest > SUPPORT_GAP_RATIO * spread;
 }
 
+interface Rejection {
+  used: Sample[];
+  usedValues: SampleValue[];
+  rejectedSources: string[];
+  /** The robust center, set only when nothing was rejected, so it describes `usedValues`. */
+  center?: SampleValue | undefined;
+}
+
 /**
  * Split the fresh samples into the ones that survive rejection and the source
  * refs of the ones that do not. An absolute `rejectThreshold` is a hard limit
  * rather than a statistical one, so it applies whether or not the statistical
- * rejection is switched on.
+ * rejection is switched on. A run that rejects nothing hands back the arrays it
+ * was given rather than copies of them.
  */
-function applyRejection(
-  samples: Sample[],
-  opts: CombineOptions
-): { used: Sample[]; rejectedSources: string[] } {
-  if (!opts.outlierRejection && opts.rejectThreshold == null) {
-    return { used: samples, rejectedSources: NOTHING_REJECTED };
+function applyRejection(samples: Sample[], values: SampleValue[], opts: CombineOptions): Rejection {
+  if (!opts.outlierRejection && opts.rejectThreshold === undefined) {
+    return { used: samples, usedValues: values, rejectedSources: NOTHING_REJECTED };
   }
-  // Only the rejection path needs the bare value array; build it here so a run
-  // with no rejection at all allocates nothing.
-  const mask = rejectMask(
+  const { mask, center } = rejection(
     opts.kind,
-    samples.map((s) => s.value),
+    values,
     opts.outlierRejection ? opts.madThreshold : undefined,
     opts.rejectThreshold
   );
-  const used = samples.filter((_, i) => mask[i]);
-  if (used.length === samples.length) return { used, rejectedSources: NOTHING_REJECTED };
-  return { used, rejectedSources: samples.filter((_, i) => !mask[i]).map((s) => s.sourceRef) };
+  if (mask.every(Boolean)) {
+    return { used: samples, usedValues: values, rejectedSources: NOTHING_REJECTED, center };
+  }
+  const used: Sample[] = [];
+  const usedValues: SampleValue[] = [];
+  const rejectedSources: string[] = [];
+  for (const [i, sample] of samples.entries()) {
+    if (mask[i]) {
+      used.push(sample);
+      usedValues.push(sample.value);
+    } else {
+      rejectedSources.push(sample.sourceRef);
+    }
+  }
+  return { used, usedValues, rejectedSources };
 }
 
 export function combine(samples: Sample[], opts: CombineOptions): CombineResult {
   const freshCount = samples.length;
   if (freshCount === 0) {
     return { usedSources: [], freshCount, outcome: 'allStale', rejectedSources: NOTHING_REJECTED };
-  }
-  const only = samples[0];
-  if (freshCount === 1 && only && opts.minSources <= 1) {
-    return {
-      value: only.value,
-      usedSources: [only.sourceRef],
-      freshCount,
-      outcome: 'singleSource',
-      rejectedSources: NOTHING_REJECTED,
-    };
   }
   if (freshCount < opts.minSources) {
     return {
@@ -456,7 +507,11 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
     };
   }
 
-  const { used, rejectedSources } = applyRejection(samples, opts);
+  const { used, usedValues, rejectedSources, center } = applyRejection(
+    samples,
+    samples.map((s) => s.value),
+    opts
+  );
   const usedSources = used.map((s) => s.sourceRef);
 
   // Rejection can whittle the used set below the configured minimum. Emitting
@@ -468,7 +523,7 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
   }
   if (used.length === 1) {
     return {
-      value: (used[0] as Sample).value,
+      value: usedValues[0] as SampleValue,
       usedSources,
       freshCount,
       outcome: 'singleSource',
@@ -476,9 +531,8 @@ export function combine(samples: Sample[], opts: CombineOptions): CombineResult 
     };
   }
 
-  // One values array, reused by computeValue, the spread, and the support test.
-  const usedValues = used.map((s) => s.value);
-  const computed = computeValue(usedValues, opts);
+  // A median that rejected nothing is the center rejection measured from.
+  const computed = computeValue(usedValues, opts, opts.method === 'median' ? center : undefined);
   if (computed.value === undefined) {
     const divergedSpread = computed.spread !== undefined ? { spread: computed.spread } : {};
     return {
@@ -518,7 +572,7 @@ function disagreement(
   outcome: Outcome,
   opts: CombineOptions
 ): { outcome: Outcome; unsupported?: true } {
-  if (opts.disagreeThreshold != null) {
+  if (opts.disagreeThreshold !== undefined) {
     return { outcome: spread > opts.disagreeThreshold ? 'disagree' : outcome };
   }
   if (isUnsupported(value, values, spread, opts.kind)) {

@@ -11,44 +11,18 @@ import { kindMeta } from '../../src/configpanel/kindMeta';
 // ---- kindMeta unit tests ----
 
 describe('kindMeta', () => {
-  it('returns the position label and neutral tone', () => {
-    const meta = kindMeta('position');
-    expect(meta.label).toBe('position');
-    expect(meta.tone).toBe('neutral');
-    expect(meta.srLabel).toContain('position');
+  it('gives every combinable kind the neutral tone and names it for a screen reader', () => {
+    for (const kind of ['position', 'angular', 'attitude', 'scalar', 'unknown'] as const) {
+      const meta = kindMeta(kind);
+      expect(meta.tone, kind).toBe('neutral');
+      expect(meta.srLabel, kind).toContain(kind);
+    }
   });
 
-  it('returns the angular label and neutral tone', () => {
-    const meta = kindMeta('angular');
-    expect(meta.label).toBe('angular');
-    expect(meta.tone).toBe('neutral');
-    expect(meta.srLabel).toContain('angular');
-  });
-
-  it('returns the scalar label and neutral tone', () => {
-    const meta = kindMeta('scalar');
-    expect(meta.label).toBe('scalar');
-    expect(meta.tone).toBe('neutral');
-  });
-
-  it('returns the other label and warning tone', () => {
+  it('marks other with the warning tone and says it cannot be combined', () => {
     const meta = kindMeta('other');
-    expect(meta.label).toBe('other');
     expect(meta.tone).toBe('warning');
-    expect(meta.srLabel).toContain('other');
-  });
-
-  it('returns the unknown label and neutral tone', () => {
-    const meta = kindMeta('unknown');
-    expect(meta.label).toBe('unknown');
-    expect(meta.tone).toBe('neutral');
-    expect(meta.srLabel).toContain('unknown');
-  });
-
-  it('falls back to neutral for an unrecognized kind and labels it unknown', () => {
-    const meta = kindMeta('something-else');
-    expect(meta.tone).toBe('neutral');
-    expect(meta.label).toBe('unknown');
+    expect(meta.srLabel).toContain('not combinable');
   });
 });
 
@@ -76,7 +50,7 @@ describe('sourceChips', () => {
   const sources = ['gps.1', 'gps.2', 'gps.3'];
 
   it('marks every source live when the path is not configured', () => {
-    expect(sourceChips(sources, [], undefined, false).map((c) => c.state)).toEqual([
+    expect(sourceChips(sources, [], [], false).map((c) => c.state)).toEqual([
       'live',
       'live',
       'live',
@@ -84,7 +58,7 @@ describe('sourceChips', () => {
   });
 
   it('marks a source the combiner no longer sees as stale', () => {
-    expect(sourceChips(sources, ['gps.1'], undefined, true)).toEqual([
+    expect(sourceChips(sources, ['gps.1'], [], true)).toEqual([
       { sourceRef: 'gps.1', state: 'live' },
       { sourceRef: 'gps.2', state: 'stale' },
       { sourceRef: 'gps.3', state: 'stale' },
@@ -105,11 +79,9 @@ describe('SourceChips', () => {
     document.body.innerHTML = '';
   });
 
-  const chipsFor = (
-    sources: string[],
-    fresh: string[] | undefined = undefined,
-    excluded: string[] | undefined = undefined
-  ) => sourceChips(sources, fresh, excluded, fresh !== undefined);
+  // Passing fresh sources means the path is combining, which is when freshness counts.
+  const chipsFor = (sources: string[], fresh?: string[], excluded: string[] = []) =>
+    sourceChips(sources, fresh ?? [], excluded, fresh !== undefined);
 
   const five = ['gps.1', 'gps.2', 'gps.3', 'gps.4', 'gps.5'];
 
@@ -171,36 +143,13 @@ describe('PriorityBanner', () => {
     document.body.innerHTML = '';
   });
 
-  it('renders when show is true', () => {
-    render(
-      createElement(PriorityBanner, {
-        show: true,
-        sourceLabel: 'signalk-synthetic-values',
-        onDismiss: vi.fn(),
-      })
-    );
+  it('renders a named region', () => {
+    render(createElement(PriorityBanner, { onDismiss: vi.fn() }));
     expect(screen.getByRole('region')).toBeInTheDocument();
   });
 
-  it('does not render when show is false', () => {
-    const { container } = render(
-      createElement(PriorityBanner, {
-        show: false,
-        sourceLabel: 'signalk-synthetic-values',
-        onDismiss: vi.fn(),
-      })
-    );
-    expect(container.firstChild).toBeNull();
-  });
-
   it('links to Data, Priorities and explains group fallback behavior', () => {
-    render(
-      createElement(PriorityBanner, {
-        show: true,
-        sourceLabel: 'signalk-synthetic-values',
-        onDismiss: vi.fn(),
-      })
-    );
+    render(createElement(PriorityBanner, { onDismiss: vi.fn() }));
     expect(screen.getByText(/signalk-synthetic-values/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /data, priorities/i })).toHaveAttribute(
       'href',
@@ -212,26 +161,14 @@ describe('PriorityBanner', () => {
 
   it('is dismissible via a button that calls onDismiss', () => {
     const onDismiss = vi.fn();
-    render(
-      createElement(PriorityBanner, {
-        show: true,
-        sourceLabel: 'signalk-synthetic-values',
-        onDismiss,
-      })
-    );
+    render(createElement(PriorityBanner, { onDismiss }));
     const dismissBtn = screen.getByRole('button', { name: /dismiss/i });
     fireEvent.click(dismissBtn);
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
   it('does not claim the source is "preferred"', () => {
-    render(
-      createElement(PriorityBanner, {
-        show: true,
-        sourceLabel: 'signalk-synthetic-values',
-        onDismiss: vi.fn(),
-      })
-    );
+    render(createElement(PriorityBanner, { onDismiss: vi.fn() }));
     expect(screen.queryByText(/preferred/i)).toBeNull();
   });
 });

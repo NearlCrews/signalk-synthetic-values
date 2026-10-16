@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Heel sensors combine. An attitude that reports roll and pitch with no yaw,
+  which n2k-signalk publishes with a NaN yaw, is now an attitude rather than an
+  object that cannot be combined. Each axis combines over the sources that
+  report it. At least one axis must be reported by `minSources` sources; beside
+  it, an axis fewer sources report passes through from them, so preferring the
+  combined attitude never takes a motion sensor's yaw away.
+- Sources naming the same NMEA 2000 device are counted once. A CAN Name seen
+  through two gateways, such as `canhat.c0788c00e7e04312` and
+  `YDEN02.c0788c00e7e04312`, is one sensor whatever its values do, so it can no
+  longer satisfy `minSources` on its own. This is the rule Signal K Server's
+  source priorities use.
+- The `navigation.position` row explains, and says how to fix, the double count
+  that Signal K Server 2.31 GNSS offset correction causes in **both** mode,
+  where each corrected antenna also appears as a `.ccrp` source.
+- The NMEA 0183 APB, BOD, and Seatalk rhumbline bearings
+  (`bearingToDestination` and `bearingOriginToDestination`, true and magnetic)
+  combine circularly instead of being averaged into a reciprocal.
+- `navigation.magneticVariationAgeOfService`, a timestamp, joins the GNSS fix
+  metadata as detected but not recommended.
+
 ### Changed
 
 - The official Signal K plugin workflow moves to its 2026-10-04 master commit,
@@ -51,6 +73,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Combine button for a path that cannot be combined now say why they are
   blocked, and the minimum-sources warning and the configuration-request
   messages are announced when they appear. The panel bundle is about 2.9 KB gzip smaller.
+- The detected-paths header shows the shared freshness note, "Checked 5
+  seconds ago", which turns into an out-of-date warning when three polls in a
+  row have not landed. Panel announcements go through the panel shell's own
+  live regions, so a repeated message is spoken again.
+- The panel stops its detection poll while the admin tab is hidden, and a poll
+  that changes one row re-renders only that row.
+- A source chip shows as excluded the moment its checkbox is cleared, rather
+  than after the next save and poll. `/api/detected` no longer sends
+  `excludedSources`, and every other row field is always present.
+- The status line is rebuilt only when an outcome changes, and a path waiting
+  on a slow source works out why once per availability sweep rather than on
+  every delta.
+- Once discovery tracks 200 paths it evicts its oldest single-source paths
+  twenty at a time, so a server publishing more paths than that no longer scans
+  the whole store again on every delta.
+- The configuration schema, the validator, and the panel's number fields read
+  their limits from one table. The admin form now accepts any positive
+  staleness timeout, as the validator always has.
+
+### Fixed
+
+- Combined roll, pitch, and wind angles stay on the -pi to pi range they
+  arrive on. Two sources agreeing on a port heel of -0.1 rad, or on a wind angle
+  to port, were published wrapped into 0 to 2pi, as 6.18 rad, and the slew
+  limiter did the same.
+- Two duplicate groups that share a source merge into one, so the combination
+  keeps one reading of that feed rather than one from each group.
+- A `defaultMinSources` above `maxSourcesPerPath` falls back to its default
+  instead of dropping every path that inherits it.
+- The panel's MAD threshold field refuses 0, which the plugin has always
+  rejected, instead of saving a value that drops the path.
+- The panel shows and saves the default the plugin applies when a top-level
+  setting is out of range, rather than the rejected value.
+- A path entry without a usable `path` is reported in the status line by its
+  position in the list, `paths[0]`, rather than as `undefined`.
+- The duplicate-feed note on a panel row says the combination counts those
+  sources once, which it has done since 0.6.0, rather than suggesting they be
+  excluded by hand.
 
 <a id="v060"></a>
 

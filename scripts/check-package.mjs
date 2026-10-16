@@ -29,6 +29,17 @@ const [packResult] = packResults;
 const files = new Set(packResult.files.map((file) => file.path));
 const normalizeDeclaredPath = (declaredPath) => declaredPath.replace(/^\.\//, '');
 
+// A path package.json declares must be package-relative and present in the tarball.
+function assertPackedPath(field, declaredPath, what) {
+  if (typeof declaredPath !== 'string' || !declaredPath.trim()) {
+    throw new Error(`${field} must declare a non-empty package-relative ${what}.`);
+  }
+  const packedPath = normalizeDeclaredPath(declaredPath.trim());
+  if (packedPath.startsWith('../') || packedPath.startsWith('/') || !files.has(packedPath)) {
+    throw new Error(`${field} does not resolve to packed file ${packedPath}.`);
+  }
+}
+
 for (const requiredPath of [
   'CHANGELOG.md',
   'LICENSE',
@@ -69,13 +80,7 @@ const declaredEntrypoints = [
   ],
 ];
 for (const [field, declaredPath] of declaredEntrypoints) {
-  if (typeof declaredPath !== 'string' || !declaredPath.trim()) {
-    throw new Error(`${field} must declare a non-empty package-relative entrypoint.`);
-  }
-  const packedPath = normalizeDeclaredPath(declaredPath.trim());
-  if (packedPath.startsWith('../') || packedPath.startsWith('/') || !files.has(packedPath)) {
-    throw new Error(`${field} does not resolve to packed file ${packedPath}.`);
-  }
+  assertPackedPath(field, declaredPath, 'entrypoint');
 }
 
 if (![...files].some((file) => /^public\/.+\.mjs$/.test(file))) {
@@ -99,13 +104,7 @@ const declaredAssets = [
   ...screenshots.map((declaredPath, index) => [`signalk.screenshots[${index}]`, declaredPath]),
 ];
 for (const [field, declaredPath] of declaredAssets) {
-  if (typeof declaredPath !== 'string' || !declaredPath.trim()) {
-    throw new Error(`${field} must declare a non-empty package-relative asset path.`);
-  }
-  const packedPath = normalizeDeclaredPath(declaredPath.trim());
-  if (packedPath.startsWith('../') || packedPath.startsWith('/') || !files.has(packedPath)) {
-    throw new Error(`${field} does not resolve to packed file ${packedPath}.`);
-  }
+  assertPackedPath(field, declaredPath, 'asset path');
 }
 
 const heroPath = normalizeDeclaredPath(screenshots[0]);

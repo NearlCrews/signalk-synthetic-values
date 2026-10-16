@@ -1,6 +1,8 @@
 import type * as React from 'react';
+import { useMemo } from 'react';
 import { CheckboxGroup } from 'signalk-nearlcrews-ui/composites';
 import type { RawPathConfigPatch } from '../../config.js';
+import { useSourceSplit } from '../hooks/useSourceSplit.js';
 
 interface Props {
   sources: string[];
@@ -10,16 +12,13 @@ interface Props {
 }
 
 /**
- * The sources feeding one path, as a checkbox group. A source is "on"
- * (included) unless it appears in excludeSources, or unless includeSources is
- * set and non-empty and the source is absent from it.
+ * The sources feeding one path, as a checkbox group. A source is checked when
+ * the runtime's own include and exclude rule lets it through.
  *
- * Include and exclude model: prefer the exclude model (all on, uncheck to
- * exclude). Preserve an existing non-empty include list until its final live
- * source is cleared, then switch to excluding every live source because the
- * runtime treats an empty include list as no filter. Every patch explicitly
- * clears the opposite model. The reconciliation stays here rather than in the
- * group, which reports a plain selection.
+ * Edits prefer the exclude model: all on, uncheck to exclude. An existing
+ * include list is kept until its last source is cleared, and because the
+ * runtime reads an empty include list as no filter at all, "nothing selected"
+ * is written as excluding every source. Every patch clears the other list.
  */
 export function SourceChecklist({
   sources,
@@ -27,22 +26,15 @@ export function SourceChecklist({
   excludeSources,
   onChange,
 }: Props): React.ReactElement {
-  const useIncludeModel = Array.isArray(includeSources) && includeSources.length > 0;
-  // Membership is asked once per source, so each list is hashed once rather
-  // than rescanned per source on every render and every toggle.
-  const listed = new Set(useIncludeModel ? includeSources : (excludeSources ?? []));
-  const selected = useIncludeModel
-    ? sources.filter((src) => listed.has(src))
-    : sources.filter((src) => !listed.has(src));
+  const { included: selected } = useSourceSplit(sources, { includeSources, excludeSources });
+  const options = useMemo(() => sources.map((value) => ({ label: value, value })), [sources]);
 
   function handleChange(next: readonly string[]): void {
     if (next.length === 0) {
-      // An empty include list means "no filter" to the runtime, so excluding
-      // every source is the only way to express "combine nothing".
       onChange({ includeSources: undefined, excludeSources: [...sources] });
       return;
     }
-    if (useIncludeModel) {
+    if (includeSources?.length) {
       onChange({ includeSources: [...next], excludeSources: undefined });
       return;
     }
@@ -59,7 +51,7 @@ export function SourceChecklist({
       emptyWarning="No sources are selected, so this path will not combine."
       legend="Sources"
       onValueChange={handleChange}
-      options={sources.map((value) => ({ label: value, value }))}
+      options={options}
       selectAllLabel="All sources"
       value={selected}
     />

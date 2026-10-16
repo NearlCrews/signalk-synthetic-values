@@ -85,7 +85,7 @@ Whole-source outlier rejection uses scaled MAD, and that statistic needs four or
 - **Scalar:** standard numeric combining. Median is robust; trimmed mean and mean are available.
 - **Angular:** headings, bearings, wind and current directions, and autopilot targets. Combines without the 0/360-degree wrap artifact, honoring the `method` setting: `median` (the default) uses the circular medoid, the reading closest to the others, so one off compass cannot drag the result, and with exactly two sources it returns the bisector of the two; `mean` uses the circular mean. Suppresses the synthetic value when the circular pairwise spread exceeds `angularSpreadThreshold`, so a sensor pointing 180 degrees from the rest does not produce a meaningless average.
 - **Position:** latitude/longitude pairs. Combines latitude with the selected linear statistic and longitude with an antimeridian-safe circular statistic. `mean` uses the circular mean, while `median` and `trimmedMean` use the robust circular medoid. Per-source geodesic-distance rejection keeps a phantom GPS fix from dragging the result, at four or more receivers through scaled MAD or at any count through `rejectThreshold`.
-- **Attitude:** the `navigation.attitude` object, with roll, pitch, and yaw combined independently as angular components. A source whose attitude is off on any axis is rejected on the same terms as the other kinds, and the synthetic value is suppressed if any axis is too scattered. This is the Signal K way to fuse several motion sensors into one attitude, then prefer it by source priority, the same outcome as selecting a source on a Garmin display.
+- **Attitude:** the `navigation.attitude` object, with roll, pitch, and yaw combined independently as angular components. A source whose attitude is off on any axis is rejected on the same terms as the other kinds, and the synthetic value is suppressed if any axis is too scattered. A heel sensor that reports roll and pitch with no yaw combines too: each axis is combined over the sources that report it. At least one axis must be reported by `minSources` sources; beside it, an axis fewer sources report passes through from them, so preferring the combined attitude never takes a motion sensor's yaw away. Roll, pitch, and the wind angles stay on the -pi to pi range they arrive on, and headings on 0 to 2pi. This is the Signal K way to fuse several motion sensors into one attitude, then prefer it by source priority, the same outcome as selecting a source on a Garmin display.
 
 A staleness timeout excludes sources that have not sent a fresh reading within the configured window. A one-second availability sweep updates status when every source goes quiet without periodically re-emitting the last combined value.
 
@@ -138,7 +138,9 @@ The shared UI requires native CSS `@scope`: Chromium and Edge 118 or newer,
 Firefox 146 or newer, or Safari 17.4 or newer. Older browsers and embedded
 WebViews receive a browser-update message instead of an unstyled panel.
 
-Sources that stop reporting age out of the detected list after one minute, but the combiner drops a source after its staleness timeout, which is one second by default. The row shows the difference: a source that has stopped reporting reads "no data", an excluded source reads "excluded", and the source count reads "2 of 3 sources combining" when they differ. A combined path with nothing live loses its green accent and reads "no live sources".
+The section header says when the list was last checked, for example "Checked 5 seconds ago". The panel polls every 10 seconds while its tab is visible and stops while it is hidden, and the note turns into an out-of-date warning when three polls in a row have not landed.
+
+Sources that stop reporting age out of the detected list after one minute, but the combiner drops a source after its staleness timeout, which is one second by default. The row shows the difference: a source that has stopped reporting reads "no data", an excluded source reads "excluded", and the source count reads "2 of 3 sources combining" when they differ. A source reads "excluded" as soon as its checkbox is cleared, before the edit is saved. A combined path with nothing live loses its green accent and reads "no live sources".
 
 Configured paths remain visible while offline, so they can still be tuned or removed while discovery is rebuilding. The per-source include and exclude checklist needs live sources, so it is hidden until the path reports again.
 
@@ -158,9 +160,9 @@ confirmation before the page is left while edits are still queued.
 Unknown top-level and per-path configuration fields are retained when the panel
 writes known settings, which keeps configurations forward compatible.
 
-Paths that are detected but not meaningful to average are grouped under **Detected but not recommended**. This covers two cases: values that are not supported combinable shapes (text and other objects, which cannot be averaged), and numeric GNSS fix metadata that describes a single receiver's solution rather than a measured quantity (the satellite count, dilution of precision, and differential-correction age and reference). A plotter shows GNSS metadata so you can judge the fix it is using, but averaging it across receivers is not meaningful, so it is kept out of "Combine all". You can still combine numeric GNSS metadata by hand if you have a reason to; text and unsupported objects remain disabled.
+Paths that are detected but not meaningful to average are grouped under **Detected but not recommended**. This covers two cases: values that are not supported combinable shapes (text and other objects, which cannot be averaged), and numeric metadata that describes one source's own state rather than a measured quantity: the GNSS satellite count, dilution of precision, and differential-correction age and reference, and the time a source last calculated magnetic variation. A plotter shows GNSS metadata so you can judge the fix it is using, but averaging it across receivers is not meaningful, so it is kept out of "Combine all". You can still combine numeric metadata by hand if you have a reason to; text and unsupported objects remain disabled.
 
-When two or more sources report identical values while the value is changing, the panel flags them as likely the same feed re-broadcast (for example a GPS forwarded by an autopilot under a second source name). Re-broadcast sources are not independent, so counting each one dilutes the combined value toward that single feed. The panel names the duplicates and suggests excluding all but one in the path's **Tune** section; it never excludes a source for you, since identical values can also be legitimate.
+When two or more sources look like one sensor under several names, either because they name the same NMEA 2000 device or because they report identical values while the value is changing (for example a GPS forwarded by an autopilot under a second source name), the panel row names them. A combination counts each such group once, as "Duplicate feeds" below describes, so a re-broadcast cannot outvote an independent sensor.
 
 After you opt in a path, the panel shows a priority reminder: you must still rank `signalk-synthetic-values` first in the relevant Signal K priority group for the combined value to win (see "Make the synthetic source win" below). The panel links to the group-based priority screen and offers a path-level override link, but it does not change priority for you.
 
@@ -171,6 +173,8 @@ Detected multi-source paths are also available programmatically at `GET /plugins
 The runtime honors the top-level options below. The current custom panel
 preserves existing values but does not edit them, and because the panel
 replaces the schema-generated form there is no fallback form to set them in.
+A value the runtime would refuse, such as a `defaultMinSources` of `0`, is
+shown and written back as the default the runtime applies in its place.
 To change one, edit `~/.signalk/plugin-config-data/signalk-synthetic-values.json`
 by hand and restart the server. `maxSourcesPerPath` in particular interacts with
 a panel field: the Minimum sources field will not accept a value above it,
@@ -281,6 +285,22 @@ groups sources that report the same values while those values are changing:
 two independent sensors do not match to full floating-point precision while
 moving, so an exact match is a re-broadcast. Each group is collapsed to one
 reading before combining, and the panel row says which sources look duplicated.
+
+Sources that name the same NMEA 2000 device are grouped the same way whatever
+their values do. A device's CAN Name is the sixteen hex digits that end its
+source reference, so `canhat.c0788c00e7e04312` and `YDEN02.c0788c00e7e04312`
+are one sensor seen through two gateways. Signal K Server's source priorities
+match devices by the same rule. A short suffix, such as an NMEA 2000 address or
+an NMEA 0183 talker, is not unique across gateways and is left alone.
+
+Signal K Server 2.31 and later can correct each GNSS antenna's position to the
+vessel's reference point. With that correction set to **both**, the server
+publishes the corrected copy under a `.ccrp` source beside the raw one, so each
+corrected antenna would be counted twice. The copy is named after the sensor's
+label rather than its source, so the plugin cannot pair the two and does not
+drop either for you; the `navigation.position` row says so instead. Exclude
+either the `.ccrp` sources or the raw ones, or set the correction to
+**replace**, which rewrites the raw position in place.
 
 The technique has one limit worth planning around. A value that has been
 quantized on the way round is no longer an exact match, so it is not detected.

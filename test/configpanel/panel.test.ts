@@ -6,6 +6,7 @@ import { PANEL_LABEL_DEFAULTS } from 'signalk-nearlcrews-ui';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PluginOptions } from '../../src/config.js';
 import PluginConfigurationPanel from '../../src/configpanel/PluginConfigurationPanel.js';
+import { detectedRow, jsonResponse } from './helpers.js';
 
 const SAVE_LABELS = PANEL_LABEL_DEFAULTS.saveActionBar;
 
@@ -32,28 +33,15 @@ const baseConfig: PluginOptions = {
 
 const detectedPayload = {
   paths: [
-    {
-      path: combinedPath,
-      sources: ['gps.1', 'gps.2'],
-      kind: 'scalar',
-      optedIn: true,
-    },
-    {
-      path: availablePath,
-      sources: ['compass.1', 'compass.2'],
-      kind: 'scalar',
-      optedIn: false,
-    },
+    detectedRow({ path: combinedPath, sources: ['gps.1', 'gps.2'], optedIn: true }),
+    detectedRow({ path: availablePath, sources: ['compass.1', 'compass.2'] }),
   ],
 };
 
 function mockFetch(): void {
   global.fetch = vi.fn().mockImplementation((url: string) => {
     if (typeof url === 'string' && url.includes('/detected')) {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve(detectedPayload),
-      });
+      return Promise.resolve(jsonResponse(detectedPayload));
     }
     return Promise.reject(new Error(`unexpected fetch: ${String(url)}`));
   });

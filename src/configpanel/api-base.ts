@@ -1,13 +1,10 @@
-// Panel-shared utilities: the API base path plus the small helpers every
-// panel hook and component would otherwise re-implement. Deliberately free of
-// runtime-plugin imports so the browser bundle does not drag Node-side
-// constants along.
+// Panel-shared utilities: the API base path plus the small helpers every panel
+// hook and component would otherwise re-implement. The plugin id comes from the
+// config module, which is browser-safe and already part of the panel bundle.
 
-const apiBase = '/plugins/signalk-synthetic-values/api';
+import { PLUGIN_ID } from '../config.js';
 
-// The source name the plugin publishes combined values under. Shared by the
-// priority banner and the per-row priority instruction so the two cannot drift.
-export const PLUGIN_SOURCE_LABEL = 'signalk-synthetic-values';
+const apiBase = `/plugins/${PLUGIN_ID}/api`;
 
 /**
  * Fetch a panel API endpoint and parse the JSON body. Throws on a non-ok

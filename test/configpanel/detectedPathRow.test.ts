@@ -6,31 +6,32 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RawPathConfig } from '../../src/config.js';
 import { DetectedPathRow } from '../../src/configpanel/components/DetectedPathRow.js';
 import type { DetectedRow } from '../../src/configpanel/hooks/useDetected.js';
+import { detectedRow } from './helpers.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const availableRow: DetectedRow = {
+const availableRow = detectedRow({
   path: 'navigation.speedOverGround',
   sources: ['gps.1', 'gps.2'],
   kind: 'scalar',
   optedIn: false,
-};
+});
 
-const optedInRow: DetectedRow = {
+const optedInRow = detectedRow({
   path: 'navigation.headingTrue',
   sources: ['compass.1', 'compass.2', 'compass.3'],
   kind: 'angular',
   optedIn: true,
-};
+});
 
-const otherRow: DetectedRow = {
+const otherRow = detectedRow({
   path: 'vessel.name',
   sources: ['ais.0', 'ais.1'],
   kind: 'other',
   optedIn: false,
-};
+});
 
 const optedInConfig: RawPathConfig = {
   path: 'navigation.headingTrue',
@@ -336,7 +337,7 @@ describe('DetectedPathRow: not-recommended row', () => {
     document.body.innerHTML = '';
   });
 
-  const metadataRow: DetectedRow = {
+  const metadataRow = detectedRow({
     path: 'navigation.gnss.satellites',
     sources: ['gps.1', 'gps.2'],
     kind: 'scalar',
@@ -344,7 +345,7 @@ describe('DetectedPathRow: not-recommended row', () => {
     combinable: true,
     recommended: false,
     advisory: 'GNSS fix metadata. It describes one receiver, so averaging it is not meaningful.',
-  };
+  });
 
   it('keeps the Combine button enabled but shows the advisory', () => {
     render(
@@ -372,10 +373,10 @@ describe('DetectedPathRow: duplicate sources hint', () => {
   });
 
   it('shows a hint naming the duplicated sources', () => {
-    const row: DetectedRow = {
+    const row = detectedRow({
       ...availableRow,
       duplicateGroups: [['gps.1', 'gps.2']],
-    };
+    });
     render(
       createElement(DetectedPathRow, {
         row,
@@ -386,7 +387,7 @@ describe('DetectedPathRow: duplicate sources hint', () => {
         onUpdate: vi.fn(),
       })
     );
-    expect(screen.getByText(/identical values and may be the same feed/i)).toBeInTheDocument();
+    expect(screen.getByText(/look like one sensor/i)).toBeInTheDocument();
     expect(screen.getByText(/gps\.1 and gps\.2/i)).toBeInTheDocument();
   });
 
@@ -401,7 +402,7 @@ describe('DetectedPathRow: duplicate sources hint', () => {
         onUpdate: vi.fn(),
       })
     );
-    expect(screen.queryByText(/may be the same feed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/look like one sensor/i)).not.toBeInTheDocument();
   });
 });
 
@@ -414,21 +415,20 @@ describe('DetectedPathRow: a stale source is not a contributing one', () => {
     document.body.innerHTML = '';
   });
 
-  const row = (freshSources: string[], excludedSources: string[] = []): DetectedRow => ({
-    path: 'environment.depth.belowKeel',
-    sources: ['sounder.1', 'sounder.2', 'sounder.3'],
-    freshSources,
-    excludedSources,
-    kind: 'scalar',
-    optedIn: true,
-  });
+  const row = (freshSources: string[]): DetectedRow =>
+    detectedRow({
+      path: 'environment.depth.belowKeel',
+      sources: ['sounder.1', 'sounder.2', 'sounder.3'],
+      freshSources,
+      optedIn: true,
+    });
 
-  function renderRow(r: DetectedRow) {
+  function renderRow(r: DetectedRow, config: RawPathConfig = { path: r.path }) {
     return render(
       createElement(DetectedPathRow, {
         row: r,
         optedIn: true,
-        config: { path: r.path },
+        config,
         onAdd: vi.fn(),
         onRemove: vi.fn(),
         onUpdate: vi.fn(),
@@ -446,8 +446,9 @@ describe('DetectedPathRow: a stale source is not a contributing one', () => {
     expect(screen.getByText('sounder.3, no data')).toBeInTheDocument();
   });
 
-  it('marks an excluded source as excluded, not as missing', () => {
-    renderRow(row(['sounder.1', 'sounder.2'], ['sounder.3']));
+  it('marks an excluded source as excluded, not as missing, straight from the edited config', () => {
+    const r = row(['sounder.1', 'sounder.2']);
+    renderRow(r, { path: r.path, excludeSources: ['sounder.3'] });
     expect(screen.getByText('sounder.3, excluded')).toBeInTheDocument();
   });
 

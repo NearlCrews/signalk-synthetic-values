@@ -1,56 +1,37 @@
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import type { PluginOptions, RawPathConfig, RawPathConfigPatch } from '../../config.js';
-import {
-  DEFAULT_EMIT_INTERVAL_MS,
-  DEFAULT_MAX_SOURCES_PER_PATH,
-  DEFAULT_MIN_SOURCES,
-  DEFAULT_NOTIFICATIONS,
-  DEFAULT_STALENESS_MS,
-} from '../../config.js';
+import { resolveTopLevel } from '../../config.js';
+import { isRecord } from '../../guards.js';
 import { jsonEqual } from '../api-base.js';
-import { type DetectedRow, isRecommendedCombinable } from './useDetected.js';
+import type { DetectedRow } from './useDetected.js';
 
 function isRawPathConfig(value: unknown): value is RawPathConfig {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const path = Reflect.get(value, 'path');
-  return typeof path === 'string' && path.trim().length > 0;
+  return isRecord(value) && typeof value.path === 'string' && value.path.trim().length > 0;
 }
 
 /**
  * Normalize the host-supplied configuration into a complete PluginOptions.
  * The Signal K admin UI passes whatever is currently saved, which on a fresh
- * install is undefined or an empty object with no `paths`. Every field is
- * defaulted here to the same values the schema and validateConfig use, so the
- * panel never reads `paths` off undefined.
+ * install is undefined or an empty object with no `paths`. Each top-level
+ * setting resolves exactly as the runtime resolves it, so a value the runtime
+ * would refuse is neither shown as a default nor written back.
  */
 export function normalizeOptions(configuration?: unknown): PluginOptions {
-  const source =
-    typeof configuration === 'object' && configuration !== null && !Array.isArray(configuration)
-      ? (configuration as Record<string, unknown>)
-      : {};
+  const source = isRecord(configuration) ? configuration : {};
   return {
     // Preserve fields added by a newer plugin or hand-maintained config. The
     // panel owns only the fields below and must not erase unknown settings when
     // it writes an edited path list back through Signal K Admin.
     ...source,
-    defaultStalenessTimeoutMs:
-      typeof source.defaultStalenessTimeoutMs === 'number'
-        ? source.defaultStalenessTimeoutMs
-        : DEFAULT_STALENESS_MS,
-    defaultEmitMinIntervalMs:
-      typeof source.defaultEmitMinIntervalMs === 'number'
-        ? source.defaultEmitMinIntervalMs
-        : DEFAULT_EMIT_INTERVAL_MS,
-    defaultMinSources:
-      typeof source.defaultMinSources === 'number' ? source.defaultMinSources : DEFAULT_MIN_SOURCES,
-    maxSourcesPerPath:
-      typeof source.maxSourcesPerPath === 'number'
-        ? source.maxSourcesPerPath
-        : DEFAULT_MAX_SOURCES_PER_PATH,
-    notifications:
-      typeof source.notifications === 'boolean' ? source.notifications : DEFAULT_NOTIFICATIONS,
+    ...resolveTopLevel(source),
     paths: Array.isArray(source.paths) ? source.paths.filter(isRawPathConfig) : [],
-  } as PluginOptions;
+  };
+}
+
+// Every key whose value is not undefined, in the original order, so a merged
+// entry compares equal to the one it came from when nothing changed.
+function definedOnly<T extends object>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as T;
 }
 
 // -- Pure state transitions ---------------------------------------------------
@@ -68,10 +49,10 @@ export function applyAddPath(options: PluginOptions, path: string): PluginOption
 
 /**
  * Append a minimal `{ path }` entry for every recommended row whose path is
- * not already present. Rows the server flags as not recommended (text values
- * and GNSS fix metadata) are skipped, so "Combine all" never opts in a path
- * that is not meaningful to average. Returns the same object reference when
- * there is nothing to add.
+ * not already present. Rows the server flags as not recommended (text values,
+ * per-source metadata, and unplaced angles) are skipped, so "Combine all" never
+ * opts in a path that is not meaningful to average. Returns the same object
+ * reference when there is nothing to add.
  */
 export function applyAddAllCombinable(
   options: PluginOptions,
@@ -80,7 +61,7 @@ export function applyAddAllCombinable(
   const existing = new Set(options.paths.map((p) => p.path));
   const added: RawPathConfig[] = [];
   for (const row of rows) {
-    if (!isRecommendedCombinable(row) || existing.has(row.path)) continue;
+    if (!row.recommended || existing.has(row.path)) continue;
     existing.add(row.path);
     added.push({ path: row.path });
   }
@@ -101,28 +82,25 @@ export function applyRemovePath(options: PluginOptions, path: string): PluginOpt
  * Merge `patch` into the entry matching `path`. A patch value of `undefined`
  * removes that key from the entry (so the plugin default re-applies). A patch
  * value of any defined type merges as before. Returns the same object
- * reference when the path is not present.
+ * reference when the path is not present or the patch changes nothing, which
+ * is every keystroke that leaves a number field on the value it already holds.
  */
 export function applyUpdatePath(
   options: PluginOptions,
   path: string,
   patch: RawPathConfigPatch
 ): PluginOptions {
-  if (!options.paths.some((p) => p.path === path)) return options;
-  return {
-    ...options,
-    paths: options.paths.map((p) => {
-      if (p.path !== path) return p;
-      // Merge the patch over the existing entry, then drop any key the patch set
-      // to `undefined` so the plugin default re-applies (satisfies
-      // exactOptionalPropertyTypes). RawPathConfigPatch excludes `path`.
-      const next = { ...p, ...patch } as Record<string, unknown>;
-      for (const k of Object.keys(next)) {
-        if (next[k] === undefined) delete next[k];
-      }
-      return next as unknown as RawPathConfig;
-    }),
-  };
+  const index = options.paths.findIndex((p) => p.path === path);
+  const current = options.paths[index];
+  if (current === undefined) return options;
+  // Merge the patch over the existing entry, then drop any key the patch set to
+  // `undefined` so the plugin default re-applies. RawPathConfigPatch excludes
+  // `path`, so the merged entry keeps it.
+  const next = definedOnly({ ...current, ...patch }) as RawPathConfig;
+  if (jsonEqual(next, current)) return options;
+  const paths = [...options.paths];
+  paths[index] = next;
+  return { ...options, paths };
 }
 
 // -- Hook API -----------------------------------------------------------------
@@ -130,16 +108,16 @@ export function applyUpdatePath(
 export interface UsePanelConfigResult {
   /** Current form state: the full PluginOptions being edited. */
   options: PluginOptions;
-  addPath: (path: string) => void;
-  addAllCombinable: (rows: ReadonlyArray<DetectedRow>) => void;
-  removePath: (path: string) => void;
-  /** Replaces the form state, for a Discard that returns to the last requested snapshot. */
+  /**
+   * Replace the form state. Every edit computes its next snapshot with a pure
+   * transition above, because the save queue needs that snapshot synchronously,
+   * so the hook takes the result rather than computing it a second time.
+   */
   replaceOptions: (next: PluginOptions) => void;
-  updatePath: (path: string, patch: RawPathConfigPatch) => void;
 }
 
 /**
- * Form state and save flow for the config panel.
+ * Form state for the config panel.
  *
  * Holds the full `PluginOptions` (not just `paths`) so top-level defaults are
  * preserved on every save. The pure transitions (`applyAddPath`, etc.) are
@@ -147,9 +125,8 @@ export interface UsePanelConfigResult {
  *
  * `lastRequestedRef` is the panel's last-requested baseline. The admin host
  * immediately echoes a panel save request back as a fresh `configuration`
- * object; comparing the incoming
- * prop against the baseline tells a self-save echo (skip, keep local edits)
- * apart from a genuine external change (resync).
+ * object; comparing the incoming prop against the baseline tells a self-save
+ * echo (skip, keep local edits) apart from a genuine external change (resync).
  */
 export function usePanelConfig(
   configuration: unknown,
@@ -169,25 +146,6 @@ export function usePanelConfig(
     }
   }
 
-  const addPath = useCallback((path: string): void => {
-    setOptions((prev) => applyAddPath(prev, path));
-  }, []);
-
-  const addAllCombinable = useCallback((rows: ReadonlyArray<DetectedRow>): void => {
-    setOptions((prev) => applyAddAllCombinable(prev, rows));
-  }, []);
-
-  const removePath = useCallback((path: string): void => {
-    setOptions((prev) => applyRemovePath(prev, path));
-  }, []);
-
-  const updatePath = useCallback((path: string, patch: RawPathConfigPatch): void => {
-    setOptions((prev) => applyUpdatePath(prev, path, patch));
-  }, []);
-
-  const replaceOptions = useCallback((next: PluginOptions): void => {
-    setOptions(next);
-  }, []);
-
-  return { options, addPath, addAllCombinable, removePath, replaceOptions, updatePath };
+  // A state setter is stable for the life of the component, so it is handed out as is.
+  return { options, replaceOptions: setOptions };
 }

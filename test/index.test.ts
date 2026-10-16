@@ -1,6 +1,7 @@
 // test/index.test.ts
 import type { Plugin, ServerAPI } from '@signalk/server-api';
 import { describe, expect, it, vi } from 'vitest';
+import { PLUGIN_ID } from '../src/config';
 import createPlugin from '../src/index';
 import { toDegrees, toRadians } from '../src/metrics';
 
@@ -15,7 +16,6 @@ interface DetectedApiResponse {
     path: string;
     sources: string[];
     freshSources: string[];
-    excludedSources: string[];
     optedIn: boolean;
     kind: string;
     combinable: boolean;
@@ -151,7 +151,7 @@ describe('plugin integration', () => {
     h.fire(delta(h.app.selfContext, 'gps2', 'environment.depth.belowTransducer', 12));
     const last = h.emitted[h.emitted.length - 1];
     expect(last.updates[0].values[0].value).toBe(11);
-    expect(last.updates[0].$source).toBe('signalk-synthetic-values');
+    expect(last.updates[0].$source).toBe(PLUGIN_ID);
     expect(h.app.debug).toHaveBeenCalledWith(expect.stringContaining('Data, Priorities'));
   });
 
@@ -163,7 +163,7 @@ describe('plugin integration', () => {
     h.fire(delta(h.app.selfContext, 'b', 'p', 20));
     const countAfterTwo = h.emitted.length;
     // Feed back the synthetic source: must be ignored, so no new distinct combine from it.
-    h.fire(delta(h.app.selfContext, 'signalk-synthetic-values', 'p', 999));
+    h.fire(delta(h.app.selfContext, PLUGIN_ID, 'p', 999));
     expect(h.emitted.length).toBe(countAfterTwo);
   });
 
@@ -402,7 +402,7 @@ describe('plugin integration', () => {
       delta(h.app.selfContext, 'src2', 'navigation.attitude', { roll: 0.1, pitch: 0.2, yaw: 1.5 })
     );
     const last = h.emitted[h.emitted.length - 1];
-    expect(last.updates[0].$source).toBe('signalk-synthetic-values');
+    expect(last.updates[0].$source).toBe(PLUGIN_ID);
     // Both sources agree, so each component combines to its shared value.
     expect(last.updates[0].values[0].value).toEqual({ roll: 0.1, pitch: 0.2, yaw: 1.5 });
   });
@@ -874,7 +874,7 @@ describe('plugin: confidence reaches a consumer that only reads the value', () =
 describe('plugin: the detected row separates live sources from listed ones', () => {
   const path = 'environment.depth.belowKeel';
 
-  it('reports fresh and excluded sources for a configured path', () => {
+  it('reports only the sources the filter lets through as fresh', () => {
     const h = makeApp();
     const plugin = PluginFactory(h.app);
     const router = h.captureRouter(plugin);
@@ -883,7 +883,6 @@ describe('plugin: the detected row separates live sources from listed ones', () 
     const row = h.routerGet(router, '/api/detected').paths[0];
     expect(row?.sources.slice().sort()).toEqual(['a', 'b', 'c']);
     expect(row?.freshSources?.slice().sort()).toEqual(['a', 'b']);
-    expect(row?.excludedSources).toEqual(['c']);
   });
 
   it('reports no freshness for a path that is not configured', () => {
@@ -894,7 +893,6 @@ describe('plugin: the detected row separates live sources from listed ones', () 
     for (const src of ['a', 'b']) h.fire(delta(h.app.selfContext, src, path, 5));
     const row = h.routerGet(router, '/api/detected').paths[0];
     expect(row?.freshSources).toEqual([]);
-    expect(row?.excludedSources).toEqual([]);
   });
 
   it('reports the kind actually in force, not discovery automatic guess', () => {
@@ -993,5 +991,126 @@ describe('plugin: an unrecognized radian path that is not opted in', () => {
     expect(h.app.setPluginStatus).not.toHaveBeenCalledWith(
       expect.stringContaining('Set angular wrapping on')
     );
+  });
+});
+
+describe('plugin: a heel sensor combines with a full motion sensor', () => {
+  it('publishes every component some source reports, and never a NaN', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    start(plugin, [{ path: 'navigation.attitude' }]);
+    h.fire(
+      delta(h.app.selfContext, 'imu', 'navigation.attitude', { roll: 0.1, pitch: 0.2, yaw: 1.5 })
+    );
+    // n2k-signalk publishes the yaw a heel sensor does not measure as NaN.
+    h.fire(
+      delta(h.app.selfContext, 'heel', 'navigation.attitude', {
+        roll: 0.1,
+        pitch: 0.2,
+        yaw: Number.NaN,
+      })
+    );
+    // Roll and pitch combine across both; yaw passes through from the motion sensor.
+    expect(h.emitted[h.emitted.length - 1]?.updates[0].values[0].value).toEqual({
+      roll: 0.1,
+      pitch: 0.2,
+      yaw: 1.5,
+    });
+  });
+});
+
+describe('plugin: one NMEA 2000 device seen through two gateways', () => {
+  const path = 'environment.depth.belowKeel';
+
+  it('counts once, so it cannot satisfy minSources on its own', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    start(plugin, [{ path }]);
+    h.fire(delta(h.app.selfContext, 'canhat.c0788c00e7e04312', path, 5));
+    h.fire(delta(h.app.selfContext, 'YDEN02.c0788c00e7e04312', path, 5));
+    expect(h.emitted).toHaveLength(0);
+    expect(h.app.setPluginStatus).toHaveBeenLastCalledWith(
+      expect.stringContaining('waiting for sources')
+    );
+    h.fire(delta(h.app.selfContext, 'nmea0183.DBT', path, 7));
+    expect(h.emitted[h.emitted.length - 1]?.updates[0].values[0].value).toBe(6);
+  });
+});
+
+describe('plugin: a failing path recovers at once', () => {
+  const path = 'environment.depth.belowKeel';
+
+  it('publishes on the next delta once diverged sources agree again', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    start(plugin, [{ path: 'navigation.headingTrue' }], { defaultEmitMinIntervalMs: 10000 });
+    // Opposite headings diverge, so nothing is published and nothing waits.
+    h.fire(delta(h.app.selfContext, 'a', 'navigation.headingTrue', 0));
+    h.fire(delta(h.app.selfContext, 'b', 'navigation.headingTrue', Math.PI));
+    expect(h.emitted).toHaveLength(0);
+    h.fire(delta(h.app.selfContext, 'b', 'navigation.headingTrue', 0));
+    expect(h.emitted).toHaveLength(1);
+  });
+
+  it('combines at once when a missing source comes back inside the interval', () => {
+    vi.useFakeTimers({ toFake: ['performance'] });
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    try {
+      start(plugin, [{ path }], { defaultEmitMinIntervalMs: 1000, defaultStalenessTimeoutMs: 500 });
+      h.fire(delta(h.app.selfContext, 'a', path, 5));
+      h.fire(delta(h.app.selfContext, 'b', path, 7));
+      expect(h.emitted).toHaveLength(1);
+      // b misses a report, so a combines alone and fails.
+      vi.advanceTimersByTime(1000);
+      h.fire(delta(h.app.selfContext, 'a', path, 5));
+      expect(h.emitted).toHaveLength(1);
+      // b's next report, a moment later, must not wait out the interval.
+      vi.advanceTimersByTime(20);
+      h.fire(delta(h.app.selfContext, 'b', path, 7));
+      expect(h.emitted).toHaveLength(2);
+      expect(h.emitted[1]?.updates[0].values[0].value).toBe(6);
+    } finally {
+      void plugin.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('still combines at once when the second source arrives straight after the first', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    start(plugin, [{ path }], { defaultEmitMinIntervalMs: 1000 });
+    h.fire(delta(h.app.selfContext, 'a', path, 5));
+    h.fire(delta(h.app.selfContext, 'b', path, 7));
+    expect(h.emitted[h.emitted.length - 1]?.updates[0].values[0].value).toBe(6);
+  });
+});
+
+describe('plugin: offset-corrected positions beside the raw ones', () => {
+  it('are explained on the detected row', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    const router = h.captureRouter(plugin);
+    start(plugin, []);
+    const fix = { latitude: 10, longitude: 20 };
+    h.fire(delta(h.app.selfContext, 'gps1', 'navigation.position', fix));
+    h.fire(delta(h.app.selfContext, 'bow.ccrp', 'navigation.position', fix));
+    const row = h.routerGet(router, '/api/detected').paths[0];
+    expect(row?.advisory).toMatch(/\.ccrp/);
+    expect(row?.recommended).toBe(true);
+  });
+
+  it('go quiet once the operator excludes the corrected copies', () => {
+    const h = makeApp();
+    const plugin = PluginFactory(h.app);
+    const router = h.captureRouter(plugin);
+    start(plugin, [{ path: 'navigation.position', excludeSources: ['bow.ccrp'] }]);
+    const fix = { latitude: 10, longitude: 20 };
+    h.fire(delta(h.app.selfContext, 'gps1', 'navigation.position', fix));
+    h.fire(delta(h.app.selfContext, 'bow.ccrp', 'navigation.position', fix));
+    const row = h.routerGet(router, '/api/detected').paths[0];
+    expect(row?.path).toBe('navigation.position');
+    expect(row?.sources.slice().sort()).toEqual(['bow.ccrp', 'gps1']);
+    expect(row?.advisory ?? '').not.toMatch(/\.ccrp/);
   });
 });

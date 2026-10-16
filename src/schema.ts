@@ -1,53 +1,56 @@
+import { BOUNDS, schemaBounds } from './bounds';
 import { COMBINE_METHODS } from './combine';
 import {
   ANGULAR_MODES_LIST,
+  DEFAULT_ANGULAR_MODE,
   DEFAULT_ANGULAR_SPREAD_THRESHOLD,
   DEFAULT_EMIT_INTERVAL_MS,
   DEFAULT_JUMP_PERSIST_MS,
   DEFAULT_JUMP_PERSIST_SAMPLES,
   DEFAULT_MAD_THRESHOLD,
   DEFAULT_MAX_SOURCES_PER_PATH,
+  DEFAULT_METHOD,
   DEFAULT_MIN_SOURCES,
   DEFAULT_NOTIFICATIONS,
+  DEFAULT_OUTLIER_REJECTION,
   DEFAULT_STALENESS_MS,
   DEFAULT_TRIM_FRACTION,
-  MAX_SOURCES_PER_PATH,
+  PLUGIN_ID,
+  SLEW_MAX_LAG_SECONDS,
 } from './config';
-import type { DetectedPath } from './discovery';
 
-export function buildSchema(detected: () => DetectedPath[]): object {
-  let examples: string[] = [];
+// Detection is best effort here: a failure must not cost the admin its form.
+function safeExamples(detectedPaths: () => string[]): string[] {
   try {
-    examples = detected().map((d) => d.path);
+    return detectedPaths();
   } catch {
-    examples = [];
+    return [];
   }
+}
+
+export function buildSchema(detectedPaths: () => string[]): object {
+  const examples = safeExamples(detectedPaths);
   return {
     type: 'object',
     properties: {
       defaultStalenessTimeoutMs: {
-        type: 'number',
+        ...schemaBounds(BOUNDS.stalenessTimeoutMs),
         title: 'Default staleness timeout (ms)',
-        minimum: 1,
         default: DEFAULT_STALENESS_MS,
       },
       defaultEmitMinIntervalMs: {
-        type: 'number',
+        ...schemaBounds(BOUNDS.emitMinIntervalMs),
         title: 'Default minimum emit interval (ms)',
-        minimum: 0,
         default: DEFAULT_EMIT_INTERVAL_MS,
       },
       defaultMinSources: {
-        type: 'integer',
+        ...schemaBounds(BOUNDS.minSources),
         title: 'Default minimum sources',
-        minimum: 1,
         default: DEFAULT_MIN_SOURCES,
       },
       maxSourcesPerPath: {
-        type: 'integer',
+        ...schemaBounds(BOUNDS.maxSourcesPerPath),
         title: 'Maximum sources tracked per path',
-        minimum: 1,
-        maximum: MAX_SOURCES_PER_PATH,
         default: DEFAULT_MAX_SOURCES_PER_PATH,
       },
       notifications: {
@@ -60,8 +63,7 @@ export function buildSchema(detected: () => DetectedPath[]): object {
       paths: {
         type: 'array',
         title: 'Paths to combine',
-        description:
-          'Each entry combines all sources of one path. Detected multi-source paths are listed at GET /plugins/signalk-synthetic-values/api/detected.',
+        description: `Each entry combines all sources of one path. Detected multi-source paths are listed at GET /plugins/${PLUGIN_ID}/api/detected.`,
         items: {
           type: 'object',
           required: ['path'],
@@ -77,36 +79,33 @@ export function buildSchema(detected: () => DetectedPath[]): object {
               type: 'string',
               title: 'Combine method',
               enum: [...COMBINE_METHODS],
-              default: 'median',
+              default: DEFAULT_METHOD,
             },
             outlierRejection: {
               type: 'boolean',
               title: 'Outlier rejection',
               description:
                 'Drop readings that deviate too far from the robust, kind-aware center before combining.',
-              default: true,
+              default: DEFAULT_OUTLIER_REJECTION,
             },
             madThreshold: {
-              type: 'number',
+              ...schemaBounds(BOUNDS.madThreshold),
               title: 'MAD threshold',
               description:
                 'Scaled-MAD multiplier for distances from the robust, kind-aware center. Applies at four or more fresh sources; below that, use the absolute reject distance. Switch outlier rejection off rather than setting this to zero.',
-              exclusiveMinimum: 0,
               default: DEFAULT_MAD_THRESHOLD,
             },
             rejectThreshold: {
-              type: 'number',
+              ...schemaBounds(BOUNDS.rejectThreshold),
               title: 'Absolute reject distance',
               description:
                 'Maximum distance from the robust, kind-aware center before a reading is rejected outright: meters for position, radians for angular paths, radians on the worst axis for attitude, value units for scalars. Applies whether or not outlier rejection is on, and it is the only rejection that works with two or three sources.',
-              exclusiveMinimum: 0,
             },
             disagreeThreshold: {
-              type: 'number',
+              ...schemaBounds(BOUNDS.disagreeThreshold),
               title: 'Disagreement distance',
               description:
                 'If the spread between sources exceeds this value the synthetic output is flagged as disagreeing: meters for position, radians for angular paths, radians on the worst axis for attitude, value units for scalars.',
-              exclusiveMinimum: 0,
             },
             angular: {
               type: 'string',
@@ -114,45 +113,37 @@ export function buildSchema(detected: () => DetectedPath[]): object {
               description:
                 'Force circular averaging on or off, or let the plugin detect it automatically from the path. Set it to yes for a full-circle quantity the plugin does not recognize, such as a vendor bearing, and to no for a bounded angle.',
               enum: [...ANGULAR_MODES_LIST],
-              default: 'auto',
+              default: DEFAULT_ANGULAR_MODE,
             },
             minSources: {
-              type: 'integer',
+              ...schemaBounds(BOUNDS.minSources),
               title: 'Minimum sources',
               description: 'Override the global minimum number of fresh sources required to emit.',
-              minimum: 1,
             },
             stalenessTimeoutMs: {
-              type: 'number',
+              ...schemaBounds(BOUNDS.stalenessTimeoutMs),
               title: 'Staleness timeout (ms)',
               description: 'Override the global timeout after which a reading is considered stale.',
-              minimum: 1,
             },
             emitMinIntervalMs: {
-              type: 'number',
+              ...schemaBounds(BOUNDS.emitMinIntervalMs),
               title: 'Minimum emit interval (ms)',
               description: 'Override the global minimum interval between synthetic outputs.',
-              minimum: 0,
             },
             trimFraction: {
-              type: 'number',
+              ...schemaBounds(BOUNDS.trimFraction),
               title: 'Trim fraction (trimmedMean only, [0, 0.5))',
-              minimum: 0,
-              exclusiveMaximum: 0.5,
               default: DEFAULT_TRIM_FRACTION,
             },
             angularSpreadThreshold: {
-              type: 'number',
+              ...schemaBounds(BOUNDS.angularSpreadThreshold),
               title: 'Angular spread threshold (radians, angular and attitude paths)',
-              exclusiveMinimum: 0,
               default: DEFAULT_ANGULAR_SPREAD_THRESHOLD,
             },
             slewLimit: {
-              type: 'number',
+              ...schemaBounds(BOUNDS.slewLimit),
               title: 'Slew limit (max change per second, kind units)',
-              description:
-                'Rate limit on the published value. The limiter is bypassed once it would fall more than ten seconds of catch-up behind the sources, and on a depth path whenever the water is shoaling, so it can damp noise without hiding a real change.',
-              exclusiveMinimum: 0,
+              description: `Rate limit on the published value. The limiter is bypassed once it would fall more than ${SLEW_MAX_LAG_SECONDS} seconds of catch-up behind the sources, and on a depth path whenever the water is shoaling, so it can damp noise without hiding a real change.`,
             },
             jumpRejection: {
               type: 'object',
@@ -161,20 +152,17 @@ export function buildSchema(detected: () => DetectedPath[]): object {
                 'Hold back a sudden spike from a source and re-accept it only after a genuine step is confirmed. Clearing the rate switches it off and leaves the persist settings in place.',
               properties: {
                 maxRate: {
-                  type: 'number',
+                  ...schemaBounds(BOUNDS.maxRate),
                   title: 'Max rate (kind units per second)',
-                  exclusiveMinimum: 0,
                 },
                 persistSamples: {
-                  type: 'integer',
+                  ...schemaBounds(BOUNDS.persistSamples),
                   title: 'Sensor samples a new level must persist',
-                  minimum: 1,
                   default: DEFAULT_JUMP_PERSIST_SAMPLES,
                 },
                 persistMs: {
-                  type: 'number',
+                  ...schemaBounds(BOUNDS.persistMs),
                   title: 'Milliseconds a new level must persist',
-                  minimum: 0,
                   default: DEFAULT_JUMP_PERSIST_MS,
                 },
               },

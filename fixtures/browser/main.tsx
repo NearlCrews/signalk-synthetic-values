@@ -1,12 +1,14 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import { NON_NUMERIC_ADVISORY } from '../../src/combinability.js';
 import {
   DEFAULT_EMIT_INTERVAL_MS,
   DEFAULT_MAX_SOURCES_PER_PATH,
   DEFAULT_MIN_SOURCES,
   DEFAULT_STALENESS_MS,
 } from '../../src/config.js';
+import type { DetectedRow } from '../../src/detected.js';
 
 declare const __REMOTE_URL__: string;
 
@@ -64,7 +66,8 @@ if (parameters.has('unsupported-css-scope')) {
   });
 }
 
-const detectedPayload = {
+// Typed as the route's own row, so a field the route gains cannot be missing here.
+const detectedPayload: { paths: DetectedRow[] } = {
   paths: [
     {
       path: 'navigation.speedOverGround',
@@ -72,39 +75,54 @@ const detectedPayload = {
       // gps.2 is listed by discovery but is no longer fresh to the combiner,
       // which is the case the row has to keep visually distinct.
       freshSources: ['gps.1'],
-      excludedSources: [],
       kind: 'scalar',
       optedIn: true,
+      combinable: true,
+      recommended: true,
+      duplicateGroups: [],
     },
     {
       path: 'navigation.headingTrue',
       sources: ['compass.1', 'compass.2', 'compass.rebroadcast'],
+      freshSources: [],
       kind: 'angular',
       optedIn: false,
+      combinable: true,
+      recommended: true,
       duplicateGroups: [['compass.1', 'compass.rebroadcast']],
     },
     {
       // Four sources so the row exercises the chip overflow disclosure.
       path: 'navigation.position',
       sources: ['gps.1', 'gps.2', 'gps.3', 'gps.4'],
+      freshSources: [],
       kind: 'position',
       optedIn: false,
+      combinable: true,
+      recommended: true,
+      duplicateGroups: [],
     },
     {
       path: 'navigation.gnss.satellites',
       sources: ['gps.1', 'gps.2'],
+      freshSources: [],
       kind: 'scalar',
       optedIn: false,
       combinable: true,
       recommended: false,
+      duplicateGroups: [],
       advisory: 'GNSS fix metadata. Averaging it across receivers is not meaningful.',
     },
     {
       path: 'vessel.name',
       sources: ['ais.1', 'ais.2'],
+      freshSources: [],
       kind: 'other',
       optedIn: false,
       combinable: false,
+      recommended: false,
+      duplicateGroups: [],
+      advisory: NON_NUMERIC_ADVISORY,
     },
   ],
 };

@@ -1,13 +1,21 @@
+import { BOUNDS, describeBounds, inBounds, type NumberBounds } from './bounds';
 import { COMBINE_METHODS, type CombineMethod } from './combine';
 import type { JumpConfig } from './damping';
+import { isRecord } from './guards';
+
+/** The plugin id, which is also the source name combined values are published under. */
+export const PLUGIN_ID = 'signalk-synthetic-values';
 
 // Single source of truth for the angular-mode options, shared by the schema
 // enum and the validator.
 export const ANGULAR_MODES_LIST = ['auto', 'yes', 'no'] as const;
-type AngularMode = (typeof ANGULAR_MODES_LIST)[number];
+export type AngularMode = (typeof ANGULAR_MODES_LIST)[number];
 
 // Default values shared between the schema, the validator, and the panel so
 // each default lives in exactly one place.
+export const DEFAULT_METHOD: CombineMethod = 'median';
+export const DEFAULT_ANGULAR_MODE: AngularMode = 'auto';
+export const DEFAULT_OUTLIER_REJECTION = true;
 export const DEFAULT_STALENESS_MS = 1000;
 export const DEFAULT_EMIT_INTERVAL_MS = 1000;
 export const DEFAULT_MIN_SOURCES = 2;
@@ -16,6 +24,14 @@ export const DEFAULT_TRIM_FRACTION = 0.25;
 export const DEFAULT_ANGULAR_SPREAD_THRESHOLD = Math.PI / 2;
 export const DEFAULT_JUMP_PERSIST_SAMPLES = 3;
 export const DEFAULT_JUMP_PERSIST_MS = 5000;
+export const DEFAULT_MAX_SOURCES_PER_PATH = 16;
+export const DEFAULT_NOTIFICATIONS = true;
+
+// The furthest the slew limiter may fall behind the combined value, measured in
+// seconds of catch-up at the configured rate. Beyond it the limiter is bypassed:
+// smoothing exists to suppress noise, and no amount of smoothing is worth
+// misreporting a real change indefinitely. The schema description quotes it.
+export const SLEW_MAX_LAG_SECONDS = 10;
 
 /**
  * The saved jump-rejection block. Every field is optional: an absent maxRate
@@ -74,12 +90,16 @@ export type RawPathConfigPatch = {
   [K in Exclude<keyof RawPathConfig, 'path'>]?: RawPathConfig[K] | undefined;
 };
 
-export interface PluginOptions {
+/** The top-level settings, each resolved to the value the runtime applies. */
+export interface TopLevelOptions {
   defaultStalenessTimeoutMs: number;
   defaultEmitMinIntervalMs: number;
   defaultMinSources: number;
   maxSourcesPerPath: number;
   notifications: boolean;
+}
+
+export interface PluginOptions extends TopLevelOptions {
   paths: RawPathConfig[];
 }
 
@@ -100,13 +120,6 @@ export interface ValidationResult {
   advisories: ConfigError[];
 }
 
-export const DEFAULT_MAX_SOURCES_PER_PATH = 16;
-export const MAX_SOURCES_PER_PATH = 64;
-export const DEFAULT_NOTIFICATIONS = true;
-
-const METHODS: ReadonlySet<string> = new Set(COMBINE_METHODS);
-const ANGULAR_MODES: ReadonlySet<string> = new Set(ANGULAR_MODES_LIST);
-
 /** The include and exclude lists that decide which sources reach the combiner. */
 export interface SourceFilter {
   includeSources?: string[] | undefined;
@@ -119,10 +132,10 @@ const ALLOW_EVERY_SOURCE = (): boolean => true;
 
 /**
  * Compile one path's include and exclude rule into a predicate. The runtime
- * applies it to every delta and the panel applies it to count the sources a
- * path would actually combine, so a single definition keeps the panel's warning
- * from promising a combination the runtime will not run. An empty include list
- * means no filter, which is what the runtime has always done.
+ * applies it to every delta and the panel applies it to count and check the
+ * sources a path would actually combine, so a single definition keeps the
+ * panel from promising a combination the runtime will not run. An empty
+ * include list means no filter, which is what the runtime has always done.
  */
 export function sourceFilterFor(filter: SourceFilter): (sourceRef: string) => boolean {
   const include = filter.includeSources?.length ? new Set(filter.includeSources) : undefined;
@@ -131,28 +144,14 @@ export function sourceFilterFor(filter: SourceFilter): (sourceRef: string) => bo
   return (sourceRef) => (include?.has(sourceRef) ?? true) && !exclude?.has(sourceRef);
 }
 
-function positive(n: unknown): n is number {
-  return typeof n === 'number' && Number.isFinite(n) && n > 0;
-}
-
-function nonNegative(n: unknown): n is number {
-  return typeof n === 'number' && Number.isFinite(n) && n >= 0;
-}
-
-function positiveInt(n: unknown): n is number {
-  return typeof n === 'number' && Number.isInteger(n) && n > 0;
-}
-
 interface PathValidation {
   path?: PathConfig;
   errors: ConfigError[];
   advisories: ConfigError[];
 }
 
-interface ResolvedScalars {
-  method: CombineMethod;
-  angular: AngularMode;
-  trimFraction: number;
+/** The settings a path entry inherits when it does not set its own. */
+interface PathDefaults {
   staleness: number;
   emitInterval: number;
   minSources: number;
@@ -160,8 +159,58 @@ interface ResolvedScalars {
 
 type UnknownRecord = Record<string, unknown>;
 
-function isRecord(value: unknown): value is UnknownRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function boundsError(label: string, bounds: NumberBounds): string {
+  return `${label} must be ${describeBounds(bounds)}`;
+}
+
+/**
+ * Read one number. Absent stays undefined for the caller to default; present
+ * must lie inside its bounds, or an error is recorded and undefined returned so
+ * the caller's default applies.
+ */
+function readNumber(
+  raw: UnknownRecord,
+  key: string,
+  bounds: NumberBounds,
+  errorPath: string,
+  errors: ConfigError[],
+  message = boundsError(key, bounds)
+): number | undefined {
+  const value = raw[key];
+  if (value === undefined) return undefined;
+  if (inBounds(value, bounds)) return value;
+  errors.push({ path: errorPath, message });
+  return undefined;
+}
+
+function readBoolean(
+  raw: UnknownRecord,
+  key: string,
+  fallback: boolean,
+  errorPath: string,
+  errors: ConfigError[]
+): boolean {
+  const value = raw[key];
+  if (value === undefined) return fallback;
+  if (typeof value === 'boolean') return value;
+  errors.push({ path: errorPath, message: `${key} must be a boolean` });
+  return fallback;
+}
+
+function readEnum<T extends string>(
+  id: string,
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T,
+  label: string,
+  errors: ConfigError[]
+): T {
+  if (value === undefined) return fallback;
+  if (typeof value === 'string' && (allowed as readonly string[]).includes(value)) {
+    return value as T;
+  }
+  errors.push({ path: id, message: `unknown ${label} ${String(value)}` });
+  return fallback;
 }
 
 function readSourceList(
@@ -192,23 +241,22 @@ function readJumpConfig(id: string, value: unknown, errors: ConfigError[]): Jump
     errors.push({ path: id, message: 'jumpRejection must be an object' });
     return undefined;
   }
-  const maxRate = value.maxRate;
-  const persistSamples = value.persistSamples;
-  const persistMs = value.persistMs;
-  if (maxRate !== undefined && !positive(maxRate)) {
-    errors.push({ path: id, message: 'jumpRejection.maxRate must be positive when set' });
-  }
-  if (persistSamples !== undefined && !positiveInt(persistSamples)) {
-    errors.push({ path: id, message: 'jumpRejection.persistSamples must be a positive integer' });
-  }
-  if (persistMs !== undefined && !nonNegative(persistMs)) {
-    errors.push({ path: id, message: 'jumpRejection.persistMs must be a non-negative number' });
-  }
+  const read = (key: 'maxRate' | 'persistSamples' | 'persistMs'): number | undefined =>
+    readNumber(
+      value,
+      key,
+      BOUNDS[key],
+      id,
+      errors,
+      boundsError(`jumpRejection.${key}`, BOUNDS[key])
+    );
+  const before = errors.length;
+  const maxRate = read('maxRate');
+  const persistSamples = read('persistSamples');
+  const persistMs = read('persistMs');
   // No rate means the feature is off. The persist settings may still be saved
   // beside it, waiting for the rate to come back.
-  if (!positive(maxRate)) return undefined;
-  if (persistSamples !== undefined && !positiveInt(persistSamples)) return undefined;
-  if (persistMs !== undefined && !nonNegative(persistMs)) return undefined;
+  if (maxRate === undefined || errors.length > before) return undefined;
   return {
     maxRate,
     persistSamples: persistSamples ?? DEFAULT_JUMP_PERSIST_SAMPLES,
@@ -216,165 +264,60 @@ function readJumpConfig(id: string, value: unknown, errors: ConfigError[]): Jump
   };
 }
 
-function readOptionalNumber(
+function validatePathEntry(
   id: string,
   raw: UnknownRecord,
-  key: 'rejectThreshold' | 'disagreeThreshold' | 'angularSpreadThreshold' | 'slewLimit',
-  errors: ConfigError[]
-): number | undefined {
-  const value = raw[key];
-  if (value === undefined) return undefined;
-  if (!positive(value)) {
-    errors.push({ path: id, message: `${key} must be positive when set` });
-    return undefined;
-  }
-  return value;
-}
+  defaults: PathDefaults,
+  maxSourcesPerPath: number
+): PathValidation {
+  const errors: ConfigError[] = [];
+  const num = (key: keyof typeof BOUNDS, message?: string): number | undefined =>
+    readNumber(raw, key, BOUNDS[key], id, errors, message);
 
-function readMethod(
-  id: string,
-  value: unknown,
-  fallback: CombineMethod,
-  errors: ConfigError[]
-): CombineMethod {
-  if (value === undefined) return fallback;
-  if (typeof value === 'string' && METHODS.has(value)) return value as CombineMethod;
-  errors.push({ path: id, message: `unknown method ${String(value)}` });
-  return fallback;
-}
-
-function readAngularMode(
-  id: string,
-  value: unknown,
-  fallback: AngularMode,
-  errors: ConfigError[]
-): AngularMode {
-  if (value === undefined) return fallback;
-  if (typeof value === 'string' && ANGULAR_MODES.has(value)) return value as AngularMode;
-  errors.push({ path: id, message: `unknown angular mode ${String(value)}` });
-  return fallback;
-}
-
-function readPathNumber(
-  id: string,
-  raw: UnknownRecord,
-  key: 'trimFraction' | 'stalenessTimeoutMs' | 'emitMinIntervalMs' | 'minSources',
-  fallback: number,
-  valid: (value: unknown) => value is number,
-  message: string,
-  errors: ConfigError[]
-): number {
-  const value = raw[key];
-  if (value === undefined) return fallback;
-  if (valid(value)) return value;
-  errors.push({ path: id, message });
-  return fallback;
-}
-
-function validTrimFraction(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < 0.5;
-}
-
-function resolveScalars(
-  id: string,
-  raw: UnknownRecord,
-  defaults: ResolvedScalars,
-  maxSourcesPerPath: number,
-  errors: ConfigError[]
-): ResolvedScalars {
-  const method = readMethod(id, raw.method, defaults.method, errors);
-  const angular = readAngularMode(id, raw.angular, defaults.angular, errors);
-  const trimFraction = readPathNumber(
+  const method = readEnum(id, raw.method, COMBINE_METHODS, DEFAULT_METHOD, 'method', errors);
+  const angular = readEnum(
     id,
-    raw,
-    'trimFraction',
-    defaults.trimFraction,
-    validTrimFraction,
-    'trimFraction must be in [0, 0.5)',
+    raw.angular,
+    ANGULAR_MODES_LIST,
+    DEFAULT_ANGULAR_MODE,
+    'angular mode',
     errors
   );
-  const staleness = readPathNumber(
-    id,
-    raw,
-    'stalenessTimeoutMs',
-    defaults.staleness,
-    positive,
-    'stalenessTimeoutMs must be a positive number',
-    errors
-  );
-  const emitInterval = readPathNumber(
-    id,
-    raw,
-    'emitMinIntervalMs',
-    defaults.emitInterval,
-    nonNegative,
-    'emitMinIntervalMs must be a non-negative number',
-    errors
-  );
-  const minSources = readPathNumber(
-    id,
-    raw,
-    'minSources',
-    defaults.minSources,
-    positiveInt,
-    'minSources must be a positive integer',
-    errors
-  );
+  const trimFraction = num('trimFraction') ?? DEFAULT_TRIM_FRACTION;
+  const stalenessTimeoutMs = num('stalenessTimeoutMs') ?? defaults.staleness;
+  const emitMinIntervalMs = num('emitMinIntervalMs') ?? defaults.emitInterval;
+  const minSources = num('minSources') ?? defaults.minSources;
   if (minSources > maxSourcesPerPath) {
     errors.push({
       path: id,
       message: `minSources cannot exceed maxSourcesPerPath (${maxSourcesPerPath})`,
     });
   }
-
-  return {
-    method,
-    angular,
-    trimFraction,
-    staleness,
-    emitInterval,
-    minSources,
-  };
-}
-
-function validatePathEntry(
-  id: string,
-  raw: UnknownRecord,
-  defaults: ResolvedScalars,
-  maxSourcesPerPath: number
-): PathValidation {
-  const errors: ConfigError[] = [];
-  const scalars = resolveScalars(id, raw, defaults, maxSourcesPerPath, errors);
   const includeSources = readSourceList(id, raw, 'includeSources', errors);
   const excludeSources = readSourceList(id, raw, 'excludeSources', errors);
   if (includeSources?.length && excludeSources?.length) {
     errors.push({ path: id, message: 'set either includeSources or excludeSources, not both' });
   }
-
-  const outlierValue = raw.outlierRejection;
-  if (outlierValue !== undefined && typeof outlierValue !== 'boolean') {
-    errors.push({ path: id, message: 'outlierRejection must be a boolean' });
-  }
-  const outlierRejection = typeof outlierValue === 'boolean' ? outlierValue : true;
-
-  const madThreshold = raw.madThreshold === undefined ? DEFAULT_MAD_THRESHOLD : raw.madThreshold;
+  const outlierRejection = readBoolean(
+    raw,
+    'outlierRejection',
+    DEFAULT_OUTLIER_REJECTION,
+    id,
+    errors
+  );
   // Zero reads like "no threshold" and means the opposite: every reading with
   // any spread at all is rejected, so the path stops producing output even when
   // the sources agree. Turning rejection off is what outlierRejection is for.
-  if (!positive(madThreshold)) {
-    errors.push({
-      path: id,
-      message:
-        'madThreshold must be greater than zero; switch outlierRejection off to disable rejection',
-    });
-  }
-
-  const rejectThreshold = readOptionalNumber(id, raw, 'rejectThreshold', errors);
-  const disagreeThreshold = readOptionalNumber(id, raw, 'disagreeThreshold', errors);
-  const angularSpreadThreshold =
-    readOptionalNumber(id, raw, 'angularSpreadThreshold', errors) ??
-    DEFAULT_ANGULAR_SPREAD_THRESHOLD;
-  const slewLimit = readOptionalNumber(id, raw, 'slewLimit', errors);
+  // An explicit null is not "unset": it is rejected like any other non-number.
+  const madThreshold =
+    num(
+      'madThreshold',
+      'madThreshold must be greater than zero; switch outlierRejection off to disable rejection'
+    ) ?? DEFAULT_MAD_THRESHOLD;
+  const rejectThreshold = num('rejectThreshold');
+  const disagreeThreshold = num('disagreeThreshold');
+  const angularSpreadThreshold = num('angularSpreadThreshold') ?? DEFAULT_ANGULAR_SPREAD_THRESHOLD;
+  const slewLimit = num('slewLimit');
   const jumpRejection = readJumpConfig(id, raw.jumpRejection, errors);
 
   if (errors.length > 0) return { errors, advisories: [] };
@@ -390,7 +333,7 @@ function validatePathEntry(
   // Scaled MAD needs four readings, and the unit-free split test needs three,
   // so a two-source path has nothing that can tell two sensors that agree from
   // two that are far apart. Only a threshold in the path's own units can.
-  if (scalars.minSources <= 2 && rejectThreshold === undefined && disagreeThreshold === undefined) {
+  if (minSources <= 2 && rejectThreshold === undefined && disagreeThreshold === undefined) {
     advisories.push({
       path: id,
       message:
@@ -400,19 +343,19 @@ function validatePathEntry(
   return {
     path: {
       path: id,
-      method: scalars.method,
-      trimFraction: scalars.trimFraction,
+      method,
+      trimFraction,
       outlierRejection,
-      madThreshold: madThreshold as number,
+      madThreshold,
       rejectThreshold,
       disagreeThreshold,
       angularSpreadThreshold,
-      angular: scalars.angular,
+      angular,
       includeSources,
       excludeSources,
-      minSources: scalars.minSources,
-      stalenessTimeoutMs: scalars.staleness,
-      emitMinIntervalMs: scalars.emitInterval,
+      minSources,
+      stalenessTimeoutMs,
+      emitMinIntervalMs,
       jumpRejection,
       slewLimit,
     },
@@ -421,87 +364,46 @@ function validatePathEntry(
   };
 }
 
-function readTopLevelNumber(
-  root: UnknownRecord,
-  key: 'defaultStalenessTimeoutMs' | 'defaultEmitMinIntervalMs' | 'defaultMinSources',
-  fallback: number,
-  valid: (value: unknown) => value is number,
-  message: string,
-  errors: ConfigError[]
-): number {
-  const value = root[key];
-  if (value === undefined) return fallback;
-  if (valid(value)) return value;
-  errors.push({ path: key, message });
-  return fallback;
-}
-
-function readRoot(input: unknown, errors: ConfigError[]): UnknownRecord {
-  if (isRecord(input)) return input;
-  errors.push({ path: 'configuration', message: 'configuration must be an object' });
-  return {};
-}
-
-function readNotifications(root: UnknownRecord, errors: ConfigError[]): boolean {
-  const value = root.notifications;
-  if (value === undefined) return DEFAULT_NOTIFICATIONS;
-  if (typeof value === 'boolean') return value;
-  errors.push({ path: 'notifications', message: 'notifications must be a boolean' });
-  return DEFAULT_NOTIFICATIONS;
-}
-
-function readMaxSources(root: UnknownRecord, errors: ConfigError[]): number {
-  const value = root.maxSourcesPerPath;
-  if (value === undefined) return DEFAULT_MAX_SOURCES_PER_PATH;
-  if (positiveInt(value) && value <= MAX_SOURCES_PER_PATH) return value;
-  errors.push({
-    path: 'maxSourcesPerPath',
-    message: `maxSourcesPerPath must be an integer from 1 to ${MAX_SOURCES_PER_PATH}`,
-  });
-  return DEFAULT_MAX_SOURCES_PER_PATH;
-}
-
-function readDefaults(
-  root: UnknownRecord,
-  maxSourcesPerPath: number,
-  errors: ConfigError[]
-): ResolvedScalars {
-  const defaults: ResolvedScalars = {
-    method: 'median',
-    angular: 'auto',
-    trimFraction: DEFAULT_TRIM_FRACTION,
-    staleness: readTopLevelNumber(
-      root,
-      'defaultStalenessTimeoutMs',
-      DEFAULT_STALENESS_MS,
-      positive,
-      'defaultStalenessTimeoutMs must be a positive number',
-      errors
-    ),
-    emitInterval: readTopLevelNumber(
-      root,
-      'defaultEmitMinIntervalMs',
-      DEFAULT_EMIT_INTERVAL_MS,
-      nonNegative,
-      'defaultEmitMinIntervalMs must be a non-negative number',
-      errors
-    ),
-    minSources: readTopLevelNumber(
-      root,
-      'defaultMinSources',
-      DEFAULT_MIN_SOURCES,
-      positiveInt,
-      'defaultMinSources must be a positive integer',
-      errors
-    ),
-  };
-  if (defaults.minSources > maxSourcesPerPath) {
+/**
+ * The top-level settings as the runtime applies them: each one absent or out
+ * of range falls back to its default, and the reason is recorded in `errors`.
+ * The panel calls it too, so its placeholders show the default that actually
+ * applies rather than a value the runtime would refuse.
+ */
+export function resolveTopLevel(root: unknown, errors: ConfigError[] = []): TopLevelOptions {
+  const raw = isRecord(root) ? root : {};
+  const top = (key: keyof TopLevelOptions, bounds: NumberBounds): number | undefined =>
+    readNumber(raw, key, bounds, key, errors);
+  const maxSourcesPerPath =
+    top('maxSourcesPerPath', BOUNDS.maxSourcesPerPath) ?? DEFAULT_MAX_SOURCES_PER_PATH;
+  const notifications = readBoolean(
+    raw,
+    'notifications',
+    DEFAULT_NOTIFICATIONS,
+    'notifications',
+    errors
+  );
+  const defaultStalenessTimeoutMs =
+    top('defaultStalenessTimeoutMs', BOUNDS.stalenessTimeoutMs) ?? DEFAULT_STALENESS_MS;
+  const defaultEmitMinIntervalMs =
+    top('defaultEmitMinIntervalMs', BOUNDS.emitMinIntervalMs) ?? DEFAULT_EMIT_INTERVAL_MS;
+  let defaultMinSources = top('defaultMinSources', BOUNDS.minSources) ?? DEFAULT_MIN_SOURCES;
+  if (defaultMinSources > maxSourcesPerPath) {
     errors.push({
       path: 'defaultMinSources',
       message: `defaultMinSources cannot exceed maxSourcesPerPath (${maxSourcesPerPath})`,
     });
+    // Like every other refused setting it falls back to its default, so the
+    // paths that inherit it still combine wherever the cap allows two sources.
+    defaultMinSources = DEFAULT_MIN_SOURCES;
   }
-  return defaults;
+  return {
+    defaultStalenessTimeoutMs,
+    defaultEmitMinIntervalMs,
+    defaultMinSources,
+    maxSourcesPerPath,
+    notifications,
+  };
 }
 
 function readRawPaths(root: UnknownRecord, errors: ConfigError[]): unknown[] {
@@ -516,13 +418,15 @@ function readPathEntry(
   index: number,
   errors: ConfigError[]
 ): { id: string; raw: UnknownRecord } | undefined {
+  const label = `paths[${index}]`;
   if (!isRecord(value)) {
-    errors.push({ path: `paths[${index}]`, message: 'path entry must be an object' });
+    errors.push({ path: label, message: 'path entry must be an object' });
     return undefined;
   }
   const path = value.path;
   if (typeof path !== 'string' || !path.trim()) {
-    errors.push({ path: String(path), message: 'missing path' });
+    // An entry without a usable path has no name of its own to report under.
+    errors.push({ path: label, message: 'missing path' });
     return undefined;
   }
   if (path !== path.trim()) {
@@ -534,7 +438,7 @@ function readPathEntry(
 
 function validatePathEntries(
   rawPaths: unknown[],
-  defaults: ResolvedScalars,
+  defaults: PathDefaults,
   maxSourcesPerPath: number,
   errors: ConfigError[],
   advisories: ConfigError[]
@@ -561,17 +465,27 @@ function validatePathEntries(
 export function validateConfig(input: unknown): ValidationResult {
   const errors: ConfigError[] = [];
   const advisories: ConfigError[] = [];
-  const root = readRoot(input, errors);
-  const maxSourcesPerPath = readMaxSources(root, errors);
-  const notifications = readNotifications(root, errors);
-  const defaults = readDefaults(root, maxSourcesPerPath, errors);
+  if (!isRecord(input)) {
+    errors.push({ path: 'configuration', message: 'configuration must be an object' });
+  }
+  const root = isRecord(input) ? input : {};
+  const top = resolveTopLevel(root, errors);
+  const defaults: PathDefaults = {
+    staleness: top.defaultStalenessTimeoutMs,
+    emitInterval: top.defaultEmitMinIntervalMs,
+    minSources: top.defaultMinSources,
+  };
   const paths = validatePathEntries(
     readRawPaths(root, errors),
     defaults,
-    maxSourcesPerPath,
+    top.maxSourcesPerPath,
     errors,
     advisories
   );
 
-  return { config: { maxSourcesPerPath, notifications, paths }, errors, advisories };
+  return {
+    config: { maxSourcesPerPath: top.maxSourcesPerPath, notifications: top.notifications, paths },
+    errors,
+    advisories,
+  };
 }

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DetectedRow } from '../../detected.js';
+import { isRecord } from '../../guards.js';
+import { type DetectedKind, KINDS } from '../../metrics.js';
 import { fetchJson, jsonEqual } from '../api-base.js';
 
 // The row shape is declared once beside the route that serves it, so a new wire
@@ -22,86 +24,63 @@ export interface DetectedState {
 }
 
 export interface UseDetectedResult extends DetectedState {
+  /** When polling last started, or null while the tab is hidden and it is paused. */
+  pollingSince: number | null;
   refresh: () => Promise<boolean>;
 }
 
-function errorState(prev: DetectedState): DetectedState {
-  return {
-    paths: prev.paths,
-    lastChecked: prev.lastChecked,
-    loading: false,
-    error: 'Could not load detected paths.',
-  };
-}
+const LOAD_ERROR = 'Could not load detected paths.';
 
-// Hashed once at module load: every row of every poll is checked against it.
-const DETECTED_KINDS: ReadonlySet<DetectedRow['kind']> = new Set([
-  'scalar',
-  'angular',
-  'position',
-  'attitude',
-  'other',
-  'unknown',
-]);
+// Built from the tuple the Kind type is derived from, and hashed once at module
+// load because every row of every poll is checked against it.
+const DETECTED_KINDS: ReadonlySet<string> = new Set<DetectedKind>([...KINDS, 'unknown']);
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
-function isDetectedKind(value: unknown): value is DetectedRow['kind'] {
-  return typeof value === 'string' && DETECTED_KINDS.has(value as DetectedRow['kind']);
-}
-
-function isOptionalBoolean(value: unknown): value is boolean | undefined {
-  return value === undefined || typeof value === 'boolean';
-}
-
-function isOptionalString(value: unknown): value is string | undefined {
-  return value === undefined || typeof value === 'string';
-}
-
-function isOptionalDuplicateGroups(value: unknown): value is string[][] | undefined {
-  return (
-    value === undefined || (Array.isArray(value) && value.every((group) => isStringArray(group)))
-  );
-}
-
-function isOptionalStringArray(value: unknown): value is string[] | undefined {
-  return value === undefined || isStringArray(value);
-}
-
 function isDetectedRow(value: unknown): value is DetectedRow {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const row = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
   return (
-    typeof row.path === 'string' &&
-    row.path.trim() !== '' &&
-    isStringArray(row.sources) &&
-    isDetectedKind(row.kind) &&
-    typeof row.optedIn === 'boolean' &&
-    isOptionalStringArray(row.freshSources) &&
-    isOptionalStringArray(row.excludedSources) &&
-    isOptionalBoolean(row.combinable) &&
-    isOptionalBoolean(row.recommended) &&
-    isOptionalString(row.advisory) &&
-    isOptionalDuplicateGroups(row.duplicateGroups)
+    typeof value.path === 'string' &&
+    value.path.trim() !== '' &&
+    isStringArray(value.sources) &&
+    isStringArray(value.freshSources) &&
+    typeof value.kind === 'string' &&
+    DETECTED_KINDS.has(value.kind) &&
+    typeof value.optedIn === 'boolean' &&
+    typeof value.combinable === 'boolean' &&
+    typeof value.recommended === 'boolean' &&
+    Array.isArray(value.duplicateGroups) &&
+    value.duplicateGroups.every(isStringArray) &&
+    (value.advisory === undefined || typeof value.advisory === 'string')
   );
 }
 
 export function isDetectedResponse(value: unknown): value is DetectedResponse {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const response = value as Record<string, unknown>;
-  return Array.isArray(response.paths) && response.paths.every((row) => isDetectedRow(row));
+  return isRecord(value) && Array.isArray(value.paths) && value.paths.every(isDetectedRow);
 }
 
-export function isRecommendedCombinable(row: DetectedRow): boolean {
-  return row.kind !== 'other' && row.combinable !== false && row.recommended !== false;
+/**
+ * Keep each unchanged row's previous object, so a memoized row re-renders only
+ * when its own data moved, and keep the previous array when no row did.
+ */
+function reconcileRows(prev: DetectedRow[], next: DetectedRow[]): DetectedRow[] {
+  const prevByPath = new Map(prev.map((row) => [row.path, row]));
+  let unchanged = prev.length === next.length;
+  const rows = next.map((row, i) => {
+    const old = prevByPath.get(row.path);
+    const kept = old !== undefined && jsonEqual(old, row) ? old : row;
+    if (kept !== prev[i]) unchanged = false;
+    return kept;
+  });
+  return unchanged ? prev : rows;
 }
 
 /**
  * Pure reducer: given the previous state and the parsed response (or null when
- * the fetch failed), compute the next state. Reuses the existing paths array
- * when the payload is unchanged, while still advancing lastChecked after
+ * the fetch failed), compute the next state. Reuses unchanged rows, and the
+ * whole array when nothing changed, while still advancing lastChecked after
  * every successful request.
  *
  * Takes the already-parsed response rather than a raw string: `fetchJson` has
@@ -119,13 +98,10 @@ export function nextDetectedState(
     // Repeat failures return the same object so React bails out of the
     // update; only the first failure after a success or initial load allocates.
     if (!prev.loading && prev.error !== null) return prev;
-    return errorState(prev);
+    return { ...prev, loading: false, error: LOAD_ERROR };
   }
-
-  const { paths } = incoming;
-
   return {
-    paths: jsonEqual(paths, prev.paths) ? prev.paths : paths,
+    paths: reconcileRows(prev.paths, incoming.paths),
     lastChecked: Date.now(),
     loading: false,
     error: null,
@@ -133,10 +109,10 @@ export function nextDetectedState(
 }
 
 /**
- * Polls `GET /api/detected` every 10 s while the admin tab is visible.
- * Pauses on hidden tabs and refreshes immediately on visibility restore.
- * Reuses unchanged path data so memoized rows do not re-render during idle
- * polls, while the lightweight last-checked status remains accurate.
+ * Polls `GET /api/detected` every 10 s while the admin tab is visible. A hidden
+ * tab holds no timer at all; becoming visible fetches at once and restarts the
+ * cadence. Reuses unchanged path data so memoized rows do not re-render during
+ * idle polls, while the lightweight last-checked status remains accurate.
  */
 export function useDetected(): UseDetectedResult {
   const [state, setState] = useState<DetectedState>({
@@ -145,6 +121,10 @@ export function useDetected(): UseDetectedResult {
     loading: true,
     error: null,
   });
+  // When polling last started, or null while the tab is hidden and it is paused.
+  const [pollingSince, setPollingSince] = useState<number | null>(null);
+  // Set on unmount, so neither a late response nor a refresh called afterward
+  // touches state.
   const cancelled = useRef(false);
   // Monotonic fetch sequence: interval ticks, visibility restores, and manual
   // or post-action refreshes can overlap. A slower older response must not
@@ -154,21 +134,16 @@ export function useDetected(): UseDetectedResult {
   const doFetch = useCallback(async (): Promise<boolean> => {
     if (cancelled.current) return false;
     const seq = ++fetchSeq.current;
-    const isStale = (): boolean => cancelled.current || seq !== fetchSeq.current;
-    let data: DetectedResponse | null = null;
+    let incoming: unknown = null;
     try {
-      const incoming = await fetchJson<unknown>('/detected');
-      if (!isDetectedResponse(incoming)) throw new Error();
-      data = incoming;
+      incoming = await fetchJson<unknown>('/detected');
     } catch {
-      if (isStale()) return false;
-      setState((prev) => nextDetectedState(prev, null));
-      return false;
+      // A failed request reads the same as a malformed one: no response.
     }
-    if (isStale()) return false;
-
-    setState((prev) => nextDetectedState(prev, data));
-    return true;
+    if (cancelled.current || seq !== fetchSeq.current) return false;
+    const next = isDetectedResponse(incoming) ? incoming : null;
+    setState((prev) => nextDetectedState(prev, next));
+    return next !== null;
   }, []);
 
   const refresh = useCallback(async (): Promise<boolean> => {
@@ -179,30 +154,30 @@ export function useDetected(): UseDetectedResult {
 
   useEffect(() => {
     cancelled.current = false;
-
-    const tickIfVisible = (): void => {
-      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        void doFetch();
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const stopPolling = (): void => {
+      clearInterval(timer);
+      timer = undefined;
+    };
+    const syncToVisibility = (): void => {
+      stopPolling();
+      if (document.visibilityState !== 'visible') {
+        setPollingSince(null);
+        return;
       }
+      setPollingSince(Date.now());
+      void doFetch();
+      timer = setInterval(() => void doFetch(), POLL_MS);
     };
-    tickIfVisible();
-    const id = setInterval(tickIfVisible, POLL_MS);
-
-    const onVisibility = (): void => {
-      if (document.visibilityState === 'visible') void doFetch();
-    };
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', onVisibility);
-    }
+    syncToVisibility();
+    document.addEventListener('visibilitychange', syncToVisibility);
 
     return () => {
       cancelled.current = true;
-      clearInterval(id);
-      if (typeof document !== 'undefined') {
-        document.removeEventListener('visibilitychange', onVisibility);
-      }
+      stopPolling();
+      document.removeEventListener('visibilitychange', syncToVisibility);
     };
   }, [doFetch]);
 
-  return { ...state, refresh };
+  return { ...state, pollingSince, refresh };
 }

@@ -24,9 +24,7 @@ const schemaOf = (detected: Parameters<typeof buildSchema>[0]): SchemaNode =>
 
 describe('buildSchema', () => {
   it('includes detected paths as enum hints', () => {
-    const schema = schemaOf(() => [
-      { path: 'navigation.position', sources: ['a', 'b'], duplicateGroups: [] },
-    ]);
+    const schema = schemaOf(() => ['navigation.position']);
     const pathProp = schema.properties.paths.items.properties.path;
     expect(pathProp.examples).toContain('navigation.position');
   });

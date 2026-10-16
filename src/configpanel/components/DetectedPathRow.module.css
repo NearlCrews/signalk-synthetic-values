@@ -39,16 +39,20 @@
   padding: 0 var(--snui-space-3) var(--snui-space-2);
 }
 
-.priorityInstruction.priorityInstruction {
-  padding: var(--snui-space-2) var(--snui-space-3);
+/* The sections below the header each open with the same divider. */
+.priorityInstruction.priorityInstruction,
+.tune {
   border-block-start: 1px solid var(--snui-color-border-subtle);
 }
 
+.priorityInstruction.priorityInstruction {
+  padding: var(--snui-space-2) var(--snui-space-3);
+}
+
 /* The embedded Tune section borrows the flush card's chrome, so this wrapper
-   supplies the inset the card no longer pads and the divider above it. */
+   supplies the inset the card no longer pads. */
 .tune {
   padding-inline: var(--snui-space-3);
-  border-block-start: 1px solid var(--snui-color-border-subtle);
 }
 
 /*

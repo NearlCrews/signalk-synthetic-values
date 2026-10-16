@@ -8,6 +8,9 @@ import {
   type LatLon,
   maxPairwiseDistance,
   scalarDistance,
+  signedAngularDelta,
+  wrapLongitude,
+  wrapRadians,
 } from '../src/metrics';
 
 describe('scalarDistance', () => {
@@ -91,5 +94,39 @@ describe('distance dispatch and maxPairwiseDistance', () => {
     // One degree of latitude is approximately 111 km
     expect(d).toBeGreaterThan(111000);
     expect(d).toBeLessThan(111400);
+  });
+});
+
+describe('angle wrapping', () => {
+  it('signedAngularDelta takes the short way round, with its sign', () => {
+    expect(signedAngularDelta(0.1, 0.3)).toBeCloseTo(0.2, 12);
+    expect(signedAngularDelta(0.3, 0.1)).toBeCloseTo(-0.2, 12);
+    expect(signedAngularDelta(2 * Math.PI - 0.1, 0.1)).toBeCloseTo(0.2, 12);
+    expect(signedAngularDelta(0.1, 2 * Math.PI - 0.1)).toBeCloseTo(-0.2, 12);
+  });
+  it('angularDistance is exact for a small difference', () => {
+    expect(angularDistance(0.25, 0.75)).toBe(0.5);
+  });
+  it('wrapRadians keeps an in-range angle exactly and wraps the rest into [0, 2pi)', () => {
+    expect(wrapRadians(0.1)).toBe(0.1);
+    expect(wrapRadians(-0.1)).toBeCloseTo(2 * Math.PI - 0.1, 12);
+    expect(wrapRadians(2 * Math.PI)).toBe(0);
+    // A tiny negative remainder must not round back up to a full turn.
+    expect(wrapRadians(-1e-17)).toBeLessThan(2 * Math.PI);
+  });
+  it('wrapLongitude lands in [-180, 180)', () => {
+    expect(wrapLongitude(190)).toBe(-170);
+    expect(wrapLongitude(-190)).toBe(170);
+    expect(wrapLongitude(180)).toBe(-180);
+    expect(wrapLongitude(45)).toBe(45);
+  });
+});
+
+describe('attitudeDistance over partial attitudes', () => {
+  it('compares only the components both carry', () => {
+    expect(
+      attitudeDistance({ roll: 0, pitch: 0.1 }, { roll: 0.3, pitch: 0.1, yaw: 2 })
+    ).toBeCloseTo(0.3, 12);
+    expect(attitudeDistance({ roll: 0 }, { yaw: 2 })).toBe(0);
   });
 });

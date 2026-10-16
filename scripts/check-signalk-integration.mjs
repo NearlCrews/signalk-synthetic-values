@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { chromium } from '@playwright/test';
+import { tsImport } from 'tsx/esm/api';
 
 /**
  * Checks a running Signal K server that has this plugin installed. The server
@@ -12,8 +13,10 @@ import { chromium } from '@playwright/test';
  * supported release.
  */
 
+// The server loads the plugin by package name and mounts its routes under the
+// id the runtime declares, so the two must be one string.
 const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
-const pluginId = 'signalk-synthetic-values';
+const { PLUGIN_ID: pluginId } = await tsImport('../src/config.ts', import.meta.url);
 if (packageJson.name !== pluginId) {
   throw new Error(`Expected package.json name ${pluginId}.`);
 }

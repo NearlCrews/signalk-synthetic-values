@@ -131,6 +131,11 @@ describe('applySlew', () => {
     expect(result).toBeLessThan(2 * Math.PI);
     expect(result).toBeCloseTo(2 * Math.PI - 0.04, 6);
   });
+  it('angular slew keeps a signed angle on the -pi..pi branch', () => {
+    const st = applySlew('angular', undefined, -0.1, 0, 0.05).state;
+    const result = applySlew('angular', st, -0.3, 1000, 0.05).value as number;
+    expect(result).toBeCloseTo(-0.15, 9);
+  });
   it('position slew clamps a large step and moves toward target', () => {
     const a: LatLon = { latitude: 0, longitude: 0 };
     const b: LatLon = { latitude: 10, longitude: 0 }; // ~1110 km away

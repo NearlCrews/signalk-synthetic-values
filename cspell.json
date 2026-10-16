@@ -21,6 +21,8 @@
     "Appstore",
     "armv",
     "biomejs",
+    "canhat",
+    "ccrp",
     "Cerbo",
     "chartplotter",
     "chartplotters",
@@ -47,8 +49,10 @@
     "Raymarine",
     "rebroadcast",
     "Recalibrated",
+    "rhumbline",
     "rhysd",
     "rjsf",
+    "Seatalk",
     "signalk",
     "SignalK",
     "smol",
@@ -61,6 +65,7 @@
     "WCAG",
     "webpack",
     "WebViews",
+    "YDEN",
     "zizmor",
     "zizmorcore"
   ]
