@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<a id="v070"></a>
+
+## [0.7.0] - 2026-10-16
+
 ### Added
 
 - Heel sensors combine. An attitude that reports roll and pitch with no yaw,
@@ -43,8 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release.
 - The full dependency audit, which includes development tools, runs weekly and
   on demand in the workflow security workflow instead of on every push, so a
-  development-only advisory no longer fails unrelated changes. The runtime audit still gates every push and pull
-  request, and `npm run verify:release` still runs the full audit.
+  development-only advisory no longer fails unrelated changes. The runtime
+  audit still gates every push and pull request, and `npm run verify:release`
+  still runs the full audit.
 - CI runs unit tests on Node 22.22.2 and 26 and the coverage thresholds once;
   the official plugin workflow covers Node 24. Plugin CI no longer runs on
   release tags, because the release commit's push run is the one the plugin
@@ -72,7 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   colors are slightly darker in the Light theme. The Combine all button and a
   Combine button for a path that cannot be combined now say why they are
   blocked, and the minimum-sources warning and the configuration-request
-  messages are announced when they appear. The panel bundle is about 2.9 KB gzip smaller.
+  messages are announced when they appear. The panel bundle is about 1.9 KB
+  gzip smaller than in 0.6.0.
 - The detected-paths header shows the shared freshness note, "Checked 5
   seconds ago", which turns into an out-of-date warning when three polls in a
   row have not landed. Panel announcements go through the panel shell's own
@@ -704,7 +710,8 @@ source so raw sensor data is never replaced.
 - **Full config validation.** `validateConfig` is pure and runs at every `start()`. Failing path entries are skipped and named in the status without stopping the plugin.
 - **Tests** across combining math, the circular medoid, damping, registry staleness, emitter shape, config validation, path classification, the combinability list, duplicate-source detection, the aggregate status summary, the config panel components, the per-path settings form, the detected-path row states, feedback prevention, and the stop/start lifecycle. The suite is 273 tests across 24 files.
 
-[Unreleased]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.5...v0.6.0
 [0.5.5]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.3...v0.5.4
