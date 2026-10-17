@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<a id="v071"></a>
+
+## [0.7.1] - 2026-10-17
+
+### Changed
+
+- The configuration panel moves to `signalk-nearlcrews-ui` 0.14.1, whose bundle
+  check works with webpack 5.112.0, so the panel now builds with webpack
+  5.112.0 as well. The panel looks and behaves as in 0.7.0; the newer build only
+  writes some of its CSS differently, such as a `max-width` container query in
+  place of the range form.
+- Development tooling clears its last advisory: markdownlint's math extension
+  resolves KaTeX 0.19.0, past the prototype pollution fix in 0.18.2, and the
+  Biome configuration names the schema of the Biome release it runs. None of
+  this ships in the plugin.
+
 <a id="v070"></a>
 
 ## [0.7.0] - 2026-10-16
@@ -710,7 +726,8 @@ source so raw sensor data is never replaced.
 - **Full config validation.** `validateConfig` is pure and runs at every `start()`. Failing path entries are skipped and named in the status without stopping the plugin.
 - **Tests** across combining math, the circular medoid, damping, registry staleness, emitter shape, config validation, path classification, the combinability list, duplicate-source detection, the aggregate status summary, the config panel components, the per-path settings form, the detected-path row states, feedback prevention, and the stop/start lifecycle. The suite is 273 tests across 24 files.
 
-[Unreleased]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.5...v0.6.0
 [0.5.5]: https://github.com/NearlCrews/signalk-synthetic-values/compare/v0.5.4...v0.5.5

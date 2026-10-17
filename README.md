@@ -9,10 +9,16 @@
 
 When two or more sources feed the same Signal K path (multiple GPS receivers, duplicate depth sounders, redundant heading sensors), the server picks one source at a time and ignores the rest. Synthetic Values watches all sources together, computes a single robust value from them, and emits it as an additional source on the same path so one flaky or biased sensor cannot drag the result.
 
-## What's new in 0.7.0
+## What's new in 0.7.1
 
-Version 0.7.0 combines heel sensors, counts one NMEA 2000 device once however
-many gateways forward it, and keeps signed angles on the range they arrive on.
+Version 0.7.1 is a maintenance release. The configuration panel moves to the
+0.14.1 shared component release and a newer build toolchain, and the
+development tools clear their last advisory. Nothing changes in how the plugin
+combines values or in how the panel behaves.
+
+Everything 0.7.0 brought ships here too: it combines heel sensors, counts one
+NMEA 2000 device once however many gateways forward it, and keeps signed angles
+on the range they arrive on.
 
 - **Heel sensors combine.** An attitude with roll and pitch but no yaw, which
   n2k-signalk publishes with a NaN yaw, now combines axis by axis. At least one
@@ -40,7 +46,8 @@ many gateways forward it, and keeps signed angles on the range they arrive on.
 - **The configuration panel needs Signal K 2.25.0 or newer.** The plugin still
   runs on 2.24 servers, but that Admin UI cannot load the panel.
 
-See the [v0.7.0 changelog entry](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/CHANGELOG.md#v070) and the
+See the [v0.7.1 changelog entry](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/CHANGELOG.md#v071), the
+[v0.7.0 entry](https://github.com/NearlCrews/signalk-synthetic-values/blob/main/CHANGELOG.md#v070), and the
 [full release history](https://github.com/NearlCrews/signalk-synthetic-values/releases).
 
 ## Screenshots
@@ -112,7 +119,7 @@ In the Signal K admin UI, open **Apps and Plugins, then Configuration** and find
 
 Once enabled, the plugin replaces the raw JSON form with a purpose-built configuration panel. The panel shows a live list of every Signal K path the plugin has seen with two or more distinct sources. Each row displays the path name, source count, a kind badge, and the source names as chips. Combinable values are classified as scalar, angular, attitude, or position; unsupported values show as other, and configured paths awaiting live data show as unknown.
 
-The panel bundles `signalk-nearlcrews-ui` 0.14.0 for accessible controls, shared
+The panel bundles `signalk-nearlcrews-ui` 0.14.1 for accessible controls, shared
 marine theming, and isolated styles. Match Admin follows a host theme when one
 is published and otherwise stays Light to match the current Signal K Admin
 shell. Match device explicitly follows the operating-system preference. Light,
